@@ -24,6 +24,18 @@ from app.tools.tool_schema import ToolCall, ToolResult
 
 StatusCallback = Callable[[str, dict[str, object]], None]
 STREAM_CHUNK_INTERVAL_SECONDS = 0.045
+PENDING_REPLY_MARKERS = (
+    "请稍候",
+    "请稍等",
+    "稍后",
+    "正在为您",
+    "正在处理",
+    "正在查询",
+    "正在核实",
+    "正在创建",
+    "正在生成",
+    "处理中",
+)
 
 
 class AgentLoopPreconditionError(Exception):
@@ -244,10 +256,15 @@ class AgentLoop:
                     "tool_call_finished",
                     tool_result.model_dump(),
                 )
+                self._advance_after_successful_tool(
+                    request.tenant_id, chat_session, active_skill, step_result, tool_result
+                )
                 yield self._stream_event(
                     "tool_result",
                     chat_session,
-                    self._tool_activity_payload(request.tenant_id, step_result.tool_call.name, tool_result),
+                    self._tool_activity_payload(
+                        request.tenant_id, step_result.tool_call.name, tool_result
+                    ),
                 )
                 self.db.commit()
                 self.db.refresh(chat_session)
@@ -268,6 +285,15 @@ class AgentLoop:
                 model_config,
                 active_skill,
                 router_decision,
+                step_result,
+                tool_result,
+                reflection_stream_events,
+            )
+            step_result, tool_result = self._close_pending_tool_loop(
+                request,
+                chat_session,
+                active_skill,
+                tools,
                 step_result,
                 tool_result,
                 reflection_stream_events,
@@ -499,6 +525,9 @@ class AgentLoop:
                 "tool_call_finished",
                 tool_result.model_dump(),
             )
+            self._advance_after_successful_tool(
+                request.tenant_id, chat_session, active_skill, step_result, tool_result
+            )
             self.db.commit()
             self.db.refresh(chat_session)
 
@@ -515,6 +544,14 @@ class AgentLoop:
             model_config,
             active_skill,
             router_decision,
+            step_result,
+            tool_result,
+        )
+        step_result, tool_result = self._close_pending_tool_loop(
+            request,
+            chat_session,
+            active_skill,
+            tools,
             step_result,
             tool_result,
         )
@@ -607,6 +644,11 @@ class AgentLoop:
                 },
             )
             retry_tool_result = self._execute_tool_call(request, chat_session, retry_tool_call)
+            self._advance_after_successful_tool(
+                request.tenant_id, chat_session, active_skill, retry_step_result, retry_tool_result
+            )
+            self.db.commit()
+            self.db.refresh(chat_session)
             if stream_events is not None:
                 stream_events.append(
                     (
@@ -683,6 +725,11 @@ class AgentLoop:
         tool_result: ToolResult | None = None
         if step_result.tool_call:
             tool_result = self._execute_tool_call(request, chat_session, step_result.tool_call)
+            self._advance_after_successful_tool(
+                request.tenant_id, chat_session, active_skill, step_result, tool_result
+            )
+            self.db.commit()
+            self.db.refresh(chat_session)
             if stream_events is not None:
                 stream_events.append(
                     (
@@ -738,6 +785,186 @@ class AgentLoop:
         self.db.commit()
         self.db.refresh(chat_session)
         return tool_result
+
+    def _close_pending_tool_loop(
+        self,
+        request: ChatTurnRequest,
+        chat_session: ChatSession,
+        active_skill: Skill | None,
+        tools: list[Tool],
+        step_result: StepAgentResult,
+        tool_result: ToolResult | None,
+        stream_events: list[tuple[str, dict[str, object]]] | None = None,
+    ) -> tuple[StepAgentResult, ToolResult | None]:
+        if tool_result is not None or step_result.tool_call:
+            return step_result, tool_result
+
+        tool_call = self._tool_call_for_pending_reply(chat_session, active_skill, step_result, tools)
+        if not tool_call:
+            return step_result, tool_result
+
+        retry_step_result = step_result.model_copy(
+            update={"reply": None, "tool_call": tool_call, "is_step_completed": True}
+        )
+        self.events.record(
+            request.tenant_id,
+            chat_session.id,
+            "pending_reply_tool_call_synthesized",
+            {
+                "tool_name": tool_call.name,
+                "reason": "step_agent_returned_pending_reply_with_satisfied_tool_args",
+            },
+        )
+        if stream_events is not None:
+            stream_events.append(
+                (
+                    "status",
+                    {"phase": "tool", "text": f"正在调用工具 {tool_call.name}", "tool_name": tool_call.name},
+                )
+            )
+
+        retry_tool_result = self._execute_tool_call(request, chat_session, tool_call)
+        self._advance_after_successful_tool(
+            request.tenant_id, chat_session, active_skill, retry_step_result, retry_tool_result
+        )
+        self.db.commit()
+        self.db.refresh(chat_session)
+        if stream_events is not None:
+            stream_events.append(
+                (
+                    "tool_result",
+                    self._tool_activity_payload(request.tenant_id, tool_call.name, retry_tool_result),
+                )
+            )
+        return retry_step_result, retry_tool_result
+
+    def _tool_call_for_pending_reply(
+        self,
+        chat_session: ChatSession,
+        active_skill: Skill | None,
+        step_result: StepAgentResult,
+        tools: list[Tool],
+    ) -> ToolCall | None:
+        if not active_skill or not self._looks_like_pending_reply(step_result.reply):
+            return None
+
+        candidate_names = self._candidate_tool_names_for_skill_state(active_skill, chat_session, tools)
+        if not candidate_names:
+            return None
+
+        active_skill_id = chat_session.active_skill_id
+        for tool_name in candidate_names:
+            tool = next((item for item in tools if item.enabled and item.name == tool_name), None)
+            if not tool:
+                continue
+            if active_skill_id and tool.allowed_skills_json and active_skill_id not in tool.allowed_skills_json:
+                continue
+            arguments = self._build_tool_arguments_from_slots(tool, chat_session.slots_json or {})
+            required = [str(field) for field in (tool.input_schema or {}).get("required", [])]
+            if any(not self._slot_has_value(arguments, field) for field in required):
+                continue
+            return ToolCall(name=tool.name, arguments=arguments)
+        return None
+
+    def _candidate_tool_names_for_skill_state(
+        self, active_skill: Skill, chat_session: ChatSession, tools: list[Tool]
+    ) -> list[str]:
+        content = active_skill.content_json or {}
+        steps = [step for step in content.get("steps", []) if isinstance(step, dict)]
+        current_step = next(
+            (step for step in steps if step.get("step_id") == chat_session.active_step_id),
+            None,
+        )
+        names: list[str] = []
+        for step in ([current_step] if current_step else []) + steps:
+            if not step:
+                continue
+            for action in step.get("allowed_actions", []):
+                value = str(action)
+                if value.startswith("call_tool:"):
+                    name = value.split(":", 1)[1]
+                    if name and name not in names:
+                        names.append(name)
+
+        if names:
+            return names
+
+        active_skill_id = chat_session.active_skill_id
+        for tool in tools:
+            if (
+                tool.enabled
+                and active_skill_id
+                and tool.allowed_skills_json
+                and active_skill_id in tool.allowed_skills_json
+                and tool.name not in names
+            ):
+                names.append(tool.name)
+        return names
+
+    def _looks_like_pending_reply(self, text: str | None) -> bool:
+        if not text:
+            return False
+        return any(marker in text for marker in PENDING_REPLY_MARKERS)
+
+    def _advance_after_successful_tool(
+        self,
+        tenant_id: str,
+        chat_session: ChatSession,
+        active_skill: Skill | None,
+        step_result: StepAgentResult,
+        tool_result: ToolResult | None,
+    ) -> bool:
+        if (
+            not active_skill
+            or not step_result.tool_call
+            or step_result.next_step_id
+            or not tool_result
+            or not tool_result.success
+        ):
+            return False
+
+        next_step_id = self._next_step_after_successful_tool(
+            active_skill, chat_session.active_step_id, chat_session.slots_json or {}
+        )
+        if not next_step_id:
+            return False
+
+        previous_step = chat_session.active_step_id
+        chat_session.active_step_id = next_step_id
+        step_result.next_step_id = next_step_id
+        self.events.record(
+            tenant_id,
+            chat_session.id,
+            "skill_step_changed",
+            {"from_step_id": previous_step, "to_step_id": next_step_id, "reason": "tool_completed"},
+        )
+        return True
+
+    def _next_step_after_successful_tool(
+        self, skill: Skill, active_step_id: str | None, slots: dict[str, Any]
+    ) -> str | None:
+        if not active_step_id:
+            return None
+        steps = [step for step in (skill.content_json or {}).get("steps", []) if isinstance(step, dict)]
+        start_index = next(
+            (index for index, step in enumerate(steps) if step.get("step_id") == active_step_id),
+            -1,
+        )
+        if start_index < 0:
+            return None
+        for step in steps[start_index + 1 :]:
+            step_id = str(step.get("step_id") or "")
+            if not step_id:
+                continue
+            expected = [str(field) for field in step.get("expected_user_info", [])]
+            if any(not self._skill_slot_satisfied(slots, field) for field in expected):
+                return step_id
+            actions = [str(action) for action in step.get("allowed_actions", [])]
+            if self._actions_allow_final_reply(actions) or any(
+                action.startswith("call_tool:") for action in actions
+            ):
+                return step_id
+        return None
 
     def _router_decision_from_reflection(
         self,
@@ -881,6 +1108,8 @@ class AgentLoop:
             return False
         if tool_result and not tool_result.success:
             return False
+        if self._is_answer_ready_skill_state(skill, chat_session):
+            return True
         if not step_result.next_step_id and not step_result.tool_call:
             return True
         return self._is_terminal_skill_state(skill, chat_session)
@@ -888,6 +1117,18 @@ class AgentLoop:
     def _is_terminal_skill_state(self, skill: Skill, chat_session: ChatSession) -> bool:
         return self._is_terminal_skill_position(
             skill, chat_session.active_step_id, chat_session.slots_json or {}
+        )
+
+    def _is_answer_ready_skill_state(self, skill: Skill, chat_session: ChatSession) -> bool:
+        step = self._current_skill_step(skill, chat_session.active_step_id)
+        if not step:
+            return False
+        actions = [str(action) for action in step.get("allowed_actions", [])]
+        if not self._actions_allow_final_reply(actions):
+            return False
+        required = [str(field) for field in (skill.content_json or {}).get("required_info", [])]
+        return all(
+            self._skill_slot_satisfied(chat_session.slots_json or {}, field) for field in required
         )
 
     def _is_terminal_skill_frame(self, skill: Skill, frame: dict[str, Any]) -> bool:
@@ -930,6 +1171,17 @@ class AgentLoop:
             return True
         terminal_actions = {"answer_user", "reply", "handoff_human", "continue_flow"}
         return all(action in terminal_actions or action.startswith("call_tool:") for action in actions)
+
+    def _current_skill_step(self, skill: Skill, active_step_id: str | None) -> dict[str, Any] | None:
+        if not active_step_id:
+            return None
+        for step in (skill.content_json or {}).get("steps", []):
+            if isinstance(step, dict) and step.get("step_id") == active_step_id:
+                return step
+        return None
+
+    def _actions_allow_final_reply(self, actions: list[str]) -> bool:
+        return any(action in {"answer_user", "reply"} for action in actions)
 
     def _skill_slot_satisfied(self, slots: dict[str, Any], field: str) -> bool:
         normalized = field.strip()

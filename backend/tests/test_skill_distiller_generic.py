@@ -47,3 +47,41 @@ def test_slot_policy_targets_model_generated_fields() -> None:
     response = SkillDistiller()._normalize_response(raw, request)  # noqa: SLF001
 
     assert response.draft_skill.slot_filling_policy["target_info"] == ["asset_id", "issue_desc"]
+
+
+def test_normalize_response_adds_closed_loop_tool_and_final_reply_steps() -> None:
+    request = SkillDistillRequest(
+        tenant_id="tenant_demo",
+        title="退款处理",
+        raw_content="获取订单号，核实订单是否符合退款条件，处理退款并反馈给用户",
+        available_tools=[
+            {
+                "name": "order.query",
+                "input_schema": {"required": ["order_id"]},
+            }
+        ],
+    )
+    raw = {
+        "draft_skill": {
+            "skill_id": "refund",
+            "name": "退款处理",
+            "required_info": ["order_id"],
+            "steps": [
+                {
+                    "step_id": "collect_order",
+                    "name": "收集订单",
+                    "instruction": "收集订单号。",
+                    "expected_user_info": ["order_id"],
+                    "allowed_actions": ["ask_user", "continue_flow"],
+                }
+            ],
+            "response_rules": [],
+        }
+    }
+
+    response = SkillDistiller()._normalize_response(raw, request)  # noqa: SLF001
+    steps = response.draft_skill.steps
+
+    assert any("call_tool:order.query" in step.allowed_actions for step in steps)
+    assert "answer_user" in steps[-1].allowed_actions
+    assert any("不得把" in rule and "请稍候" in rule for rule in response.draft_skill.response_rules)

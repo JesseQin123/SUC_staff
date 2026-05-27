@@ -13,6 +13,25 @@ from app.skills.skill_schema import SkillDistillRequest, SkillDistillResponse, S
 
 PROMPT_PATH = Path(__file__).resolve().parents[1] / "llm" / "prompts" / "skill_distiller_prompt.md"
 STREAM_INTERVAL_SECONDS = 0.035
+CLOSED_LOOP_RESPONSE_RULE = (
+    "流程必须形成闭环：不得把“请稍候/正在处理/稍后反馈”作为最终回复；"
+    "需要查询、核实、创建或处理时必须调用已配置工具或转人工，并向用户给出明确结果。"
+)
+TOOL_PROCESS_KEYWORDS = (
+    "查询",
+    "核实",
+    "生成",
+    "创建",
+    "购买",
+    "下单",
+    "提交",
+    "办理",
+    "处理",
+)
+TOOL_STEP_INSTRUCTION_SUFFIX = (
+    "工具参数满足时直接调用工具；工具成功后必须基于工具结果进入最终回复，"
+    "不要停留在“请稍候”或“正在处理”。"
+)
 
 
 class SkillDistiller:
@@ -61,6 +80,11 @@ class SkillDistiller:
 
         required_info = _string_list(draft.get("required_info"), fallback.required_info)
         steps = self._normalize_steps(draft.get("steps"), fallback.steps)
+        steps, step_warnings = self._ensure_closed_loop_steps(steps, request)
+        warnings.extend(step_warnings)
+        response_rules = _string_list(draft.get("response_rules"), fallback.response_rules)
+        if CLOSED_LOOP_RESPONSE_RULE not in response_rules:
+            response_rules.append(CLOSED_LOOP_RESPONSE_RULE)
         normalized = {
             "skill_id": _string(draft.get("skill_id"), fallback.skill_id),
             "name": _string(draft.get("name"), fallback.name),
@@ -81,13 +105,74 @@ class SkillDistiller:
             ),
             "steps": steps,
             "interruption_policy": _string_dict(draft.get("interruption_policy"), fallback.interruption_policy),
-            "response_rules": _string_list(draft.get("response_rules"), fallback.response_rules),
+            "response_rules": response_rules,
         }
         response = SkillDistillResponse(draft_skill=SkillCard.model_validate(normalized), warnings=warnings)
         if not response.draft_skill.steps:
             response.draft_skill.steps = fallback.steps
             response.warnings.append("模型未生成步骤，已使用规则生成默认步骤。")
         return response
+
+    def _ensure_closed_loop_steps(
+        self, steps: list[dict[str, Any]], request: SkillDistillRequest
+    ) -> tuple[list[dict[str, Any]], list[str]]:
+        normalized_steps = [dict(step) for step in steps]
+        warnings: list[str] = []
+        tool_actions = _tool_actions(request.available_tools)
+        has_tool_action = _steps_have_tool_action(normalized_steps)
+        needs_tool = any(keyword in request.raw_content for keyword in TOOL_PROCESS_KEYWORDS)
+
+        if tool_actions and needs_tool and not has_tool_action:
+            insert_at = max(len(normalized_steps) - 1, 0)
+            normalized_steps.insert(
+                insert_at,
+                {
+                    "step_id": _unique_step_id(normalized_steps, "execute_with_tools"),
+                    "name": "执行工具处理",
+                    "instruction": (
+                        "根据技能目标、已收集信息和工具 input_schema 选择合适工具处理；"
+                        f"{TOOL_STEP_INSTRUCTION_SUFFIX}"
+                    ),
+                    "expected_user_info": [],
+                    "allowed_actions": ["continue_flow", *tool_actions],
+                },
+            )
+            warnings.append("原始改写未包含工具步骤，已按可用工具补充闭环执行步骤。")
+
+        for step in normalized_steps:
+            actions = [str(action) for action in step.get("allowed_actions", [])]
+            if not any(action.startswith("call_tool:") for action in actions):
+                continue
+            if "continue_flow" not in actions:
+                actions.append("continue_flow")
+                step["allowed_actions"] = actions
+            instruction = str(step.get("instruction") or "")
+            if "工具成功后" not in instruction:
+                step["instruction"] = f"{instruction}{TOOL_STEP_INSTRUCTION_SUFFIX}"
+
+        if not _last_step_allows_answer(normalized_steps):
+            normalized_steps.append(
+                {
+                    "step_id": _unique_step_id(normalized_steps, "reply_final_result"),
+                    "name": "反馈最终结果",
+                    "instruction": (
+                        "基于已收集信息和工具结果给用户明确最终回复；"
+                        "信息不足时追问缺失信息，无法闭环时转人工，不要只说请稍候。"
+                    ),
+                    "expected_user_info": [],
+                    "allowed_actions": ["answer_user", "handoff_human"],
+                }
+            )
+            warnings.append("原始改写缺少最终回复步骤，已补充闭环反馈步骤。")
+        else:
+            last_step = normalized_steps[-1]
+            instruction = str(last_step.get("instruction") or "")
+            if "明确" not in instruction or "请稍候" in instruction:
+                last_step["instruction"] = (
+                    f"{instruction}给用户明确最终回复；无法闭环时转人工，不要只说请稍候。"
+                )
+
+        return normalized_steps, warnings
 
     def _normalize_steps(self, value: Any, fallback_steps: list[SkillStep]) -> list[dict[str, Any]]:
         if not isinstance(value, list):
@@ -179,6 +264,31 @@ class SkillDistiller:
             },
             response_rules=["信息不足时先追问，不要编造事实。"],
         )
+
+
+def _steps_have_tool_action(steps: list[dict[str, Any]]) -> bool:
+    for step in steps:
+        actions = step.get("allowed_actions", [])
+        if isinstance(actions, list) and any(str(action).startswith("call_tool:") for action in actions):
+            return True
+    return False
+
+
+def _last_step_allows_answer(steps: list[dict[str, Any]]) -> bool:
+    if not steps:
+        return False
+    actions = [str(action) for action in steps[-1].get("allowed_actions", [])]
+    return "answer_user" in actions or "reply" in actions
+
+
+def _unique_step_id(steps: list[dict[str, Any]], base: str) -> str:
+    existing = {str(step.get("step_id") or "") for step in steps}
+    if base not in existing:
+        return base
+    index = 2
+    while f"{base}_{index}" in existing:
+        index += 1
+    return f"{base}_{index}"
 
 
 def _extract_json(text: str) -> str:

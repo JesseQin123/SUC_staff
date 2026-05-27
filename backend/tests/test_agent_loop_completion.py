@@ -1,7 +1,8 @@
 from app.core.agent_loop import AgentLoop
 from app.core.skill_runtime import SkillRuntime
-from app.db.models import ChatSession, Skill
+from app.db.models import ChatSession, Skill, Tool
 from app.session.session_schema import StepAgentResult
+from app.tools.tool_schema import ToolResult
 
 
 class FakeEvents:
@@ -113,6 +114,83 @@ def test_model_can_complete_non_terminal_skill_when_no_next_action() -> None:
     )
 
 
+def test_pending_reply_uses_skill_tool_when_arguments_are_ready() -> None:
+    loop = object.__new__(AgentLoop)
+    session = ChatSession(
+        id="session_test",
+        tenant_id="tenant_demo",
+        active_skill_id="refund",
+        active_step_id="check_refund",
+        slots_json={"order_id": "A12345", "refund_reason": "商品质量"},
+    )
+
+    tool_call = loop._tool_call_for_pending_reply(
+        session,
+        _refund_skill(),
+        StepAgentResult(reply="正在为您核实订单 A12345 的售后处理方案，请稍候。"),
+        [_refund_tool()],
+    )
+
+    assert tool_call is not None
+    assert tool_call.name == "order.query"
+    assert tool_call.arguments == {"order_id": "A12345", "refund_reason": "商品质量"}
+
+
+def test_successful_tool_call_advances_to_final_reply_step() -> None:
+    loop = object.__new__(AgentLoop)
+    loop.events = FakeEvents()
+    session = ChatSession(
+        id="session_test",
+        tenant_id="tenant_demo",
+        active_skill_id="refund",
+        active_step_id="check_refund",
+    )
+    step_result = StepAgentResult(tool_call=_refund_tool_call(), is_step_completed=True)
+
+    advanced = loop._advance_after_successful_tool(
+        "tenant_demo",
+        session,
+        _refund_skill(),
+        step_result,
+        ToolResult(tool_name="order.query", success=True, data={"eligible": True}),
+    )
+
+    assert advanced
+    assert session.active_step_id == "reply_result"
+    assert step_result.next_step_id == "reply_result"
+    assert loop.events.records[0][2] == "skill_step_changed"
+
+
+def test_answer_step_can_complete_even_if_distilled_order_has_later_satisfied_collect_step() -> None:
+    loop = object.__new__(AgentLoop)
+    loop.events = FakeEvents()
+    session = ChatSession(
+        id="session_test",
+        tenant_id="tenant_demo",
+        active_skill_id="refund",
+        active_step_id="check_refund",
+        slots_json={"order_id": "A12345", "refund_reason": "商品质量"},
+    )
+    step_result = StepAgentResult(tool_call=_refund_tool_call(), is_step_completed=True)
+
+    advanced = loop._advance_after_successful_tool(
+        "tenant_demo",
+        session,
+        _refund_skill_with_late_collect_step(),
+        step_result,
+        ToolResult(tool_name="order.query", success=True, data={"eligible": True}),
+    )
+
+    assert not advanced
+    assert session.active_step_id == "check_refund"
+    assert loop._should_complete_skill(
+        _refund_skill_with_late_collect_step(),
+        session,
+        step_result,
+        ToolResult(tool_name="order.query", success=True, data={"eligible": True}),
+    )
+
+
 def _repair_skill() -> Skill:
     return Skill(
         tenant_id="tenant_demo",
@@ -139,3 +217,103 @@ def _repair_skill() -> Skill:
         },
         status="published",
     )
+
+
+def _refund_skill() -> Skill:
+    return Skill(
+        tenant_id="tenant_demo",
+        skill_id="refund",
+        name="售后退款流程",
+        content_json={
+            "skill_id": "refund",
+            "name": "售后退款流程",
+            "required_info": ["order_id", "refund_reason"],
+            "steps": [
+                {
+                    "step_id": "check_refund",
+                    "name": "核实退款条件",
+                    "expected_user_info": ["order_id", "refund_reason"],
+                    "allowed_actions": ["continue_flow", "call_tool:order.query"],
+                },
+                {
+                    "step_id": "reply_result",
+                    "name": "反馈结果",
+                    "expected_user_info": [],
+                    "allowed_actions": ["answer_user", "handoff_human"],
+                },
+            ],
+        },
+        status="published",
+    )
+
+
+def _refund_tool() -> Tool:
+    return Tool(
+        tenant_id="tenant_demo",
+        name="order.query",
+        display_name="订单查询",
+        method="POST",
+        url="http://localhost:8000/api/mock/order/query",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "order_id": {"type": "string"},
+                "refund_reason": {"type": "string"},
+            },
+            "required": ["order_id", "refund_reason"],
+        },
+        allowed_skills_json=["refund"],
+        enabled=True,
+    )
+
+
+def _refund_skill_with_late_collect_step() -> Skill:
+    return Skill(
+        tenant_id="tenant_demo",
+        skill_id="refund",
+        name="售后退款流程",
+        content_json={
+            "skill_id": "refund",
+            "name": "售后退款流程",
+            "required_info": ["order_id", "refund_reason"],
+            "steps": [
+                {
+                    "step_id": "collect_order",
+                    "name": "收集订单",
+                    "expected_user_info": ["order_id"],
+                    "allowed_actions": ["ask_user", "call_tool:order.query"],
+                },
+                {
+                    "step_id": "check_refund",
+                    "name": "查询退款资格",
+                    "expected_user_info": [],
+                    "allowed_actions": ["answer_user", "handoff_human"],
+                },
+                {
+                    "step_id": "collect_refund_reason",
+                    "name": "收集退款原因",
+                    "expected_user_info": ["refund_reason"],
+                    "allowed_actions": ["ask_user", "continue_flow"],
+                },
+            ],
+        },
+        status="published",
+    )
+
+
+def _refund_tool_call():
+    tool_call = AgentLoop._tool_call_for_pending_reply(
+        object.__new__(AgentLoop),
+        ChatSession(
+            id="session_test",
+            tenant_id="tenant_demo",
+            active_skill_id="refund",
+            active_step_id="check_refund",
+            slots_json={"order_id": "A12345", "refund_reason": "商品质量"},
+        ),
+        _refund_skill(),
+        StepAgentResult(reply="正在为您核实订单 A12345 的售后处理方案，请稍候。"),
+        [_refund_tool()],
+    )
+    assert tool_call is not None
+    return tool_call
