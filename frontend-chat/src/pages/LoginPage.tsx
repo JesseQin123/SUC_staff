@@ -37,7 +37,6 @@ export default function LoginPage() {
           <span className="brand-mark">SA</span>
           <div>
             <Typography.Title level={3}>Skill Agent</Typography.Title>
-            <Typography.Text type="secondary">登录后只显示你的会话与记忆</Typography.Text>
           </div>
         </div>
         <Form<LoginValues>
