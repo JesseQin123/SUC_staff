@@ -32,6 +32,10 @@ class MockOrderAddRequest(BaseModel):
     status: str = "created"
 
 
+class MockReflectionSearchRequest(BaseModel):
+    query: str
+
+
 @router.post("/order/query")
 def mock_order_query(request: MockOrderQueryRequest) -> dict[str, Any]:
     signed_days = 3 if request.order_id == "A123456" else 16
@@ -40,6 +44,40 @@ def mock_order_query(request: MockOrderQueryRequest) -> dict[str, Any]:
         "status": "signed",
         "signed_days": signed_days,
         "refundable": signed_days <= 7,
+    }
+
+
+@router.post("/reflection/primary-search")
+def mock_reflection_primary_search(request: MockReflectionSearchRequest) -> dict[str, Any]:
+    if "常规" in request.query:
+        return {
+            "query": request.query,
+            "found": True,
+            "source": "primary_index",
+            "answer": "主索引命中了常规测试资料。",
+            "confidence": 0.82,
+        }
+    return {
+        "query": request.query,
+        "found": False,
+        "source": "primary_index",
+        "results": [],
+        "miss_reason": "primary_index_miss",
+        "hint": "主索引未命中，可使用备用索引继续查询。",
+    }
+
+
+@router.post("/reflection/backup-search")
+def mock_reflection_backup_search(request: MockReflectionSearchRequest) -> dict[str, Any]:
+    return {
+        "query": request.query,
+        "found": True,
+        "source": "backup_index",
+        "answer": (
+            f"备用索引已找到“{request.query}”的资料：这是用于验证模型反思能力的备用查询结果。"
+            "当主工具未命中时，系统应反思并改用备用工具完成回答。"
+        ),
+        "confidence": 0.91,
     }
 
 

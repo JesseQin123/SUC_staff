@@ -51,6 +51,44 @@ def test_reflection_builds_tool_call_from_slots() -> None:
     assert tool_call.arguments["issue"] == "无法启动"
 
 
+def test_reflection_builds_backup_search_tool_call_from_query_slot() -> None:
+    loop = object.__new__(AgentLoop)
+    session = ChatSession(
+        id="session_test",
+        tenant_id="tenant_demo",
+        active_skill_id="reflection_lookup_test",
+        slots_json={"query": "影子文档"},
+    )
+
+    tool_call = loop._tool_call_from_reflection(
+        ReflectionDecision(needs_retry=True, target_tool_name="reflection.backup_search"),
+        session,
+        [_backup_search_tool()],
+    )
+
+    assert tool_call is not None
+    assert tool_call.name == "reflection.backup_search"
+    assert tool_call.arguments == {"query": "影子文档"}
+
+
+def test_reflection_tool_retry_is_preferred_for_current_skill_target() -> None:
+    loop = object.__new__(AgentLoop)
+    session = ChatSession(
+        id="session_test",
+        tenant_id="tenant_demo",
+        active_skill_id="reflection_lookup_test",
+    )
+
+    assert loop._reflection_tool_retry_targets_current_skill(
+        ReflectionDecision(
+            needs_retry=True,
+            target_skill_id="reflection_lookup_test",
+            target_tool_name="reflection.backup_search",
+        ),
+        session,
+    )
+
+
 def _skill(skill_id: str) -> Skill:
     return Skill(
         tenant_id="tenant_demo",
@@ -82,5 +120,22 @@ def _ticket_tool() -> Tool:
             "required": ["customer_name", "asset_id", "issue"],
         },
         allowed_skills_json=["repair_ticket"],
+        enabled=True,
+    )
+
+
+def _backup_search_tool() -> Tool:
+    return Tool(
+        tenant_id="tenant_demo",
+        name="reflection.backup_search",
+        display_name="反思测试备用查询",
+        method="POST",
+        url="http://localhost:8000/api/mock/reflection/backup-search",
+        input_schema={
+            "type": "object",
+            "properties": {"query": {"type": "string"}},
+            "required": ["query"],
+        },
+        allowed_skills_json=["reflection_lookup_test"],
         enabled=True,
     )

@@ -92,6 +92,48 @@ EXCHANGE_SKILL = {
     "response_rules": ["不要承诺一定能换货。", "如政策不确定，应转人工确认。"],
 }
 
+REFLECTION_LOOKUP_SKILL = {
+    "skill_id": "reflection_lookup_test",
+    "name": "反思查询测试",
+    "version": "1.0.0",
+    "business_domain": "debug",
+    "description": "用于测试模型反思能力：主查询工具未命中后，应反思并改用备用查询工具。",
+    "trigger_intents": ["查资料", "查询一个东西", "测试反思", "反思查询", "影子文档"],
+    "user_utterance_examples": ["帮我查一下影子文档", "测试一下反思探针", "查一个主库没有的东西"],
+    "goal": ["收集查询内容", "优先使用主查询工具", "主工具未命中时通过反思改用备用工具", "基于最终查询结果回复用户"],
+    "required_info": ["query"],
+    "steps": [
+        {
+            "step_id": "collect_query",
+            "name": "收集查询内容",
+            "instruction": (
+                "识别用户要查询的对象并写入 query。query 已满足时优先调用 reflection.primary_search。"
+                "如果主查询结果显示未命中，不要直接结束，应让反思流程尝试备用查询工具。"
+            ),
+            "expected_user_info": ["query"],
+            "allowed_actions": ["ask_user", "call_tool:reflection.primary_search"],
+        },
+        {
+            "step_id": "reply_lookup_result",
+            "name": "反馈查询结果",
+            "instruction": "基于最终工具结果回复用户；如果备用工具命中，应说明已找到对应资料，但不要暴露内部工具名。",
+            "expected_user_info": [],
+            "allowed_actions": ["answer_user", "handoff_human"],
+        },
+    ],
+    "interruption_policy": {
+        "related_question": "回答相关问题后回到当前查询流程。",
+        "unrelated_business": "可以切换新技能并保存当前进度。",
+        "chitchat": "简短回应后引导用户继续查询。",
+        "user_wants_human": "直接转人工。",
+    },
+    "response_rules": [
+        "主查询未命中时不要直接回答没有结果，应通过反思尝试备用查询工具。",
+        "最终回复必须基于最后一次成功工具结果。",
+        "不要暴露内部工具名称。",
+    ],
+}
+
 ORDER_QUERY_TOOL = {
     "name": "order.query",
     "display_name": "订单查询",
@@ -115,6 +157,60 @@ ORDER_QUERY_TOOL = {
         },
     },
     "allowed_skills_json": ["after_sales_refund", "after_sales_exchange"],
+    "enabled": True,
+}
+
+REFLECTION_PRIMARY_SEARCH_TOOL = {
+    "name": "reflection.primary_search",
+    "display_name": "反思测试主查询",
+    "description": "主查询索引；用于反思测试。若返回 found=false 或 miss_reason，说明主索引未命中。",
+    "method": "POST",
+    "url": "http://localhost:8000/api/mock/reflection/primary-search",
+    "headers_json": {},
+    "auth_json": {},
+    "input_schema": {
+        "type": "object",
+        "properties": {"query": {"type": "string", "description": "用户要查询的内容"}},
+        "required": ["query"],
+    },
+    "output_schema": {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string"},
+            "found": {"type": "boolean"},
+            "source": {"type": "string"},
+            "answer": {"type": "string"},
+            "miss_reason": {"type": "string"},
+        },
+    },
+    "allowed_skills_json": ["reflection_lookup_test"],
+    "enabled": True,
+}
+
+REFLECTION_BACKUP_SEARCH_TOOL = {
+    "name": "reflection.backup_search",
+    "display_name": "反思测试备用查询",
+    "description": "备用查询索引；当主查询未命中、found=false 或 primary_index_miss 时，用相同 query 重试。",
+    "method": "POST",
+    "url": "http://localhost:8000/api/mock/reflection/backup-search",
+    "headers_json": {},
+    "auth_json": {},
+    "input_schema": {
+        "type": "object",
+        "properties": {"query": {"type": "string", "description": "用户要查询的内容"}},
+        "required": ["query"],
+    },
+    "output_schema": {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string"},
+            "found": {"type": "boolean"},
+            "source": {"type": "string"},
+            "answer": {"type": "string"},
+            "confidence": {"type": "number"},
+        },
+    },
+    "allowed_skills_json": ["reflection_lookup_test"],
     "enabled": True,
 }
 
@@ -188,7 +284,13 @@ ORDER_ADD_TOOL = {
     "enabled": True,
 }
 
-DEMO_TOOLS = (ORDER_QUERY_TOOL, PRODUCT_PURCHASE_TOOL, ORDER_ADD_TOOL)
+DEMO_TOOLS = (
+    ORDER_QUERY_TOOL,
+    REFLECTION_PRIMARY_SEARCH_TOOL,
+    REFLECTION_BACKUP_SEARCH_TOOL,
+    PRODUCT_PURCHASE_TOOL,
+    ORDER_ADD_TOOL,
+)
 DEFAULT_PERSONA_PROMPT = (
     "你是面壁智能的智能客服，语气专业、清晰、友好。"
     "你需要先理解用户诉求，再基于已配置的技能和工具帮助用户完成业务办理。"
@@ -218,7 +320,7 @@ def seed_demo_data(session: Session) -> None:
             )
         )
 
-    for content in (REFUND_SKILL, EXCHANGE_SKILL):
+    for content in (REFUND_SKILL, EXCHANGE_SKILL, REFLECTION_LOOKUP_SKILL):
         existing = session.exec(
             select(Skill).where(
                 Skill.tenant_id == "tenant_demo", Skill.skill_id == content["skill_id"]

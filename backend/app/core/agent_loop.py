@@ -612,6 +612,20 @@ class AgentLoop:
         if not reflection.needs_retry:
             return active_skill, router_decision, step_result, tool_result
 
+        retry_tool_call = self._tool_call_from_reflection(reflection, chat_session, tools)
+        if retry_tool_call and self._reflection_tool_retry_targets_current_skill(
+            reflection, chat_session
+        ):
+            return self._retry_with_reflection_tool_call(
+                request,
+                chat_session,
+                active_skill,
+                router_decision,
+                retry_tool_call,
+                reflection.reason,
+                stream_events,
+            )
+
         retry_router_decision = self._router_decision_from_reflection(
             reflection, chat_session, skills, router_decision
         )
@@ -626,39 +640,16 @@ class AgentLoop:
                 stream_events,
             )
 
-        retry_tool_call = self._tool_call_from_reflection(reflection, chat_session, tools)
         if retry_tool_call:
-            retry_step_result = StepAgentResult(
-                tool_call=retry_tool_call,
-                next_step_id=chat_session.active_step_id,
-                is_step_completed=True,
+            return self._retry_with_reflection_tool_call(
+                request,
+                chat_session,
+                active_skill,
+                router_decision,
+                retry_tool_call,
+                reflection.reason,
+                stream_events,
             )
-            self.events.record(
-                request.tenant_id,
-                chat_session.id,
-                "reflection_retry_started",
-                {
-                    "mode": "tool",
-                    "reason": reflection.reason,
-                    "target_tool_name": retry_tool_call.name,
-                },
-            )
-            retry_tool_result = self._execute_tool_call(request, chat_session, retry_tool_call)
-            self._advance_after_successful_tool(
-                request.tenant_id, chat_session, active_skill, retry_step_result, retry_tool_result
-            )
-            self.db.commit()
-            self.db.refresh(chat_session)
-            if stream_events is not None:
-                stream_events.append(
-                    (
-                        "tool_result",
-                        self._tool_activity_payload(
-                            request.tenant_id, retry_tool_call.name, retry_tool_result
-                        ),
-                    )
-                )
-            return active_skill, router_decision, retry_step_result, retry_tool_result
 
         self.events.record(
             request.tenant_id,
@@ -671,6 +662,59 @@ class AgentLoop:
             },
         )
         return active_skill, router_decision, step_result, tool_result
+
+    def _retry_with_reflection_tool_call(
+        self,
+        request: ChatTurnRequest,
+        chat_session: ChatSession,
+        active_skill: Skill | None,
+        router_decision: RouterDecision,
+        retry_tool_call: ToolCall,
+        retry_reason: str | None,
+        stream_events: list[tuple[str, dict[str, object]]] | None = None,
+    ) -> tuple[Skill | None, RouterDecision, StepAgentResult, ToolResult | None]:
+        retry_step_result = StepAgentResult(
+            tool_call=retry_tool_call,
+            next_step_id=chat_session.active_step_id,
+            is_step_completed=True,
+        )
+        self.events.record(
+            request.tenant_id,
+            chat_session.id,
+            "reflection_retry_started",
+            {
+                "mode": "tool",
+                "reason": retry_reason,
+                "target_tool_name": retry_tool_call.name,
+            },
+        )
+        retry_tool_result = self._execute_tool_call(request, chat_session, retry_tool_call)
+        self._advance_after_successful_tool(
+            request.tenant_id, chat_session, active_skill, retry_step_result, retry_tool_result
+        )
+        self.db.commit()
+        self.db.refresh(chat_session)
+        if stream_events is not None:
+            stream_events.append(
+                (
+                    "tool_result",
+                    self._tool_activity_payload(
+                        request.tenant_id, retry_tool_call.name, retry_tool_result
+                    ),
+                )
+            )
+        return active_skill, router_decision, retry_step_result, retry_tool_result
+
+    def _reflection_tool_retry_targets_current_skill(
+        self, reflection: ReflectionDecision, chat_session: ChatSession
+    ) -> bool:
+        return bool(
+            reflection.target_tool_name
+            and (
+                not reflection.target_skill_id
+                or reflection.target_skill_id == chat_session.active_skill_id
+            )
+        )
 
     def _retry_with_router_decision(
         self,
