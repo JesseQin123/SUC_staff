@@ -83,11 +83,14 @@ function normalizeMessageText(value?: string): string {
 function hasEquivalentServerMessage(messageItem: ChatMessage, serverMessages: ChatMessage[]): boolean {
   const content = normalizeMessageText(messageItem.content);
   if (!content) return false;
-  return serverMessages.some(
-    (serverMessage) =>
-      serverMessage.role === messageItem.role &&
-      normalizeMessageText(serverMessage.content) === content,
-  );
+  return serverMessages.some((serverMessage) => {
+    if (serverMessage.role !== messageItem.role) return false;
+    if (normalizeMessageText(serverMessage.content) !== content) return false;
+    if (messageItem.turnId || serverMessage.turnId) {
+      return Boolean(messageItem.turnId && serverMessage.turnId && messageItem.turnId === serverMessage.turnId);
+    }
+    return true;
+  });
 }
 
 function attachTurnIdsToServerMessages(
@@ -102,57 +105,29 @@ function attachTurnIdsToServerMessages(
       .map((item) => [item.id, item.turnId as string]),
   );
   const usedTurnIds = new Set<string>();
-  const result = serverMessages.map((messageItem) => {
-    const previousTurnId = previousTurnIds.get(messageItem.id);
-    return previousTurnId ? { ...messageItem, turnId: previousTurnId } : messageItem;
-  });
   let activeTurnId: string | undefined;
-  result.forEach((messageItem, index) => {
+
+  return serverMessages.map((messageItem) => {
+    const previousTurnId = previousTurnIds.get(messageItem.id);
     if (messageItem.role === 'user') {
-      activeTurnId = messageItem.turnId || messageItem.id;
-      result[index] = { ...messageItem, turnId: activeTurnId };
-      return;
-    }
-    if (messageItem.role === 'assistant' && activeTurnId && !messageItem.turnId) {
-      result[index] = { ...messageItem, turnId: activeTurnId };
-    }
-  });
-  let assistantIndexes: number[] = [];
-  for (let index = result.length - 1; index >= 0; index -= 1) {
-    const serverMessage = result[index];
-    if (serverMessage.role === 'assistant') {
-      if (!serverMessage.turnId) {
-        assistantIndexes = [...assistantIndexes, index];
-      }
-      continue;
-    }
-    if (serverMessage.role === 'user') {
-      if (serverMessage.turnId) {
-        assistantIndexes.forEach((assistantIndex) => {
-          result[assistantIndex] = { ...result[assistantIndex], turnId: serverMessage.turnId };
-        });
-        assistantIndexes = [];
-        continue;
-      }
-      const serverContent = normalizeMessageText(serverMessage.content);
-      const match = pendingTurns.find(
+      const serverContent = normalizeMessageText(messageItem.content);
+      const pendingMatch = pendingTurns.find(
         (item) =>
           item.turnId &&
           !usedTurnIds.has(item.turnId) &&
-          item.role === serverMessage.role &&
           normalizeMessageText(item.content) === serverContent,
       );
-      if (match?.turnId) {
-        usedTurnIds.add(match.turnId);
-        result[index] = { ...serverMessage, turnId: match.turnId };
-        assistantIndexes.forEach((assistantIndex) => {
-          result[assistantIndex] = { ...result[assistantIndex], turnId: match.turnId };
-        });
+      if (pendingMatch?.turnId) {
+        usedTurnIds.add(pendingMatch.turnId);
       }
-      assistantIndexes = [];
+      activeTurnId = previousTurnId || pendingMatch?.turnId || messageItem.turnId || messageItem.id;
+      return { ...messageItem, turnId: activeTurnId };
     }
-  }
-  return result;
+    if (messageItem.role === 'assistant' && activeTurnId) {
+      return { ...messageItem, turnId: previousTurnId || messageItem.turnId || activeTurnId };
+    }
+    return previousTurnId ? { ...messageItem, turnId: previousTurnId } : messageItem;
+  });
 }
 
 function computeMergedMessages(slot: SessionSlot): ChatMessage[] {
