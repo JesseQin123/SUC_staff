@@ -4,6 +4,15 @@ import { useEffect, useState } from 'react';
 import { api, TENANT_ID } from '../api/client';
 import type { PersonaRead, UIConfigRead } from '../types';
 
+function formatDateOnly(value: string): string {
+  const normalized = /(?:z|[+-]\d{2}:?\d{2})$/i.test(value) ? value : `${value}Z`;
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) {
+    return value.slice(0, 10);
+  }
+  return date.toISOString().slice(0, 10);
+}
+
 export default function PersonaPage() {
   const [form] = Form.useForm();
   const [uiForm] = Form.useForm();
@@ -77,7 +86,7 @@ export default function PersonaPage() {
             <Input.TextArea className="persona-editor" rows={12} />
           </Form.Item>
         </Form>
-        {updatedAt && <Typography.Text type="secondary">最后更新：{updatedAt}</Typography.Text>}
+        {updatedAt && <Typography.Text type="secondary">最后更新：{formatDateOnly(updatedAt)}</Typography.Text>}
       </Card>
       <Card className="editor-card settings-card" title="用户端展示设置">
         <Form
@@ -110,7 +119,7 @@ export default function PersonaPage() {
             保存展示设置
           </Button>
         </Form>
-        {uiUpdatedAt && <Typography.Text type="secondary">最后更新：{uiUpdatedAt}</Typography.Text>}
+        {uiUpdatedAt && <Typography.Text type="secondary">最后更新：{formatDateOnly(uiUpdatedAt)}</Typography.Text>}
       </Card>
     </>
   );
