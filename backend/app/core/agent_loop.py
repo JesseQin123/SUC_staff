@@ -877,7 +877,7 @@ class AgentLoop:
         stream_events: list[tuple[str, dict[str, object]]] | None = None,
     ) -> StepAgentResult:
         step_result = self._run_step_agent_once(
-            request, chat_session, active_skill, tools, model_config
+            request, chat_session, active_skill, tools, model_config, router_decision
         )
         self._apply_step_result(request.tenant_id, chat_session, step_result)
         step_result = self._retry_slot_validation_if_needed(
@@ -913,7 +913,8 @@ class AgentLoop:
                 active_skill,
                 tools,
                 model_config,
-                "satisfied_step_advanced",
+                router_decision,
+                repair_reason="satisfied_step_advanced",
             )
             self._apply_step_result(request.tenant_id, chat_session, step_result)
             self._advance_past_satisfied_collection_steps(
@@ -969,8 +970,9 @@ class AgentLoop:
             active_skill,
             tools,
             model_config,
-            "slot_validation",
-            {
+            router_decision,
+            repair_reason="slot_validation",
+            repair_context={
                 "reason": "slot_validation",
                 "missing_expected_user_info": missing_fields,
                 "previous_step_result": step_result.model_dump(mode="json"),
@@ -1048,6 +1050,7 @@ class AgentLoop:
         active_skill: Skill | None,
         tools: list[Tool],
         model_config: ModelConfig,
+        router_decision: RouterDecision | None = None,
         repair_reason: str | None = None,
         repair_context: dict[str, object] | None = None,
     ) -> StepAgentResult:
@@ -1057,6 +1060,7 @@ class AgentLoop:
             active_skill,
             tools,
             model_config,
+            router_decision,
             repair_context,
         )
         payload = step_result.model_dump()

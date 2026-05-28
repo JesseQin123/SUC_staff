@@ -4,7 +4,7 @@ from pathlib import Path
 
 from app.db.models import ChatSession, ModelConfig, Skill, Tool
 from app.llm import LLMClient, LLMError
-from app.session.session_schema import StepAgentResult
+from app.session.session_schema import RouterDecision, StepAgentResult
 
 
 PROMPT_PATH = Path(__file__).resolve().parents[1] / "llm" / "prompts" / "step_agent_prompt.md"
@@ -18,12 +18,14 @@ class StepAgent:
         skill: Skill | None,
         tools: list[Tool],
         model_config: ModelConfig,
+        router_decision: RouterDecision | None = None,
         repair_context: dict[str, object] | None = None,
     ) -> StepAgentResult:
         payload = {
             "user_message": message,
             "active_skill": skill.content_json if skill else None,
             "active_step": _active_step(skill, session.active_step_id),
+            "router_decision": router_decision.model_dump() if router_decision else None,
             "slots": session.slots_json or {},
             "last_agent_question": session.last_agent_question,
             "skill_stack": session.skill_stack_json or [],

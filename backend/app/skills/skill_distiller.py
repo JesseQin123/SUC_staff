@@ -17,6 +17,10 @@ CLOSED_LOOP_RESPONSE_RULE = (
     "流程必须形成闭环：不得把“请稍候/正在处理/稍后反馈”作为最终回复；"
     "需要查询、核实、创建或处理时必须调用已配置工具或转人工，并向用户给出明确结果。"
 )
+ADAPTIVE_FLOW_RESPONSE_RULE = (
+    "步骤是可自适应推进的目标，不是固定问答脚本；已由当前用户消息、历史信息或路由意图满足的内容"
+    "不得重复追问，应直接推进到下一缺失信息、工具调用或最终回复。"
+)
 TOOL_PROCESS_KEYWORDS = (
     "查询",
     "核实",
@@ -31,6 +35,10 @@ TOOL_PROCESS_KEYWORDS = (
 TOOL_STEP_INSTRUCTION_SUFFIX = (
     "工具参数满足时直接调用工具；工具成功后必须基于工具结果进入最终回复，"
     "不要停留在“请稍候”或“正在处理”。"
+)
+ADAPTIVE_STEP_INSTRUCTION_SUFFIX = (
+    "将本步骤作为目标而不是固定话术；如果用户当前消息、历史 slots 或路由意图已满足本步骤，"
+    "直接写入对应 slot 并继续到下一缺失信息、工具调用或最终回复，不要重复确认。"
 )
 
 
@@ -85,6 +93,8 @@ class SkillDistiller:
         response_rules = _string_list(draft.get("response_rules"), fallback.response_rules)
         if CLOSED_LOOP_RESPONSE_RULE not in response_rules:
             response_rules.append(CLOSED_LOOP_RESPONSE_RULE)
+        if ADAPTIVE_FLOW_RESPONSE_RULE not in response_rules:
+            response_rules.append(ADAPTIVE_FLOW_RESPONSE_RULE)
         normalized = {
             "skill_id": _string(draft.get("skill_id"), fallback.skill_id),
             "name": _string(draft.get("name"), fallback.name),
@@ -140,6 +150,7 @@ class SkillDistiller:
             warnings.append("原始改写未包含工具步骤，已按可用工具补充闭环执行步骤。")
 
         for step in normalized_steps:
+            _ensure_adaptive_step_instruction(step)
             actions = [str(action) for action in step.get("allowed_actions", [])]
             if not any(action.startswith("call_tool:") for action in actions):
                 continue
@@ -157,7 +168,8 @@ class SkillDistiller:
                     "name": "反馈最终结果",
                     "instruction": (
                         "基于已收集信息和工具结果给用户明确最终回复；"
-                        "信息不足时追问缺失信息，无法闭环时转人工，不要只说请稍候。"
+                        "信息不足时追问缺失信息，无法闭环时转人工，不要只说请稍候；"
+                        f"{ADAPTIVE_STEP_INSTRUCTION_SUFFIX}"
                     ),
                     "expected_user_info": [],
                     "allowed_actions": ["answer_user", "handoff_human"],
@@ -216,7 +228,9 @@ class SkillDistiller:
                     name="收集必要信息",
                     instruction=(
                         f"询问并记录完成该流程所需的信息：{labels}。如果用户一次提供多个信息，"
-                        "需要同时提取并写入对应 slot，不要重复追问已提供的信息。"
+                        "需要同时提取并写入对应 slot，不要重复追问已提供的信息；"
+                        "如果信息已经满足，直接推进到下一缺失信息、工具调用或最终回复；"
+                        f"{ADAPTIVE_STEP_INSTRUCTION_SUFFIX}"
                     ),
                     expected_user_info=required_info,
                     allowed_actions=["ask_user", "continue_flow"],
@@ -229,7 +243,8 @@ class SkillDistiller:
                     name="执行工具处理",
                     instruction=(
                         "根据技能目标、已收集信息和工具 input_schema 选择合适工具处理；"
-                        "只能使用 available_tools 中存在且参数已满足的工具。"
+                        "只能使用 available_tools 中存在且参数已满足的工具；"
+                        f"{ADAPTIVE_STEP_INSTRUCTION_SUFFIX}"
                     ),
                     expected_user_info=[],
                     allowed_actions=["continue_flow", *tool_actions],
@@ -239,7 +254,10 @@ class SkillDistiller:
             SkillStep(
                 step_id="reply_result",
                 name="反馈结果",
-                instruction="根据已收集的信息和工具结果给用户明确回复；信息不足时继续追问，不要编造事实。",
+                instruction=(
+                    "根据已收集的信息和工具结果给用户明确回复；信息不足时继续追问，不要编造事实；"
+                    f"{ADAPTIVE_STEP_INSTRUCTION_SUFFIX}"
+                ),
                 expected_user_info=[],
                 allowed_actions=["answer_user", "handoff_human"],
             )
@@ -262,7 +280,7 @@ class SkillDistiller:
                 "chitchat": "简短回应后引导用户继续当前流程。",
                 "user_wants_human": "直接转人工。",
             },
-            response_rules=["信息不足时先追问，不要编造事实。"],
+            response_rules=["信息不足时先追问，不要编造事实。", ADAPTIVE_FLOW_RESPONSE_RULE],
         )
 
 
@@ -272,6 +290,13 @@ def _steps_have_tool_action(steps: list[dict[str, Any]]) -> bool:
         if isinstance(actions, list) and any(str(action).startswith("call_tool:") for action in actions):
             return True
     return False
+
+
+def _ensure_adaptive_step_instruction(step: dict[str, Any]) -> None:
+    instruction = str(step.get("instruction") or "")
+    if "目标而不是固定话术" in instruction or "不是固定问答脚本" in instruction:
+        return
+    step["instruction"] = f"{instruction}{ADAPTIVE_STEP_INSTRUCTION_SUFFIX}"
 
 
 def _last_step_allows_answer(steps: list[dict[str, Any]]) -> bool:

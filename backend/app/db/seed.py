@@ -3,9 +3,15 @@ from __future__ import annotations
 from sqlmodel import Session, select
 
 from app.config import get_settings
-from app.db.models import ModelConfig, PersonaConfig, Skill, Tenant, Tool, User
+from app.db.models import ModelConfig, PersonaConfig, Skill, Tenant, Tool, User, utc_now
 from app.security.encryption import encrypt_secret
 from app.security.auth import hash_password
+
+
+ADAPTIVE_FLOW_RULE = (
+    "步骤是可自适应推进的目标，不是固定问答脚本；已由当前用户消息、历史信息或路由意图满足的内容"
+    "不得重复追问，应直接推进到下一缺失信息、工具调用或最终回复。"
+)
 
 
 REFUND_SKILL = {
@@ -18,32 +24,40 @@ REFUND_SKILL = {
     "user_utterance_examples": ["我想退货", "这个不要了", "买错了能退吗", "给我退钱"],
     "goal": ["确认用户退款诉求", "收集订单号", "查询订单状态", "说明退款政策", "引导用户继续处理或转人工"],
     "required_info": ["order_id", "refund_reason"],
+    "slot_filling_policy": {
+        "enabled": True,
+        "multi_slot_per_turn": True,
+        "extract_scope": "all_skill_expected_user_info",
+        "skip_satisfied_steps": True,
+        "description": "每轮同时抽取用户已表达的退款类型、订单号、退款原因等信息，已满足的信息不再追问。",
+        "target_info": ["refund_type", "order_id", "refund_reason"],
+    },
     "steps": [
         {
             "step_id": "identify_refund_intent",
             "name": "确认退款诉求",
-            "instruction": "仅当用户诉求不明确时确认用户是否要退款、退货或取消订单；如果用户已明确说退货/退款/取消订单，不要反问类型，直接进入订单信息收集。",
+            "instruction": "将本步骤作为目标而不是固定话术；仅当用户诉求不明确时确认用户是否要退款、退货或取消订单；如果用户已明确说退货/退款/取消订单，写入 refund_type 并直接进入下一缺失信息收集，不要反问类型。",
             "expected_user_info": ["refund_type"],
             "allowed_actions": ["ask_clarification", "continue_flow"],
         },
         {
             "step_id": "collect_order_info",
             "name": "收集订单信息",
-            "instruction": "如果用户未提供订单号，直接询问订单号；如果已提供订单号，调用 order.query。不要再询问用户是退货还是退款。",
+            "instruction": "将本步骤作为目标而不是固定话术；如果用户未提供订单号，直接询问订单号；如果已提供订单号，写入 order_id 并调用 order.query。不要再询问用户是退货还是退款。",
             "expected_user_info": ["order_id"],
             "allowed_actions": ["ask_user", "call_tool:order.query"],
         },
         {
             "step_id": "check_refund_eligibility",
             "name": "查询退款资格",
-            "instruction": "根据订单查询结果说明是否可能支持退款，不要承诺一定退款。",
+            "instruction": "将本步骤作为目标而不是固定话术；根据订单查询结果说明是否可能支持退款，不要承诺一定退款；如还缺退款原因则继续收集，已满足时给出明确下一步。",
             "expected_user_info": [],
             "allowed_actions": ["answer_user", "handoff_human"],
         },
         {
             "step_id": "collect_refund_reason",
             "name": "收集退款原因",
-            "instruction": "询问用户退款原因。",
+            "instruction": "将本步骤作为目标而不是固定话术；如果用户已说明退款原因，写入 refund_reason 并继续推进；否则只追问退款原因，不重复追问退款类型或订单号。",
             "expected_user_info": ["refund_reason"],
             "allowed_actions": ["ask_user", "continue_flow"],
         },
@@ -54,7 +68,7 @@ REFUND_SKILL = {
         "chitchat": "简短回应后，引导用户继续退款流程。",
         "user_wants_human": "直接转人工。",
     },
-    "response_rules": ["不要承诺一定能退款。", "未查询订单前，不要判断是否符合退款条件。", "如果用户要求人工，应转人工。"],
+    "response_rules": ["不要承诺一定能退款。", "未查询订单前，不要判断是否符合退款条件。", "如果用户要求人工，应转人工。", ADAPTIVE_FLOW_RULE],
 }
 
 EXCHANGE_SKILL = {
@@ -67,18 +81,26 @@ EXCHANGE_SKILL = {
     "user_utterance_examples": ["我想换货", "能不能换个颜色", "尺码不合适想换一下"],
     "goal": ["确认换货诉求", "收集订单号", "确认换货原因", "引导用户继续处理或转人工"],
     "required_info": ["order_id", "exchange_reason"],
+    "slot_filling_policy": {
+        "enabled": True,
+        "multi_slot_per_turn": True,
+        "extract_scope": "all_skill_expected_user_info",
+        "skip_satisfied_steps": True,
+        "description": "每轮同时抽取用户已表达的换货类型、订单号、换货原因等信息，已满足的信息不再追问。",
+        "target_info": ["exchange_type", "order_id", "exchange_reason"],
+    },
     "steps": [
         {
             "step_id": "identify_exchange_intent",
             "name": "确认换货诉求",
-            "instruction": "确认用户需要换货的商品和换货类型。",
+            "instruction": "将本步骤作为目标而不是固定话术；如果用户已表达换货商品或换货类型，写入 exchange_type 并继续推进；仅在诉求不明确时追问。",
             "expected_user_info": ["exchange_type"],
             "allowed_actions": ["ask_clarification", "continue_flow"],
         },
         {
             "step_id": "collect_exchange_order_info",
             "name": "收集订单信息",
-            "instruction": "询问订单号，并确认需要换货的商品。",
+            "instruction": "将本步骤作为目标而不是固定话术；如果用户已提供订单号，写入 order_id 并调用 order.query；否则询问订单号，并只追问真正缺失的换货信息。",
             "expected_user_info": ["order_id"],
             "allowed_actions": ["ask_user", "call_tool:order.query"],
         },
@@ -89,7 +111,7 @@ EXCHANGE_SKILL = {
         "chitchat": "简短回应后，引导用户继续换货流程。",
         "user_wants_human": "直接转人工。",
     },
-    "response_rules": ["不要承诺一定能换货。", "如政策不确定，应转人工确认。"],
+    "response_rules": ["不要承诺一定能换货。", "如政策不确定，应转人工确认。", ADAPTIVE_FLOW_RULE],
 }
 
 ORDER_QUERY_TOOL = {
@@ -273,6 +295,8 @@ def seed_demo_data(session: Session) -> None:
                     status="published",
                 )
             )
+        else:
+            _sync_demo_skill_if_stale(existing, content)
 
     for tool_config in DEMO_TOOLS:
         tool = session.exec(
@@ -301,3 +325,85 @@ def seed_demo_data(session: Session) -> None:
         )
 
     session.commit()
+
+
+def _sync_demo_skill_if_stale(existing: Skill, desired: dict) -> None:
+    content = dict(existing.content_json or {})
+    changed = False
+    current_steps = [step for step in content.get("steps", []) if isinstance(step, dict)]
+    desired_steps = [step for step in desired.get("steps", []) if isinstance(step, dict)]
+    current_steps_by_id = {str(step.get("step_id") or ""): step for step in current_steps}
+
+    for desired_step in desired_steps:
+        step_id = str(desired_step.get("step_id") or "")
+        current_step = current_steps_by_id.get(step_id)
+        if not current_step:
+            continue
+        desired_instruction = str(desired_step.get("instruction") or "")
+        current_instruction = str(current_step.get("instruction") or "")
+        if desired_instruction and _demo_instruction_is_stale(current_instruction, desired_instruction):
+            current_step["instruction"] = desired_instruction
+            changed = True
+        for key in ("expected_user_info", "allowed_actions"):
+            if key in desired_step and current_step.get(key) != desired_step.get(key):
+                current_step[key] = desired_step[key]
+                changed = True
+
+    if desired.get("interruption_policy") and content.get("interruption_policy") != desired.get(
+        "interruption_policy"
+    ):
+        content["interruption_policy"] = desired["interruption_policy"]
+        changed = True
+    if desired.get("slot_filling_policy"):
+        merged_policy = _merge_slot_filling_policy(
+            content.get("slot_filling_policy"), desired["slot_filling_policy"]
+        )
+        if content.get("slot_filling_policy") != merged_policy:
+            content["slot_filling_policy"] = merged_policy
+            changed = True
+    if desired.get("response_rules"):
+        merged_rules = _append_missing_rules(content.get("response_rules"), desired["response_rules"])
+        if content.get("response_rules") != merged_rules:
+            content["response_rules"] = merged_rules
+            changed = True
+
+    if changed:
+        existing.content_json = content
+        existing.updated_at = utc_now()
+
+
+def _demo_instruction_is_stale(current: str, desired: str) -> bool:
+    if not current:
+        return True
+    if current == desired:
+        return False
+    if "不要反问" in desired and "不要反问" not in current:
+        return True
+    if "不要再询问" in desired and "不要再询问" not in current:
+        return True
+    if "直接询问订单号" in desired and "直接询问订单号" not in current:
+        return True
+    if "目标而不是固定话术" in desired and "目标而不是固定话术" not in current:
+        return True
+    return False
+
+
+def _merge_slot_filling_policy(current: object, desired: dict) -> dict:
+    current_policy = dict(current) if isinstance(current, dict) else {}
+    merged = {**current_policy, **desired}
+    target_info = {
+        str(item)
+        for item in current_policy.get("target_info", [])
+        if str(item).strip()
+    }
+    target_info.update(str(item) for item in desired.get("target_info", []) if str(item).strip())
+    merged["target_info"] = sorted(target_info)
+    return merged
+
+
+def _append_missing_rules(current: object, desired: list[str]) -> list[str]:
+    rules = [str(item) for item in current] if isinstance(current, list) else []
+    for rule in desired:
+        if rule not in rules:
+            rules.append(rule)
+    return rules

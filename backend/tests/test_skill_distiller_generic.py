@@ -85,3 +85,43 @@ def test_normalize_response_adds_closed_loop_tool_and_final_reply_steps() -> Non
     assert any("call_tool:order.query" in step.allowed_actions for step in steps)
     assert "answer_user" in steps[-1].allowed_actions
     assert any("不得把" in rule and "请稍候" in rule for rule in response.draft_skill.response_rules)
+    assert any("自适应推进" in rule for rule in response.draft_skill.response_rules)
+    assert all("目标而不是固定话术" in step.instruction for step in steps)
+
+
+def test_normalize_response_turns_steps_into_adaptive_goals() -> None:
+    request = SkillDistillRequest(
+        tenant_id="tenant_demo",
+        title="资料审核",
+        raw_content="收集姓名和资料编号，审核资料状态，反馈给用户",
+    )
+    raw = {
+        "draft_skill": {
+            "skill_id": "document_review",
+            "name": "资料审核",
+            "required_info": ["user_name", "document_id"],
+            "steps": [
+                {
+                    "step_id": "collect_info",
+                    "name": "收集信息",
+                    "instruction": "询问用户姓名和资料编号。",
+                    "expected_user_info": ["user_name", "document_id"],
+                    "allowed_actions": ["ask_user", "continue_flow"],
+                },
+                {
+                    "step_id": "reply_result",
+                    "name": "反馈结果",
+                    "instruction": "反馈审核结果。",
+                    "expected_user_info": [],
+                    "allowed_actions": ["answer_user"],
+                },
+            ],
+            "response_rules": [],
+        }
+    }
+
+    response = SkillDistiller()._normalize_response(raw, request)  # noqa: SLF001
+
+    assert response.draft_skill.slot_filling_policy["multi_slot_per_turn"] is True
+    assert response.draft_skill.slot_filling_policy["skip_satisfied_steps"] is True
+    assert all("目标而不是固定话术" in step.instruction for step in response.draft_skill.steps)

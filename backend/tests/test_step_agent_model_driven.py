@@ -1,6 +1,7 @@
 from app.core.step_agent import StepAgent
 from app.db.models import ChatSession, Skill, Tool
 from app.llm.client import LLMClient
+from app.session.session_schema import RouterDecision
 
 
 def test_step_agent_uses_model_json_for_slots_and_tool(monkeypatch):
@@ -10,6 +11,7 @@ def test_step_agent_uses_model_json_for_slots_and_tool(monkeypatch):
         return None
 
     def fake_generate_json(self, system_prompt, payload):  # noqa: ANN001
+        captured["system_prompt"] = system_prompt
         captured["payload"] = payload
         return {
             "reply": None,
@@ -42,10 +44,17 @@ def test_step_agent_uses_model_json_for_slots_and_tool(monkeypatch):
         _repair_skill(),
         [_ticket_tool()],
         model_config=None,  # type: ignore[arg-type]
+        router_decision=RouterDecision(
+            decision="start_skill",
+            target_skill_id="repair_ticket",
+            user_intent="设备报修",
+        ),
     )
 
     assert captured["payload"]["active_skill"]["skill_id"] == "repair_ticket"
+    assert "技能步骤是业务目标" in captured["system_prompt"]
     assert captured["payload"]["active_step"]["step_id"] == "collect_issue"
+    assert captured["payload"]["router_decision"]["user_intent"] == "设备报修"
     assert captured["payload"]["last_agent_question"] == "请描述设备问题。"
     assert "repair_context" in captured["payload"]
     assert result.slot_updates["asset_id"] == "EQ-9"
