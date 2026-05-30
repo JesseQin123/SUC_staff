@@ -74,6 +74,11 @@ def _migrate_sqlite_skill_schema() -> None:
                     text("ALTER TABLE ui_configs ADD COLUMN reflection_max_rounds INTEGER NOT NULL DEFAULT 1")
                 )
 
+        if "skill_feedback" in tables:
+            feedback_columns = {column["name"] for column in inspector.get_columns("skill_feedback")}
+            if "skill_version" not in feedback_columns:
+                conn.execute(text("ALTER TABLE skill_feedback ADD COLUMN skill_version VARCHAR"))
+
         if legacy_table in tables and "skills" in tables:
             rows = conn.execute(text(f"SELECT * FROM {legacy_table}")).mappings().all()
             for row in rows:
@@ -141,6 +146,8 @@ def _migrate_sqlite_skill_schema() -> None:
                 )
         if "skills" in tables:
             _normalize_existing_skill_rows(conn, legacy_id_prefix)
+            if "skill_versions" in tables:
+                _seed_skill_versions(conn)
 
 
 def _migrate_skill_content(value: object, skill_id: str) -> dict[str, object]:
@@ -185,6 +192,50 @@ def _normalize_existing_skill_rows(conn, legacy_id_prefix: str) -> None:
                 "id": row["id"],
                 "skill_id": skill_id,
                 "content_json": json.dumps(content, ensure_ascii=False),
+            },
+        )
+
+
+def _seed_skill_versions(conn) -> None:
+    rows = conn.execute(text("SELECT * FROM skills")).mappings().all()
+    for row in rows:
+        version = row.get("version") or "1.0.0"
+        existing = conn.execute(
+            text(
+                """
+                SELECT id FROM skill_versions
+                WHERE tenant_id = :tenant_id AND skill_id = :skill_id AND version = :version
+                """
+            ),
+            {"tenant_id": row["tenant_id"], "skill_id": row["skill_id"], "version": version},
+        ).first()
+        if existing:
+            continue
+        conn.execute(
+            text(
+                """
+                INSERT INTO skill_versions (
+                    id, tenant_id, skill_id, version, name, business_domain,
+                    description, content_json, status, created_at, updated_at
+                )
+                VALUES (
+                    :id, :tenant_id, :skill_id, :version, :name, :business_domain,
+                    :description, :content_json, :status, :created_at, :updated_at
+                )
+                """
+            ),
+            {
+                "id": f"skillver_{row['id']}",
+                "tenant_id": row["tenant_id"],
+                "skill_id": row["skill_id"],
+                "version": version,
+                "name": row["name"],
+                "business_domain": row.get("business_domain"),
+                "description": row.get("description"),
+                "content_json": row.get("content_json"),
+                "status": row.get("status") or "draft",
+                "created_at": row.get("created_at"),
+                "updated_at": row.get("updated_at"),
             },
         )
 

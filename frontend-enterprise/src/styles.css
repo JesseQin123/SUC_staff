@@ -772,6 +772,12 @@ select,
   background: #f7f7f7;
 }
 
+.skill-source-section.dirty,
+.skill-flow-node.dirty {
+  background: #fafafa;
+  box-shadow: inset 3px 0 0 #d4d4d4;
+}
+
 .skill-source-code {
   color: var(--foreground);
   font-family: var(--font-mono);
@@ -917,6 +923,84 @@ select,
 
 .skill-flow-node.root {
   background: var(--surface-muted);
+}
+
+.save-review-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.save-review-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.save-review-diff {
+  max-height: 420px;
+  overflow: auto;
+  display: grid;
+  gap: 10px;
+}
+
+.save-review-diff-row {
+  padding: 10px 12px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.save-review-diff-path {
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.diff-old,
+.diff-new {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.diff-old {
+  color: #991b1b;
+}
+
+.diff-new {
+  color: #166534;
+}
+
+.skill-rank-row {
+  margin-top: 16px;
+}
+
+.skill-ranking-card .ant-card-body {
+  display: grid;
+  gap: 10px;
+}
+
+.skill-ranking-item {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.skill-ranking-item span {
+  width: 22px;
+  height: 22px;
+  display: inline-grid;
+  place-items: center;
+  color: var(--muted);
+  background: var(--surface-subtle);
+  border-radius: 999px;
+  font-size: 12px;
 }
 
 .skill-flow-node:hover,

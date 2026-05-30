@@ -9,7 +9,7 @@ import {
   SendOutlined,
   StopOutlined,
 } from '@ant-design/icons';
-import { Alert, Button, Card, Empty, Input, Space, Typography, message } from 'antd';
+import { Alert, Button, Card, Empty, Input, Modal, Space, Typography, message } from 'antd';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, streamPost, TENANT_ID } from '../api/client';
@@ -57,6 +57,7 @@ export default function DistillPage() {
   const skillId = searchParams.get('skill_id');
   const [draft, setDraft] = useState<SkillCard | null>(null);
   const [loadedSkill, setLoadedSkill] = useState<SkillRead | null>(null);
+  const [lastSavedDraft, setLastSavedDraft] = useState<SkillCard | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [messages, setMessages] = useState<ChatItem[]>([
     {
@@ -69,8 +70,14 @@ export default function DistillPage() {
   const [selectedPaths, setSelectedPaths] = useState<string[]>(DEFAULT_TARGET_PATHS);
   const [highlightedPaths, setHighlightedPaths] = useState<string[]>([]);
   const [updatingPaths, setUpdatingPaths] = useState<string[]>([]);
+  const [dirtyPaths, setDirtyPaths] = useState<string[]>([]);
   const [textDiffs, setTextDiffs] = useState<TextDiffAnimation[]>([]);
   const [pendingChange, setPendingChange] = useState<PendingChange | null>(null);
+  const [saveReviewOpen, setSaveReviewOpen] = useState(false);
+  const [saveDraftSnapshot, setSaveDraftSnapshot] = useState<SkillCard | null>(null);
+  const [saveName, setSaveName] = useState('');
+  const [saveDomain, setSaveDomain] = useState('');
+  const [saveVersion, setSaveVersion] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('source');
   const [loading, setLoading] = useState(false);
   const [streamStatus, setStreamStatus] = useState('');
@@ -81,12 +88,15 @@ export default function DistillPage() {
     if (!skillId) {
       setDraft(null);
       setLoadedSkill(null);
+      setLastSavedDraft(null);
       setWarnings([]);
       setSelectedPaths(DEFAULT_TARGET_PATHS);
       setPendingChange(null);
       setHighlightedPaths([]);
       setUpdatingPaths([]);
+      setDirtyPaths([]);
       setTextDiffs([]);
+      setSaveDraftSnapshot(null);
       return;
     }
     api
@@ -94,11 +104,14 @@ export default function DistillPage() {
       .then((result) => {
         setDraft(result.content);
         setLoadedSkill(result);
+        setLastSavedDraft(result.content);
         setSelectedPaths(DEFAULT_TARGET_PATHS);
         setPendingChange(null);
         setHighlightedPaths([]);
         setUpdatingPaths([]);
+        setDirtyPaths([]);
         setTextDiffs([]);
+        setSaveDraftSnapshot(null);
         setMessages([
           {
             id: 'loaded',
@@ -117,6 +130,22 @@ export default function DistillPage() {
 
   const allPaths = useMemo(() => (draft ? allTargetPaths(draft) : DEFAULT_TARGET_PATHS), [draft]);
   const allSelected = draft ? selectedPaths.length > 0 && allPaths.every((path) => selectedPaths.includes(path)) : false;
+  const saveReviewDraft = useMemo(() => {
+    const sourceDraft = saveDraftSnapshot || draft;
+    if (!sourceDraft) return null;
+    return {
+      ...cloneSkill(sourceDraft),
+      name: saveName.trim() || sourceDraft.name,
+      business_domain: saveDomain.trim() || undefined,
+      version: saveVersion.trim() || sourceDraft.version,
+    };
+  }, [draft, saveDomain, saveDraftSnapshot, saveName, saveVersion]);
+  const saveReviewDiffs = useMemo(() => {
+    if (!saveReviewDraft) return [];
+    const baseDraft = lastSavedDraft || blankSkillForAnimation(saveReviewDraft);
+    const changedPaths = diffTargetPaths(baseDraft, saveReviewDraft, allTargetPaths(saveReviewDraft));
+    return collectTextDiffs(baseDraft, saveReviewDraft, changedPaths);
+  }, [lastSavedDraft, saveReviewDraft]);
 
   async function send() {
     const text = input.trim();
@@ -191,7 +220,7 @@ export default function DistillPage() {
     setStreamStatus('正在改写选中内容');
     const assistantId = pushMessage('assistant', '', {
       thinking: 'running',
-      thinkingDetails: [`改写范围：${scopeLabel}`, '准备发送模型改写请求'],
+      thinkingDetails: [`改写范围：${scopeLabel}`],
       thinkingOpen: false,
     });
     const controller = new AbortController();
@@ -259,27 +288,46 @@ export default function DistillPage() {
     }
   }
 
+  function openSaveReview() {
+    const targetDraft = pendingChange?.nextDraft || draft;
+    if (!targetDraft) return;
+    confirmPendingChange(false);
+    setSaveDraftSnapshot(targetDraft);
+    setSaveName(targetDraft.name);
+    setSaveDomain(targetDraft.business_domain || '');
+    setSaveVersion(loadedSkill ? bumpSkillVersion(loadedSkill.version || targetDraft.version) : '1.0.0');
+    setSaveReviewOpen(true);
+  }
+
   async function saveDraft() {
-    if (!draft) return;
+    if (!saveReviewDraft) return;
+    const finalDraft = saveReviewDraft;
     try {
+      let savedSkill: SkillRead;
       if (loadedSkill) {
-        await api.put(`/api/enterprise/skills/${loadedSkill.skill_id}`, {
+        savedSkill = await api.put<SkillRead>(`/api/enterprise/skills/${loadedSkill.skill_id}`, {
           tenant_id: TENANT_ID,
-          content: draft,
+          content: finalDraft,
           status: loadedSkill.status,
         });
       } else {
         try {
-          await api.post('/api/enterprise/skills', { tenant_id: TENANT_ID, content: draft, status: 'draft' });
+          savedSkill = await api.post<SkillRead>('/api/enterprise/skills', { tenant_id: TENANT_ID, content: finalDraft, status: 'draft' });
         } catch (error) {
           if (!(error instanceof Error) || !error.message.includes('409')) throw error;
-          await api.put(`/api/enterprise/skills/${draft.skill_id}`, {
+          savedSkill = await api.put<SkillRead>(`/api/enterprise/skills/${finalDraft.skill_id}`, {
             tenant_id: TENANT_ID,
-            content: draft,
+            content: finalDraft,
             status: 'draft',
           });
         }
       }
+      setLoadedSkill(savedSkill);
+      setDraft(savedSkill.content);
+      setLastSavedDraft(savedSkill.content);
+      setSaveDraftSnapshot(null);
+      setDirtyPaths([]);
+      setSaveReviewOpen(false);
       message.success('草稿已保存');
     } catch (error) {
       message.error(error instanceof Error ? error.message : '保存失败');
@@ -291,6 +339,11 @@ export default function DistillPage() {
     abortRef.current = null;
     setLoading(false);
     setStreamStatus('已停止');
+  }
+
+  function closeSaveReview() {
+    setSaveReviewOpen(false);
+    setSaveDraftSnapshot(null);
   }
 
   function toggleTarget(target: TargetSelection) {
@@ -407,6 +460,7 @@ export default function DistillPage() {
           setTextDiffs((current) => current.map((diff) => ({ ...diff, phase: 'settled', progress: 1 })));
           setDraft(nextDraft);
           setUpdatingPaths([]);
+          setDirtyPaths((current) => mergePaths(current, paths));
           const clearTimer = window.setTimeout(() => {
             setHighlightedPaths([]);
             setTextDiffs([]);
@@ -515,7 +569,7 @@ export default function DistillPage() {
           className="skill-source-card"
           title={viewMode === 'source' ? '源码' : '流程图'}
           extra={
-            <Button disabled={!draft || loading} icon={<SaveOutlined />} onClick={saveDraft}>
+            <Button disabled={!draft || loading} icon={<SaveOutlined />} onClick={openSaveReview}>
               保存草稿
             </Button>
           }
@@ -544,6 +598,7 @@ export default function DistillPage() {
               selectedPaths={selectedPaths}
               highlightedPaths={highlightedPaths}
               updatingPaths={updatingPaths}
+              dirtyPaths={dirtyPaths}
               textDiffs={textDiffs}
               onToggle={toggleTarget}
             />
@@ -553,12 +608,51 @@ export default function DistillPage() {
               selectedPaths={selectedPaths}
               highlightedPaths={highlightedPaths}
               updatingPaths={updatingPaths}
+              dirtyPaths={dirtyPaths}
               textDiffs={textDiffs}
               onToggle={toggleTarget}
             />
           )}
         </Card>
       </div>
+      <Modal
+        open={saveReviewOpen}
+        title="保存技能版本"
+        okText="保存"
+        cancelText="取消"
+        width={820}
+        onOk={() => void saveDraft()}
+        onCancel={closeSaveReview}
+      >
+        <div className="save-review-form">
+          <label>
+            <span>技能名称</span>
+            <Input value={saveName} onChange={(event) => setSaveName(event.target.value)} />
+          </label>
+          <label>
+            <span>业务域</span>
+            <Input value={saveDomain} onChange={(event) => setSaveDomain(event.target.value)} />
+          </label>
+          <label>
+            <span>版本号</span>
+            <Input value={saveVersion} onChange={(event) => setSaveVersion(event.target.value)} />
+          </label>
+        </div>
+        <div className="save-review-diff">
+          <Typography.Text strong>本轮修改 diff</Typography.Text>
+          {saveReviewDiffs.length === 0 ? (
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无结构差异" />
+          ) : (
+            saveReviewDiffs.map((diff) => (
+              <div key={diff.key} className="save-review-diff-row">
+                <div className="save-review-diff-path">{diffTargetLabel(diff.path, saveReviewDraft)} / {fieldLabel(diff.field)}</div>
+                {diff.removed && <div><span className="diff-old">- {diff.removed}</span></div>}
+                {diff.inserted && <div><span className="diff-new">+ {diff.inserted}</span></div>}
+              </div>
+            ))
+          )}
+        </div>
+      </Modal>
     </>
   );
 }
@@ -568,6 +662,7 @@ function SkillSource({
   selectedPaths,
   highlightedPaths,
   updatingPaths,
+  dirtyPaths,
   textDiffs,
   onToggle,
 }: {
@@ -575,6 +670,7 @@ function SkillSource({
   selectedPaths: string[];
   highlightedPaths: string[];
   updatingPaths: string[];
+  dirtyPaths: string[];
   textDiffs: TextDiffAnimation[];
   onToggle: (target: TargetSelection) => void;
 }) {
@@ -582,7 +678,7 @@ function SkillSource({
     <div className="skill-source-md">
       <div className="skill-source-group-title">基础信息</div>
       <SelectableTarget
-        className={targetClass('skill-source-section', 'basic', selectedPaths, highlightedPaths, updatingPaths)}
+        className={targetClass('skill-source-section', 'basic', selectedPaths, highlightedPaths, updatingPaths, dirtyPaths)}
         target={{ path: 'basic', label: '基础信息' }}
         onToggle={onToggle}
       >
@@ -608,7 +704,7 @@ function SkillSource({
           return (
             <SelectableTarget
               key={path}
-              className={targetClass('skill-source-section', path, selectedPaths, highlightedPaths, updatingPaths)}
+              className={targetClass('skill-source-section', path, selectedPaths, highlightedPaths, updatingPaths, dirtyPaths)}
               target={{ path, label: `步骤 ${index + 1}：${step.name || stepId}` }}
               onToggle={onToggle}
             >
@@ -635,6 +731,7 @@ function SkillFlow({
   selectedPaths,
   highlightedPaths,
   updatingPaths,
+  dirtyPaths,
   textDiffs,
   onToggle,
 }: {
@@ -642,13 +739,14 @@ function SkillFlow({
   selectedPaths: string[];
   highlightedPaths: string[];
   updatingPaths: string[];
+  dirtyPaths: string[];
   textDiffs: TextDiffAnimation[];
   onToggle: (target: TargetSelection) => void;
 }) {
   return (
     <div className="skill-flow">
       <SelectableTarget
-        className={targetClass('skill-flow-node root', 'basic', selectedPaths, highlightedPaths, updatingPaths)}
+        className={targetClass('skill-flow-node root', 'basic', selectedPaths, highlightedPaths, updatingPaths, dirtyPaths)}
         target={{ path: 'basic', label: '基础信息' }}
         onToggle={onToggle}
       >
@@ -673,7 +771,7 @@ function SkillFlow({
           <div className="skill-flow-step" key={path}>
             <div className="skill-flow-line" />
             <SelectableTarget
-              className={targetClass('skill-flow-node', path, selectedPaths, highlightedPaths, updatingPaths)}
+              className={targetClass('skill-flow-node', path, selectedPaths, highlightedPaths, updatingPaths, dirtyPaths)}
               target={{ path, label: `步骤 ${index + 1}：${step.name || stepId}` }}
               onToggle={onToggle}
             >
@@ -855,13 +953,21 @@ function targetClass(
   baseClass: string,
   path: string,
   selectedPaths: string[],
-  _highlightedPaths: string[],
-  _updatingPaths: string[],
+  highlightedPaths: string[],
+  updatingPaths: string[],
+  dirtyPaths: string[],
 ): string {
   return [
     baseClass,
     selectedPaths.includes(path) ? 'active' : '',
+    highlightedPaths.includes(path) ? 'changed' : '',
+    updatingPaths.includes(path) ? 'updating' : '',
+    dirtyPaths.includes(path) ? 'dirty' : '',
   ].filter(Boolean).join(' ');
+}
+
+function mergePaths(current: string[], next: string[]): string[] {
+  return Array.from(new Set([...current, ...next]));
 }
 
 function cloneSkill(skill: SkillCard): SkillCard {
@@ -1015,6 +1121,38 @@ function typedDraft(previousDraft: SkillCard, nextDraft: SkillCard, diffs: TextD
   });
   if (progress >= 1) return cloneSkill(nextDraft);
   return output;
+}
+
+function bumpSkillVersion(version: string): string {
+  const parts = version.split('.').map((item) => Number.parseInt(item, 10));
+  const major = Number.isFinite(parts[0]) ? parts[0] : 1;
+  const minor = Number.isFinite(parts[1]) ? parts[1] : 0;
+  return `${major}.${minor + 5}.0`;
+}
+
+function fieldLabel(field: string): string {
+  const labels: Record<string, string> = {
+    skill_id: '技能 ID',
+    name: '名称',
+    version: '版本',
+    business_domain: '业务域',
+    description: '描述',
+    trigger_intents: '触发意图',
+    user_utterance_examples: '示例话术',
+    goal: '目标',
+    required_info: '必填信息',
+    response_rules: '回复规则',
+    step_id: '步骤 ID',
+    instruction: '步骤说明',
+    expected_user_info: '期望字段',
+    allowed_actions: '允许动作',
+  };
+  return labels[field] || field;
+}
+
+function diffTargetLabel(path: string, skill: SkillCard | null): string {
+  if (!skill) return path;
+  return targetLabel([path], skill);
 }
 
 function targetLabel(paths: string[], skill: SkillCard): string {

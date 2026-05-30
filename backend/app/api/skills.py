@@ -8,7 +8,7 @@ from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select
 
 from app.db import get_session
-from app.db.models import AgentEvent, ModelConfig, Skill, SkillFeedback, Tool, utc_now
+from app.db.models import AgentEvent, ModelConfig, Skill, SkillFeedback, SkillVersion, Tool, utc_now
 from app.llm import LLMError
 from app.security.tenant import ensure_tenant
 from app.skills import SkillDistiller, SkillEditor
@@ -20,6 +20,7 @@ from app.skills.skill_schema import (
     SkillRead,
     SkillRewriteRequest,
     SkillRewriteResponse,
+    SkillVersionRead,
     SkillUpdateRequest,
 )
 from app.skills.step_ids import skill_card_with_unique_step_ids
@@ -31,6 +32,31 @@ def skill_read(row: Skill, stats: dict[str, dict[str, float | int]] | None = Non
     skill_stats = (stats or {}).get(row.skill_id, {})
     content, _warnings = skill_card_with_unique_step_ids(SkillCard.model_validate(row.content_json))
     return SkillRead(
+        id=row.id,
+        tenant_id=row.tenant_id,
+        skill_id=row.skill_id,
+        version=row.version,
+        name=row.name,
+        business_domain=row.business_domain,
+        description=row.description,
+        content=content,
+        status=row.status,
+        call_count=int(skill_stats.get("call_count", 0)),
+        positive_feedback_count=int(skill_stats.get("positive_feedback_count", 0)),
+        negative_feedback_count=int(skill_stats.get("negative_feedback_count", 0)),
+        positive_rate=float(skill_stats.get("positive_rate", 0.0)),
+        negative_rate=float(skill_stats.get("negative_rate", 0.0)),
+        created_at=row.created_at.isoformat(),
+        updated_at=row.updated_at.isoformat(),
+    )
+
+
+def skill_version_read(
+    row: SkillVersion, stats: dict[str, dict[str, float | int]] | None = None
+) -> SkillVersionRead:
+    skill_stats = _stats_for(stats or {}, row.skill_id, row.version)
+    content, _warnings = skill_card_with_unique_step_ids(SkillCard.model_validate(row.content_json))
+    return SkillVersionRead(
         id=row.id,
         tenant_id=row.tenant_id,
         skill_id=row.skill_id,
@@ -83,6 +109,7 @@ def create_skill(request: SkillCreateRequest, db: Session = Depends(get_session)
     db.add(row)
     db.commit()
     db.refresh(row)
+    _upsert_skill_version(db, row)
     return skill_read(row, _skill_stats(db, request.tenant_id))
 
 
@@ -109,6 +136,7 @@ def update_skill(skill_id: str, request: SkillUpdateRequest, db: Session = Depen
     db.add(row)
     db.commit()
     db.refresh(row)
+    _upsert_skill_version(db, row)
     return skill_read(row, _skill_stats(db, request.tenant_id))
 
 
@@ -120,6 +148,7 @@ def publish_skill(skill_id: str, tenant_id: str = Query(...), db: Session = Depe
     db.add(row)
     db.commit()
     db.refresh(row)
+    _upsert_skill_version(db, row)
     return skill_read(row, _skill_stats(db, tenant_id))
 
 
@@ -131,6 +160,7 @@ def archive_skill(skill_id: str, tenant_id: str = Query(...), db: Session = Depe
     db.add(row)
     db.commit()
     db.refresh(row)
+    _upsert_skill_version(db, row)
     return skill_read(row, _skill_stats(db, tenant_id))
 
 
@@ -149,9 +179,31 @@ def delete_skill(
     ).all()
     for feedback in feedback_rows:
         db.delete(feedback)
+    version_rows = db.exec(
+        select(SkillVersion).where(SkillVersion.tenant_id == tenant_id, SkillVersion.skill_id == skill_id)
+    ).all()
+    for version_row in version_rows:
+        db.delete(version_row)
     db.delete(row)
     db.commit()
     return {"status": "deleted"}
+
+
+@router.get("/{skill_id}/versions", response_model=list[SkillVersionRead])
+def list_skill_versions(
+    skill_id: str,
+    tenant_id: str = Query(...),
+    db: Session = Depends(get_session),
+) -> list[SkillVersionRead]:
+    row = _get_skill(db, tenant_id, skill_id)
+    _upsert_skill_version(db, row)
+    rows = db.exec(
+        select(SkillVersion)
+        .where(SkillVersion.tenant_id == tenant_id, SkillVersion.skill_id == skill_id)
+        .order_by(SkillVersion.created_at.desc())
+    ).all()
+    stats = _skill_stats(db, tenant_id)
+    return [skill_version_read(version_row, stats) for version_row in rows]
 
 
 @router.post("/distill", response_model=SkillDistillResponse)
@@ -251,6 +303,10 @@ def _sse(event: object, data: object) -> str:
 
 def _skill_stats(db: Session, tenant_id: str) -> dict[str, dict[str, float | int]]:
     stats: dict[str, dict[str, float | int]] = {}
+    current_versions = {
+        row.skill_id: row.version
+        for row in db.exec(select(Skill).where(Skill.tenant_id == tenant_id)).all()
+    }
     events = db.exec(
         select(AgentEvent).where(
             AgentEvent.tenant_id == tenant_id,
@@ -262,18 +318,22 @@ def _skill_stats(db: Session, tenant_id: str) -> dict[str, dict[str, float | int
         skill_id = str(payload.get("to_skill_id") or "")
         if not skill_id:
             continue
-        entry = stats.setdefault(skill_id, _empty_stats())
-        entry["call_count"] = int(entry["call_count"]) + 1
+        skill_version = str(payload.get("to_skill_version") or payload.get("skill_version") or "") or current_versions.get(skill_id)
+        _increment_call(stats, skill_id, skill_version)
 
     feedback_rows = db.exec(
         select(SkillFeedback).where(SkillFeedback.tenant_id == tenant_id)
     ).all()
     for feedback in feedback_rows:
-        entry = stats.setdefault(feedback.skill_id, _empty_stats())
-        if feedback.rating == "up":
-            entry["positive_feedback_count"] = int(entry["positive_feedback_count"]) + 1
-        elif feedback.rating == "down":
-            entry["negative_feedback_count"] = int(entry["negative_feedback_count"]) + 1
+        skill_version = feedback.skill_version or current_versions.get(feedback.skill_id)
+        entries = [stats.setdefault(feedback.skill_id, _empty_stats())]
+        if skill_version:
+            entries.append(stats.setdefault(_stats_key(feedback.skill_id, skill_version), _empty_stats()))
+        for entry in entries:
+            if feedback.rating == "up":
+                entry["positive_feedback_count"] = int(entry["positive_feedback_count"]) + 1
+            elif feedback.rating == "down":
+                entry["negative_feedback_count"] = int(entry["negative_feedback_count"]) + 1
 
     for entry in stats.values():
         positive = int(entry["positive_feedback_count"])
@@ -282,6 +342,57 @@ def _skill_stats(db: Session, tenant_id: str) -> dict[str, dict[str, float | int
         entry["positive_rate"] = round(positive / total, 4) if total else 0.0
         entry["negative_rate"] = round(negative / total, 4) if total else 0.0
     return stats
+
+
+def _increment_call(stats: dict[str, dict[str, float | int]], skill_id: str, version: str | None) -> None:
+    entries = [stats.setdefault(skill_id, _empty_stats())]
+    if version:
+        entries.append(stats.setdefault(_stats_key(skill_id, version), _empty_stats()))
+    for entry in entries:
+        entry["call_count"] = int(entry["call_count"]) + 1
+
+
+def _stats_key(skill_id: str, version: str) -> str:
+    return f"{skill_id}@{version}"
+
+
+def _stats_for(stats: dict[str, dict[str, float | int]], skill_id: str, version: str) -> dict[str, float | int]:
+    return stats.get(_stats_key(skill_id, version), stats.get(skill_id, {}))
+
+
+def _upsert_skill_version(db: Session, row: Skill) -> SkillVersion:
+    existing = db.exec(
+        select(SkillVersion).where(
+            SkillVersion.tenant_id == row.tenant_id,
+            SkillVersion.skill_id == row.skill_id,
+            SkillVersion.version == row.version,
+        )
+    ).first()
+    if existing:
+        existing.name = row.name
+        existing.business_domain = row.business_domain
+        existing.description = row.description
+        existing.content_json = row.content_json
+        existing.status = row.status
+        existing.updated_at = utc_now()
+        db.add(existing)
+        db.commit()
+        db.refresh(existing)
+        return existing
+    version_row = SkillVersion(
+        tenant_id=row.tenant_id,
+        skill_id=row.skill_id,
+        version=row.version,
+        name=row.name,
+        business_domain=row.business_domain,
+        description=row.description,
+        content_json=row.content_json,
+        status=row.status,
+    )
+    db.add(version_row)
+    db.commit()
+    db.refresh(version_row)
+    return version_row
 
 
 def _empty_stats() -> dict[str, float | int]:

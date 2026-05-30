@@ -2,8 +2,8 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.api.chat import _active_skill_for_assistant_message
-from app.api.skills import _skill_stats, skill_read
-from app.db.models import AgentEvent, Message, Skill, SkillFeedback
+from app.api.skills import _skill_stats, list_skill_versions, skill_read
+from app.db.models import AgentEvent, Message, Skill, SkillFeedback, Tenant
 from app.skills.skill_editor import SkillEditor
 from app.skills.skill_schema import SkillCard, SkillRewriteRequest
 
@@ -116,18 +116,31 @@ def test_skill_editor_merges_selected_step_id_change() -> None:
 
 def test_skill_stats_counts_skill_entry_and_feedback() -> None:
     with _test_session() as db:
+        db.add(Tenant(id="tenant_demo", name="Demo"))
+        content = _skill_card()
+        db.add(
+            Skill(
+                tenant_id="tenant_demo",
+                skill_id="purchase",
+                version="1.5.0",
+                name="购买商品",
+                content_json=content.model_dump(),
+                status="published",
+            )
+        )
         db.add(
             AgentEvent(
                 tenant_id="tenant_demo",
                 session_id="session_1",
                 event_type="skill_started",
-                payload_json={"to_skill_id": "purchase"},
+                payload_json={"to_skill_id": "purchase", "to_skill_version": "1.5.0"},
             )
         )
         db.add(
             SkillFeedback(
                 tenant_id="tenant_demo",
                 skill_id="purchase",
+                skill_version="1.5.0",
                 session_id="session_1",
                 message_id="msg_1",
                 user_id="user_1",
@@ -138,6 +151,7 @@ def test_skill_stats_counts_skill_entry_and_feedback() -> None:
             SkillFeedback(
                 tenant_id="tenant_demo",
                 skill_id="purchase",
+                skill_version="1.5.0",
                 session_id="session_2",
                 message_id="msg_2",
                 user_id="user_2",
@@ -153,6 +167,73 @@ def test_skill_stats_counts_skill_entry_and_feedback() -> None:
     assert stats["purchase"]["negative_feedback_count"] == 1
     assert stats["purchase"]["positive_rate"] == 0.5
     assert stats["purchase"]["negative_rate"] == 0.5
+    assert stats["purchase@1.5.0"]["call_count"] == 1
+    assert stats["purchase@1.5.0"]["positive_feedback_count"] == 1
+    assert stats["purchase@1.5.0"]["negative_feedback_count"] == 1
+
+
+def test_skill_versions_are_snapshotted_with_version_stats() -> None:
+    with _test_session() as db:
+        db.add(Tenant(id="tenant_demo", name="Demo"))
+        content = _skill_card()
+        row = Skill(
+            tenant_id="tenant_demo",
+            skill_id=content.skill_id,
+            version="1.5.0",
+            name=content.name,
+            content_json=content.model_dump(),
+            status="draft",
+        )
+        db.add(row)
+        db.add(
+            AgentEvent(
+                tenant_id="tenant_demo",
+                session_id="session_1",
+                event_type="skill_started",
+                payload_json={"to_skill_id": content.skill_id, "to_skill_version": "1.5.0"},
+            )
+        )
+        db.commit()
+
+        versions = list_skill_versions(content.skill_id, "tenant_demo", db)
+
+    assert versions[0].version == "1.5.0"
+    assert versions[0].call_count == 1
+
+
+def test_skill_read_uses_aggregate_stats_for_skill_list() -> None:
+    content = _skill_card()
+    row = Skill(
+        tenant_id="tenant_demo",
+        skill_id="purchase",
+        version="1.5.0",
+        name="购买商品",
+        content_json=content.model_dump(),
+        status="published",
+    )
+    payload = skill_read(
+        row,
+        {
+            "purchase": {
+                "call_count": 3,
+                "positive_feedback_count": 2,
+                "negative_feedback_count": 1,
+                "positive_rate": 0.6667,
+                "negative_rate": 0.3333,
+            },
+            "purchase@1.5.0": {
+                "call_count": 1,
+                "positive_feedback_count": 0,
+                "negative_feedback_count": 0,
+                "positive_rate": 0.0,
+                "negative_rate": 0.0,
+            },
+        },
+    )
+
+    assert payload.call_count == 3
+    assert payload.positive_feedback_count == 2
+    assert payload.negative_feedback_count == 1
 
 
 def test_message_feedback_attribution_uses_turn_active_skill() -> None:

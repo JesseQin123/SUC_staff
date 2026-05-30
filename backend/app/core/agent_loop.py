@@ -1597,6 +1597,8 @@ class AgentLoop:
             "decision": decision.decision,
             "from_skill_id": before_skill,
             "to_skill_id": chat_session.active_skill_id,
+            "from_skill_version": self._skill_version(tenant_id, before_skill),
+            "to_skill_version": self._skill_version(tenant_id, chat_session.active_skill_id),
             "from_step_id": before_step,
             "to_step_id": chat_session.active_step_id,
             "skill_stack": chat_session.skill_stack_json,
@@ -1611,6 +1613,14 @@ class AgentLoop:
         elif decision.decision == "handoff_human":
             event_type = "handoff_triggered"
         self.events.record(tenant_id, chat_session.id, event_type, payload)
+
+    def _skill_version(self, tenant_id: str, skill_id: str | None) -> str | None:
+        if not skill_id:
+            return None
+        row = self.db.exec(
+            select(Skill.version).where(Skill.tenant_id == tenant_id, Skill.skill_id == skill_id)
+        ).first()
+        return str(row) if row else None
 
     def _runtime_stream_context(
         self,

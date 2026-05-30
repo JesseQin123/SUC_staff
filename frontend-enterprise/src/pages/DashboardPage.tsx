@@ -24,6 +24,12 @@ export default function DashboardPage() {
   }, []);
 
   const defaultModel = models.find((item) => item.is_default);
+  const totalCalls = skills.reduce((sum, item) => sum + (item.call_count || 0), 0);
+  const positiveFeedback = skills.reduce((sum, item) => sum + (item.positive_feedback_count || 0), 0);
+  const negativeFeedback = skills.reduce((sum, item) => sum + (item.negative_feedback_count || 0), 0);
+  const totalFeedback = positiveFeedback + negativeFeedback;
+  const positiveRate = totalFeedback ? positiveFeedback / totalFeedback : 0;
+  const negativeRate = totalFeedback ? negativeFeedback / totalFeedback : 0;
   return (
     <>
       <div className="page-title">
@@ -48,6 +54,21 @@ export default function DashboardPage() {
         <Col xs={24} md={8} xl={6}>
           <Card>
             <Statistic title="模型配置" value={models.length} prefix={<MessageOutlined />} />
+          </Card>
+        </Col>
+        <Col xs={24} md={8} xl={6}>
+          <Card>
+            <Statistic title="总调用次数" value={totalCalls} prefix={<ApiOutlined />} />
+          </Card>
+        </Col>
+        <Col xs={24} md={8} xl={6}>
+          <Card>
+            <Statistic title="总好评率" value={Math.round(positiveRate * 100)} suffix="%" />
+          </Card>
+        </Col>
+        <Col xs={24} md={8} xl={6}>
+          <Card>
+            <Statistic title="总差评率" value={Math.round(negativeRate * 100)} suffix="%" />
           </Card>
         </Col>
         <Col xs={24} md={12}>

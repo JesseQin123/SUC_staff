@@ -376,9 +376,11 @@ def _upsert_skill_feedback_for_message(
     rating: str,
     now,
 ) -> None:
-    skill_id = _active_skill_for_assistant_message(db, tenant_id, message_row)
-    if not skill_id:
+    skill_context = _active_skill_context_for_assistant_message(db, tenant_id, message_row)
+    if not skill_context:
         return
+    skill_id = skill_context["skill_id"]
+    skill_version = skill_context.get("skill_version")
     existing = db.exec(
         select(SkillFeedback).where(
             SkillFeedback.tenant_id == tenant_id,
@@ -388,6 +390,7 @@ def _upsert_skill_feedback_for_message(
     ).first()
     if existing:
         existing.skill_id = skill_id
+        existing.skill_version = skill_version
         existing.rating = rating
         existing.updated_at = now
         db.add(existing)
@@ -396,6 +399,7 @@ def _upsert_skill_feedback_for_message(
         SkillFeedback(
             tenant_id=tenant_id,
             skill_id=skill_id,
+            skill_version=skill_version,
             session_id=message_row.session_id,
             message_id=message_row.id,
             user_id=user_id,
@@ -424,6 +428,13 @@ def _delete_skill_feedback_for_message(
 
 
 def _active_skill_for_assistant_message(db: Session, tenant_id: str, message_row: Message) -> str | None:
+    context = _active_skill_context_for_assistant_message(db, tenant_id, message_row)
+    return context["skill_id"] if context else None
+
+
+def _active_skill_context_for_assistant_message(
+    db: Session, tenant_id: str, message_row: Message
+) -> dict[str, str | None] | None:
     messages = db.exec(
         select(Message)
         .where(Message.tenant_id == tenant_id, Message.session_id == message_row.session_id)
@@ -445,32 +456,61 @@ def _active_skill_for_assistant_message(db: Session, tenant_id: str, message_row
         .order_by(AgentEvent.created_at)
     ).all()
     collecting = False
-    last_skill_id: str | None = None
+    last_context: dict[str, str | None] | None = None
     for event in events:
         payload = event.payload_json or {}
         if event.event_type == "user_message_received":
             collecting = str(payload.get("message") or "") == user_message.content
-            last_skill_id = None if collecting else last_skill_id
+            last_context = None if collecting else last_context
             continue
         if not collecting:
             continue
-        event_skill_id = _skill_id_from_event(event)
-        if event_skill_id:
-            last_skill_id = event_skill_id
+        event_context = _skill_context_from_event(event)
+        if event_context:
+            last_context = event_context
         if event.event_type == "assistant_message_created" and str(payload.get("reply") or "") == message_row.content:
-            return last_skill_id
-    return last_skill_id
+            return _fill_skill_context_version(db, tenant_id, last_context)
+    return _fill_skill_context_version(db, tenant_id, last_context)
 
 
 def _skill_id_from_event(event: AgentEvent) -> str | None:
+    context = _skill_context_from_event(event)
+    return context["skill_id"] if context else None
+
+
+def _skill_context_from_event(event: AgentEvent) -> dict[str, str | None] | None:
     payload = event.payload_json or {}
     if event.event_type in {"skill_started", "skill_suspended", "skill_resumed", "skill_step_changed"}:
-        return str(payload.get("to_skill_id") or payload.get("from_skill_id") or "") or None
+        skill_id = str(payload.get("to_skill_id") or payload.get("from_skill_id") or "") or None
+        if not skill_id:
+            return None
+        skill_version = str(payload.get("to_skill_version") or payload.get("from_skill_version") or "") or None
+        return {"skill_id": skill_id, "skill_version": skill_version}
     if event.event_type == "skill_completed":
-        return str(payload.get("skill_id") or "") or None
+        skill_id = str(payload.get("skill_id") or "") or None
+        if not skill_id:
+            return None
+        return {"skill_id": skill_id, "skill_version": str(payload.get("skill_version") or "") or None}
     if event.event_type == "reflection_decision_created":
-        return str(payload.get("target_skill_id") or "") or None
+        skill_id = str(payload.get("target_skill_id") or "") or None
+        if not skill_id:
+            return None
+        return {"skill_id": skill_id, "skill_version": str(payload.get("target_skill_version") or "") or None}
     return None
+
+
+def _fill_skill_context_version(
+    db: Session, tenant_id: str, context: dict[str, str | None] | None
+) -> dict[str, str | None] | None:
+    if not context or context.get("skill_version"):
+        return context
+    skill_id = context.get("skill_id")
+    if not skill_id:
+        return context
+    skill = db.exec(select(Skill).where(Skill.tenant_id == tenant_id, Skill.skill_id == skill_id)).first()
+    if skill:
+        return {**context, "skill_version": skill.version}
+    return context
 
 
 def _ensure_request_tenant(tenant_id: str, current_user: User) -> None:

@@ -55,6 +55,23 @@ class Skill(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=utc_now)
 
 
+class SkillVersion(SQLModel, table=True):
+    __tablename__ = "skill_versions"
+    __table_args__ = (UniqueConstraint("tenant_id", "skill_id", "version", name="uq_skill_version"),)
+
+    id: str = Field(default_factory=lambda: new_id("skillver"), primary_key=True)
+    tenant_id: str = Field(index=True)
+    skill_id: str = Field(index=True)
+    version: str = Field(index=True)
+    name: str
+    business_domain: Optional[str] = None
+    description: Optional[str] = None
+    content_json: dict[str, Any] = Field(sa_column=Column(JSON, nullable=False))
+    status: str = Field(default="draft", index=True)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
 class ModelConfig(SQLModel, table=True):
     __tablename__ = "model_configs"
 
@@ -186,6 +203,7 @@ class SkillFeedback(SQLModel, table=True):
     id: str = Field(default_factory=lambda: new_id("skillfb"), primary_key=True)
     tenant_id: str = Field(index=True)
     skill_id: str = Field(index=True)
+    skill_version: Optional[str] = Field(default=None, index=True)
     session_id: str = Field(index=True)
     message_id: str = Field(index=True)
     user_id: str = Field(index=True)

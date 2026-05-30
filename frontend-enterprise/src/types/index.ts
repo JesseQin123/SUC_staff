@@ -31,6 +31,10 @@ export type SkillRead = {
   updated_at: string;
 };
 
+export type SkillVersionRead = SkillRead & {
+  created_at: string;
+};
+
 export type ModelConfigRead = {
   id: string;
   tenant_id: string;

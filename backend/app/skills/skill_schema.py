@@ -62,6 +62,27 @@ class SkillRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class SkillVersionRead(BaseModel):
+    id: str
+    tenant_id: str
+    skill_id: str
+    version: str
+    name: str
+    business_domain: Optional[str]
+    description: Optional[str]
+    content: SkillCard
+    status: str
+    call_count: int = 0
+    positive_feedback_count: int = 0
+    negative_feedback_count: int = 0
+    positive_rate: float = 0.0
+    negative_rate: float = 0.0
+    created_at: str
+    updated_at: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class SkillDistillRequest(BaseModel):
     tenant_id: str
     title: str
