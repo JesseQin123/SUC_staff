@@ -27,7 +27,7 @@ BASIC_FIELDS = {
     "interruption_policy",
     "response_rules",
 }
-STEP_FIELDS = {"name", "instruction", "expected_user_info", "allowed_actions"}
+STEP_FIELDS = {"step_id", "name", "instruction", "expected_user_info", "allowed_actions"}
 
 
 class SkillEditor:

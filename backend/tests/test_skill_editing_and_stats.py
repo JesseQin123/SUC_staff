@@ -89,6 +89,31 @@ def test_skill_editor_can_target_duplicate_step_ids_by_index() -> None:
     assert response.draft_skill.steps[1].instruction == "只修改第二个重复 step"
 
 
+def test_skill_editor_merges_selected_step_id_change() -> None:
+    current = _skill_card()
+    current.steps[1].step_id = "create_order"
+    candidate = _skill_card()
+    candidate.steps[1].step_id = "feedback_order_result"
+
+    response = SkillEditor()._normalize_response(  # noqa: SLF001
+        {
+            "assistant_message": "已修正步骤 ID。",
+            "draft_skill": candidate.model_dump(),
+        },
+        SkillRewriteRequest(
+            tenant_id="tenant_demo",
+            current_skill=current,
+            instruction="把反馈订单结果的 step_id 从 create_order 改成 feedback_order_result",
+            target_path="steps[1]",
+            target_paths=["steps[1]"],
+            target_label="步骤 2：反馈结果",
+        ),
+    )
+
+    assert response.draft_skill.steps[0].step_id == current.steps[0].step_id
+    assert response.draft_skill.steps[1].step_id == "feedback_order_result"
+
+
 def test_skill_stats_counts_skill_entry_and_feedback() -> None:
     with _test_session() as db:
         db.add(
