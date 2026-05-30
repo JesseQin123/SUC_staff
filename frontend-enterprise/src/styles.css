@@ -644,6 +644,36 @@ select,
   background: var(--surface-muted);
 }
 
+.skill-chat-thinking {
+  margin-bottom: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.skill-chat-thinking.running {
+  color: #1677ff;
+}
+
+.skill-chat-thinking.done {
+  color: #0f766e;
+}
+
+.skill-chat-confirm {
+  margin-top: 12px;
+  display: flex;
+  gap: 8px;
+}
+
+.skill-chat-decision {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .skill-chat-composer {
   display: grid;
   gap: 10px;
@@ -694,6 +724,19 @@ select,
 
 .skill-source-section.active {
   background: #f7f7f7;
+}
+
+.skill-source-section.changed,
+.skill-flow-node.changed {
+  border-color: #0f766e;
+  background: #f0fdfa;
+  box-shadow: 0 12px 30px rgba(15, 118, 110, 0.12);
+  transition: background 450ms ease, border-color 450ms ease, box-shadow 450ms ease;
+}
+
+.skill-source-section.updating,
+.skill-flow-node.updating {
+  animation: skill-change-pulse 900ms ease-in-out infinite alternate;
 }
 
 .selection-mark {
@@ -779,6 +822,16 @@ select,
 
 .skill-flow-node.active {
   background: #f7f7f7;
+}
+
+@keyframes skill-change-pulse {
+  from {
+    box-shadow: 0 8px 24px rgba(15, 118, 110, 0.08);
+  }
+
+  to {
+    box-shadow: 0 16px 38px rgba(15, 118, 110, 0.18);
+  }
 }
 
 .skill-flow-node span {

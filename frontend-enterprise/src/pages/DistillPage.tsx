@@ -2,6 +2,7 @@ import {
   BranchesOutlined,
   CheckOutlined,
   CodeOutlined,
+  LoadingOutlined,
   SaveOutlined,
   SendOutlined,
   StopOutlined,
@@ -16,6 +17,8 @@ type ChatItem = {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  thinking?: 'running' | 'done';
+  actionState?: 'pending' | 'confirmed' | 'rejected';
 };
 
 type TargetSelection = {
@@ -24,6 +27,12 @@ type TargetSelection = {
 };
 
 type ViewMode = 'source' | 'flow';
+type PendingChange = {
+  assistantId: string;
+  previousDraft: SkillCard;
+  nextDraft: SkillCard;
+  changedPaths: string[];
+};
 
 const DEFAULT_TARGET_PATHS = ['basic'];
 
@@ -42,10 +51,14 @@ export default function DistillPage() {
   ]);
   const [input, setInput] = useState('');
   const [selectedPaths, setSelectedPaths] = useState<string[]>(DEFAULT_TARGET_PATHS);
+  const [highlightedPaths, setHighlightedPaths] = useState<string[]>([]);
+  const [updatingPaths, setUpdatingPaths] = useState<string[]>([]);
+  const [pendingChange, setPendingChange] = useState<PendingChange | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('source');
   const [loading, setLoading] = useState(false);
   const [streamStatus, setStreamStatus] = useState('');
   const abortRef = useRef<AbortController | null>(null);
+  const animationTimersRef = useRef<number[]>([]);
 
   useEffect(() => {
     if (!skillId) {
@@ -53,6 +66,9 @@ export default function DistillPage() {
       setLoadedSkill(null);
       setWarnings([]);
       setSelectedPaths(DEFAULT_TARGET_PATHS);
+      setPendingChange(null);
+      setHighlightedPaths([]);
+      setUpdatingPaths([]);
       return;
     }
     api
@@ -61,6 +77,9 @@ export default function DistillPage() {
         setDraft(result.content);
         setLoadedSkill(result);
         setSelectedPaths(DEFAULT_TARGET_PATHS);
+        setPendingChange(null);
+        setHighlightedPaths([]);
+        setUpdatingPaths([]);
         setMessages([
           {
             id: 'loaded',
@@ -72,28 +91,33 @@ export default function DistillPage() {
       .catch((error) => message.error(error instanceof Error ? error.message : '加载技能失败'));
   }, [skillId]);
 
-  useEffect(() => () => abortRef.current?.abort(), []);
+  useEffect(() => () => {
+    abortRef.current?.abort();
+    clearAnimationTimers();
+  }, []);
 
   const allPaths = useMemo(() => (draft ? allTargetPaths(draft) : DEFAULT_TARGET_PATHS), [draft]);
-  const allSelected = draft ? allPaths.every((path) => selectedPaths.includes(path)) : false;
+  const allSelected = draft ? selectedPaths.length > 0 && allPaths.every((path) => selectedPaths.includes(path)) : false;
 
   async function send() {
     const text = input.trim();
     if (!text || loading) return;
+    const confirmedDraft = pendingChange?.nextDraft || draft;
+    confirmPendingChange(false);
     setInput('');
     pushMessage('user', text);
-    if (!draft) {
+    if (!confirmedDraft) {
       await createDraftFromText(text);
       return;
     }
-    await rewriteSelectedTarget(text);
+    await rewriteSelectedTarget(text, confirmedDraft);
   }
 
   async function createDraftFromText(text: string) {
     const payload = parseInitialSkillPrompt(text);
     setLoading(true);
     setStreamStatus('正在生成技能草稿');
-    const assistantId = pushMessage('assistant', '正在生成技能草稿...');
+    const assistantId = pushMessage('assistant', '', { thinking: 'running' });
     const controller = new AbortController();
     abortRef.current = controller;
     try {
@@ -110,6 +134,7 @@ export default function DistillPage() {
             updateMessage(
               assistantId,
               `已生成「${draftSkill.name}」草稿。你可以在右侧选择一个或多个区域继续改写。`,
+              { thinking: 'done' },
             );
             setStreamStatus('生成完成');
           }
@@ -117,7 +142,7 @@ export default function DistillPage() {
         controller.signal,
       );
     } catch (error) {
-      updateMessage(assistantId, '生成失败，当前草稿未变更。');
+      updateMessage(assistantId, '生成失败，当前草稿未变更。', { thinking: 'done' });
       if (controller.signal.aborted) {
         message.info('已停止生成');
       } else {
@@ -128,25 +153,26 @@ export default function DistillPage() {
     }
   }
 
-  async function rewriteSelectedTarget(text: string) {
-    if (!draft) return;
+  async function rewriteSelectedTarget(text: string, currentDraft: SkillCard | null = draft) {
+    if (!currentDraft) return;
+    const previousDraft = cloneSkill(currentDraft);
     setLoading(true);
     setStreamStatus('正在改写选中内容');
-    const assistantId = pushMessage('assistant', '');
+    const assistantId = pushMessage('assistant', '', { thinking: 'running' });
     const controller = new AbortController();
     let receivedMessageChunk = false;
-    const targets = selectedPaths.length > 0 ? selectedPaths : DEFAULT_TARGET_PATHS;
+    const targets = selectedPaths.length > 0 ? selectedPaths : allTargetPaths(currentDraft);
     abortRef.current = controller;
     try {
       await streamPost(
-        `/api/enterprise/skills/${encodeURIComponent(draft.skill_id)}/rewrite/stream`,
+        `/api/enterprise/skills/${encodeURIComponent(currentDraft.skill_id)}/rewrite/stream`,
         {
           tenant_id: TENANT_ID,
-          current_skill: draft,
+          current_skill: currentDraft,
           instruction: text,
           target_path: targets[0],
           target_paths: targets,
-          target_label: targetLabel(targets, draft),
+          target_label: targetLabel(targets, currentDraft),
           conversation: messages.map((item) => ({ role: item.role, content: item.content })),
         },
         (item) => {
@@ -161,19 +187,26 @@ export default function DistillPage() {
           if (item.event === 'complete') {
             const nextDraft = item.data.draft_skill as SkillCard;
             const nextWarnings = Array.isArray(item.data.warnings) ? item.data.warnings.map(String) : [];
-            setDraft(nextDraft);
+            const changedPaths = diffTargetPaths(previousDraft, nextDraft, targets);
+            animateDraftChange(previousDraft, nextDraft, changedPaths);
+            setPendingChange({ assistantId, previousDraft, nextDraft, changedPaths });
             setSelectedPaths((current) => reconcileSelectedPaths(current, nextDraft));
             setWarnings(nextWarnings);
             setStreamStatus('改写完成');
             if (!receivedMessageChunk) {
-              updateMessage(assistantId, String(item.data.assistant_message || '已完成局部改写。'));
+              updateMessage(assistantId, String(item.data.assistant_message || '已完成局部改写。'), {
+                thinking: 'done',
+                actionState: 'pending',
+              });
+            } else {
+              updateMessage(assistantId, undefined, { thinking: 'done', actionState: 'pending' });
             }
           }
         },
         controller.signal,
       );
     } catch (error) {
-      updateMessage(assistantId, '改写失败，当前草稿未变更。');
+      updateMessage(assistantId, '改写失败，当前草稿未变更。', { thinking: 'done' });
       if (controller.signal.aborted) {
         message.info('已停止改写');
       } else {
@@ -221,24 +254,26 @@ export default function DistillPage() {
   function toggleTarget(target: TargetSelection) {
     setSelectedPaths((current) => {
       if (current.includes(target.path)) {
-        return current.length > 1 ? current.filter((path) => path !== target.path) : current;
+        return current.filter((path) => path !== target.path);
       }
       return [...current, target.path];
     });
   }
 
   function toggleAllTargets() {
-    setSelectedPaths(allSelected ? DEFAULT_TARGET_PATHS : allPaths);
+    setSelectedPaths(allSelected ? [] : allPaths);
   }
 
-  function pushMessage(role: ChatItem['role'], content: string) {
+  function pushMessage(role: ChatItem['role'], content: string, extra: Partial<ChatItem> = {}) {
     const id = `${role}_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-    setMessages((current) => [...current, { id, role, content }]);
+    setMessages((current) => [...current, { id, role, content, ...extra }]);
     return id;
   }
 
-  function updateMessage(id: string, content: string) {
-    setMessages((current) => current.map((item) => (item.id === id ? { ...item, content } : item)));
+  function updateMessage(id: string, content?: string, extra: Partial<ChatItem> = {}) {
+    setMessages((current) =>
+      current.map((item) => (item.id === id ? { ...item, ...(content === undefined ? {} : { content }), ...extra } : item)),
+    );
   }
 
   function appendMessage(id: string, content: string) {
@@ -252,6 +287,69 @@ export default function DistillPage() {
     setLoading(false);
   }
 
+  function confirmPendingChange(showToast = true) {
+    if (!pendingChange) return;
+    clearAnimationTimers();
+    setDraft(pendingChange.nextDraft);
+    setHighlightedPaths([]);
+    setUpdatingPaths([]);
+    updateMessage(pendingChange.assistantId, undefined, { actionState: 'confirmed' });
+    setPendingChange(null);
+    if (showToast) message.success('已确认改写');
+  }
+
+  function rejectPendingChange() {
+    if (!pendingChange) return;
+    clearAnimationTimers();
+    setDraft(pendingChange.previousDraft);
+    setHighlightedPaths([]);
+    setUpdatingPaths([]);
+    updateMessage(pendingChange.assistantId, undefined, { actionState: 'rejected' });
+    setPendingChange(null);
+    message.info('已拒绝改写并还原');
+  }
+
+  function animateDraftChange(previousDraft: SkillCard, nextDraft: SkillCard, changedPaths: string[]) {
+    clearAnimationTimers();
+    const paths = changedPaths;
+    if (paths.length === 0) {
+      setDraft(nextDraft);
+      setHighlightedPaths([]);
+      setUpdatingPaths([]);
+      return;
+    }
+    setHighlightedPaths(paths);
+    setUpdatingPaths(paths);
+    setDraft(previousDraft);
+    const startTimer = window.setTimeout(() => {
+      const steps = 18;
+      let tick = 0;
+      const interval = window.setInterval(() => {
+        tick += 1;
+        const progress = Math.min(tick / steps, 1);
+        setDraft(typedDraft(previousDraft, nextDraft, paths, progress));
+        if (progress >= 1) {
+          window.clearInterval(interval);
+          animationTimersRef.current = animationTimersRef.current.filter((timer) => timer !== interval);
+          setDraft(nextDraft);
+          setUpdatingPaths([]);
+          const clearTimer = window.setTimeout(() => setHighlightedPaths([]), 1800);
+          animationTimersRef.current.push(clearTimer);
+        }
+      }, 38);
+      animationTimersRef.current.push(interval);
+    }, 220);
+    animationTimersRef.current.push(startTimer);
+  }
+
+  function clearAnimationTimers() {
+    animationTimersRef.current.forEach((timer) => {
+      window.clearTimeout(timer);
+      window.clearInterval(timer);
+    });
+    animationTimersRef.current = [];
+  }
+
   return (
     <>
       <div className="page-title">
@@ -263,7 +361,27 @@ export default function DistillPage() {
             <div className="skill-chat-messages">
               {messages.map((item) => (
                 <div key={item.id} className={`skill-chat-row ${item.role}`}>
-                  <div className="skill-chat-bubble">{item.content || '正在处理...'}</div>
+                  <div className="skill-chat-bubble">
+                    {item.role === 'assistant' && item.thinking && (
+                      <div className={`skill-chat-thinking ${item.thinking}`}>
+                        {item.thinking === 'running' ? <LoadingOutlined /> : <CheckOutlined />}
+                        <span>{item.thinking === 'running' ? '正在思考' : '已完成思考'}</span>
+                      </div>
+                    )}
+                    {item.content ? <div>{item.content}</div> : item.thinking === 'running' ? null : '正在处理...'}
+                    {item.actionState === 'pending' && (
+                      <div className="skill-chat-confirm">
+                        <Button size="small" type="primary" onClick={() => confirmPendingChange()}>
+                          确认
+                        </Button>
+                        <Button size="small" onClick={rejectPendingChange}>
+                          拒绝
+                        </Button>
+                      </div>
+                    )}
+                    {item.actionState === 'confirmed' && <div className="skill-chat-decision">已确认</div>}
+                    {item.actionState === 'rejected' && <div className="skill-chat-decision">已拒绝</div>}
+                  </div>
                 </div>
               ))}
             </div>
@@ -318,7 +436,7 @@ export default function DistillPage() {
                 {viewMode === 'source' ? '显示流程' : '显示源码'}
               </Button>
               <Button disabled={!draft} onClick={toggleAllTargets}>
-                {allSelected ? '取消全选' : '全选'}
+                {allSelected ? '清空选择' : '全选'}
               </Button>
             </Space>
           </div>
@@ -331,10 +449,18 @@ export default function DistillPage() {
             <SkillSource
               skill={draft}
               selectedPaths={selectedPaths}
+              highlightedPaths={highlightedPaths}
+              updatingPaths={updatingPaths}
               onToggle={toggleTarget}
             />
           ) : (
-            <SkillFlow skill={draft} selectedPaths={selectedPaths} onToggle={toggleTarget} />
+            <SkillFlow
+              skill={draft}
+              selectedPaths={selectedPaths}
+              highlightedPaths={highlightedPaths}
+              updatingPaths={updatingPaths}
+              onToggle={toggleTarget}
+            />
           )}
         </Card>
       </div>
@@ -345,10 +471,14 @@ export default function DistillPage() {
 function SkillSource({
   skill,
   selectedPaths,
+  highlightedPaths,
+  updatingPaths,
   onToggle,
 }: {
   skill: SkillCard;
   selectedPaths: string[];
+  highlightedPaths: string[];
+  updatingPaths: string[];
   onToggle: (target: TargetSelection) => void;
 }) {
   return (
@@ -356,7 +486,7 @@ function SkillSource({
       <div className="skill-source-group-title">基础信息</div>
       <button
         type="button"
-        className={`skill-source-section ${selectedPaths.includes('basic') ? 'active' : ''}`}
+        className={targetClass('skill-source-section', 'basic', selectedPaths, highlightedPaths, updatingPaths)}
         onClick={() => onToggle({ path: 'basic', label: '基础信息' })}
       >
         {selectedPaths.includes('basic') && <span className="selection-mark"><CheckOutlined /></span>}
@@ -371,7 +501,7 @@ function SkillSource({
             <button
               type="button"
               key={path}
-              className={`skill-source-section ${selectedPaths.includes(path) ? 'active' : ''}`}
+              className={targetClass('skill-source-section', path, selectedPaths, highlightedPaths, updatingPaths)}
               onClick={() => onToggle({ path, label: `步骤 ${index + 1}：${step.name || stepId}` })}
             >
               {selectedPaths.includes(path) && <span className="selection-mark"><CheckOutlined /></span>}
@@ -387,17 +517,21 @@ function SkillSource({
 function SkillFlow({
   skill,
   selectedPaths,
+  highlightedPaths,
+  updatingPaths,
   onToggle,
 }: {
   skill: SkillCard;
   selectedPaths: string[];
+  highlightedPaths: string[];
+  updatingPaths: string[];
   onToggle: (target: TargetSelection) => void;
 }) {
   return (
     <div className="skill-flow">
       <button
         type="button"
-        className={`skill-flow-node root ${selectedPaths.includes('basic') ? 'active' : ''}`}
+        className={targetClass('skill-flow-node root', 'basic', selectedPaths, highlightedPaths, updatingPaths)}
         onClick={() => onToggle({ path: 'basic', label: '基础信息' })}
       >
         {selectedPaths.includes('basic') && <span className="selection-mark"><CheckOutlined /></span>}
@@ -422,7 +556,7 @@ function SkillFlow({
             <div className="skill-flow-line" />
             <button
               type="button"
-              className={`skill-flow-node ${selectedPaths.includes(path) ? 'active' : ''}`}
+              className={targetClass('skill-flow-node', path, selectedPaths, highlightedPaths, updatingPaths)}
               onClick={() => onToggle({ path, label: `步骤 ${index + 1}：${step.name || stepId}` })}
             >
               {selectedPaths.includes(path) && <span className="selection-mark"><CheckOutlined /></span>}
@@ -506,9 +640,121 @@ function allTargetPaths(skill: SkillCard): string[] {
 }
 
 function reconcileSelectedPaths(paths: string[], skill: SkillCard): string[] {
+  if (paths.length === 0) return [];
   const available = allTargetPaths(skill);
   const next = paths.filter((path) => available.includes(path));
   return next.length > 0 ? next : DEFAULT_TARGET_PATHS;
+}
+
+function targetClass(
+  baseClass: string,
+  path: string,
+  selectedPaths: string[],
+  highlightedPaths: string[],
+  updatingPaths: string[],
+): string {
+  return [
+    baseClass,
+    selectedPaths.includes(path) ? 'active' : '',
+    highlightedPaths.includes(path) ? 'changed' : '',
+    updatingPaths.includes(path) ? 'updating' : '',
+  ].filter(Boolean).join(' ');
+}
+
+function cloneSkill(skill: SkillCard): SkillCard {
+  return JSON.parse(JSON.stringify(skill)) as SkillCard;
+}
+
+function diffTargetPaths(previousDraft: SkillCard, nextDraft: SkillCard, targetPaths: string[]): string[] {
+  const candidates = Array.from(new Set([...targetPaths, ...allTargetPaths(previousDraft), ...allTargetPaths(nextDraft)]));
+  return candidates.filter((path) => sectionSignature(previousDraft, path) !== sectionSignature(nextDraft, path));
+}
+
+function sectionSignature(skill: SkillCard, path: string): string {
+  if (path === 'basic') {
+    return JSON.stringify({
+      skill_id: skill.skill_id,
+      name: skill.name,
+      version: skill.version,
+      business_domain: skill.business_domain || '',
+      description: skill.description,
+      trigger_intents: skill.trigger_intents || [],
+      user_utterance_examples: skill.user_utterance_examples || [],
+      goal: skill.goal || [],
+      required_info: skill.required_info || [],
+      interruption_policy: skill.interruption_policy || {},
+      response_rules: skill.response_rules || [],
+    });
+  }
+  const stepIndex = stepIndexFromPath(path);
+  if (stepIndex === null) return '';
+  return JSON.stringify(skill.steps[stepIndex] || null);
+}
+
+function typedDraft(previousDraft: SkillCard, nextDraft: SkillCard, changedPaths: string[], progress: number): SkillCard {
+  const next = cloneSkill(nextDraft);
+  const output = cloneSkill(previousDraft);
+  if (changedPaths.includes('basic')) {
+    output.skill_id = typeString(next.skill_id, progress);
+    output.name = typeString(next.name, progress);
+    output.version = typeString(next.version, progress);
+    output.business_domain = typeString(next.business_domain || '', progress);
+    output.description = typeString(next.description, progress);
+    output.trigger_intents = typeStringList(next.trigger_intents, progress);
+    output.user_utterance_examples = typeStringList(next.user_utterance_examples, progress);
+    output.goal = typeStringList(next.goal, progress);
+    output.required_info = typeStringList(next.required_info, progress);
+    output.response_rules = typeStringList(next.response_rules, progress);
+    output.interruption_policy = progress >= 1 ? next.interruption_policy : output.interruption_policy;
+  }
+  changedPaths.forEach((path) => {
+    const stepIndex = stepIndexFromPath(path);
+    if (stepIndex === null) return;
+    const nextStep = next.steps[stepIndex];
+    if (!nextStep) return;
+    const previousStep = (previousDraft.steps[stepIndex] || {}) as Record<string, unknown>;
+    output.steps[stepIndex] = typedStep(previousStep, nextStep, progress);
+  });
+  return output;
+}
+
+function typedStep(
+  previousStep: Record<string, unknown>,
+  nextStep: Record<string, unknown>,
+  progress: number,
+): Record<string, unknown> {
+  const output: Record<string, unknown> = { ...previousStep };
+  Object.entries(nextStep).forEach(([key, value]) => {
+    if (typeof value === 'string') {
+      output[key] = typeString(value, progress);
+      return;
+    }
+    if (Array.isArray(value) && value.every((item) => typeof item === 'string')) {
+      output[key] = typeStringList(value as string[], progress);
+      return;
+    }
+    output[key] = progress >= 1 ? value : previousStep[key];
+  });
+  return output;
+}
+
+function typeString(value: string, progress: number): string {
+  const safeValue = value || '';
+  if (progress <= 0) return '';
+  return safeValue.slice(0, Math.ceil(safeValue.length * progress));
+}
+
+function typeStringList(values: string[] | undefined, progress: number): string[] {
+  if (!values || values.length === 0) return [];
+  const totalChars = values.join('\n').length;
+  let remaining = Math.ceil(totalChars * progress);
+  return values.reduce<string[]>((acc, value) => {
+    if (remaining <= 0) return acc;
+    const next = value.slice(0, Math.min(value.length, remaining));
+    remaining -= value.length + 1;
+    if (next) acc.push(next);
+    return acc;
+  }, []);
 }
 
 function targetLabel(paths: string[], skill: SkillCard): string {
