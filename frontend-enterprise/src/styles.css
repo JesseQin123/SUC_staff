@@ -1010,6 +1010,26 @@ select,
   white-space: nowrap;
 }
 
+.version-detail {
+  display: grid;
+  gap: 16px;
+}
+
+.version-detail-source {
+  max-height: 520px;
+  margin: 0;
+  padding: 16px;
+  overflow: auto;
+  color: var(--foreground);
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
 .skill-flow-node:hover,
 .skill-flow-node.active {
   border-color: var(--foreground);

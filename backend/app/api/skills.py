@@ -29,7 +29,7 @@ router = APIRouter(prefix="/api/enterprise/skills", tags=["enterprise:skills"])
 
 
 def skill_read(row: Skill, stats: dict[str, dict[str, float | int]] | None = None) -> SkillRead:
-    skill_stats = (stats or {}).get(row.skill_id, {})
+    skill_stats = _stats_for(stats or {}, row.skill_id, row.version)
     content, _warnings = skill_card_with_unique_step_ids(SkillCard.model_validate(row.content_json))
     return SkillRead(
         id=row.id,
@@ -196,7 +196,15 @@ def list_skill_versions(
     db: Session = Depends(get_session),
 ) -> list[SkillVersionRead]:
     row = _get_skill(db, tenant_id, skill_id)
-    _upsert_skill_version(db, row)
+    current_snapshot = db.exec(
+        select(SkillVersion).where(
+            SkillVersion.tenant_id == tenant_id,
+            SkillVersion.skill_id == skill_id,
+            SkillVersion.version == row.version,
+        )
+    ).first()
+    if not current_snapshot:
+        _upsert_skill_version(db, row)
     rows = db.exec(
         select(SkillVersion)
         .where(SkillVersion.tenant_id == tenant_id, SkillVersion.skill_id == skill_id)
@@ -204,6 +212,49 @@ def list_skill_versions(
     ).all()
     stats = _skill_stats(db, tenant_id)
     return [skill_version_read(version_row, stats) for version_row in rows]
+
+
+@router.get("/{skill_id}/versions/{version}", response_model=SkillVersionRead)
+def get_skill_version(
+    skill_id: str,
+    version: str,
+    tenant_id: str = Query(...),
+    db: Session = Depends(get_session),
+) -> SkillVersionRead:
+    row = _get_skill_version(db, tenant_id, skill_id, version)
+    return skill_version_read(row, _skill_stats(db, tenant_id))
+
+
+@router.post("/{skill_id}/versions/{version}/rollback", response_model=SkillRead)
+def rollback_skill_version(
+    skill_id: str,
+    version: str,
+    tenant_id: str = Query(...),
+    db: Session = Depends(get_session),
+) -> SkillRead:
+    row = _get_skill(db, tenant_id, skill_id)
+    version_row = _get_skill_version(db, tenant_id, skill_id, version)
+    normalized_content, _warnings = skill_card_with_unique_step_ids(
+        SkillCard.model_validate(version_row.content_json)
+    )
+    normalized_content = normalized_content.model_copy(
+        update={
+            "version": version_row.version,
+            "name": version_row.name,
+            "business_domain": version_row.business_domain,
+            "description": version_row.description or normalized_content.description,
+        }
+    )
+    row.version = version_row.version
+    row.name = version_row.name
+    row.business_domain = version_row.business_domain
+    row.description = version_row.description
+    row.content_json = normalized_content.model_dump()
+    row.updated_at = utc_now()
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return skill_read(row, _skill_stats(db, tenant_id))
 
 
 @router.post("/distill", response_model=SkillDistillResponse)
@@ -303,10 +354,6 @@ def _sse(event: object, data: object) -> str:
 
 def _skill_stats(db: Session, tenant_id: str) -> dict[str, dict[str, float | int]]:
     stats: dict[str, dict[str, float | int]] = {}
-    current_versions = {
-        row.skill_id: row.version
-        for row in db.exec(select(Skill).where(Skill.tenant_id == tenant_id)).all()
-    }
     events = db.exec(
         select(AgentEvent).where(
             AgentEvent.tenant_id == tenant_id,
@@ -318,14 +365,14 @@ def _skill_stats(db: Session, tenant_id: str) -> dict[str, dict[str, float | int
         skill_id = str(payload.get("to_skill_id") or "")
         if not skill_id:
             continue
-        skill_version = str(payload.get("to_skill_version") or payload.get("skill_version") or "") or current_versions.get(skill_id)
+        skill_version = str(payload.get("to_skill_version") or payload.get("skill_version") or "") or None
         _increment_call(stats, skill_id, skill_version)
 
     feedback_rows = db.exec(
         select(SkillFeedback).where(SkillFeedback.tenant_id == tenant_id)
     ).all()
     for feedback in feedback_rows:
-        skill_version = feedback.skill_version or current_versions.get(feedback.skill_id)
+        skill_version = feedback.skill_version
         entries = [stats.setdefault(feedback.skill_id, _empty_stats())]
         if skill_version:
             entries.append(stats.setdefault(_stats_key(feedback.skill_id, skill_version), _empty_stats()))
@@ -357,7 +404,7 @@ def _stats_key(skill_id: str, version: str) -> str:
 
 
 def _stats_for(stats: dict[str, dict[str, float | int]], skill_id: str, version: str) -> dict[str, float | int]:
-    return stats.get(_stats_key(skill_id, version), stats.get(skill_id, {}))
+    return stats.get(_stats_key(skill_id, version), {})
 
 
 def _upsert_skill_version(db: Session, row: Skill) -> SkillVersion:
@@ -412,4 +459,18 @@ def _get_skill(db: Session, tenant_id: str, skill_id: str) -> Skill:
     ).first()
     if not row:
         raise HTTPException(status_code=404, detail="Skill not found")
+    return row
+
+
+def _get_skill_version(db: Session, tenant_id: str, skill_id: str, version: str) -> SkillVersion:
+    ensure_tenant(db, tenant_id)
+    row = db.exec(
+        select(SkillVersion).where(
+            SkillVersion.tenant_id == tenant_id,
+            SkillVersion.skill_id == skill_id,
+            SkillVersion.version == version,
+        )
+    ).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Skill version not found")
     return row

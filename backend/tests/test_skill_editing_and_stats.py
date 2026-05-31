@@ -1,9 +1,9 @@
 from sqlalchemy.pool import StaticPool
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.api.chat import _active_skill_for_assistant_message
-from app.api.skills import _skill_stats, list_skill_versions, skill_read
-from app.db.models import AgentEvent, Message, Skill, SkillFeedback, Tenant
+from app.api.skills import _skill_stats, list_skill_versions, rollback_skill_version, skill_read
+from app.db.models import AgentEvent, Message, Skill, SkillFeedback, SkillVersion, Tenant
 from app.db.models import ModelConfig
 from app.skills.skill_distiller import SkillDistiller
 from app.skills.skill_editor import SkillEditor
@@ -204,7 +204,125 @@ def test_skill_versions_are_snapshotted_with_version_stats() -> None:
     assert versions[0].call_count == 1
 
 
-def test_skill_read_uses_aggregate_stats_for_skill_list() -> None:
+def test_skill_version_stats_do_not_inherit_unversioned_history() -> None:
+    with _test_session() as db:
+        db.add(Tenant(id="tenant_demo", name="Demo"))
+        content = _skill_card()
+        db.add(
+            Skill(
+                tenant_id="tenant_demo",
+                skill_id=content.skill_id,
+                version="1.1.0",
+                name=content.name,
+                content_json=content.model_dump(),
+                status="published",
+            )
+        )
+        db.add(
+            SkillVersion(
+                tenant_id="tenant_demo",
+                skill_id=content.skill_id,
+                version="1.1.0",
+                name=content.name,
+                content_json={**content.model_dump(), "version": "1.1.0"},
+                status="published",
+            )
+        )
+        db.add(
+            AgentEvent(
+                tenant_id="tenant_demo",
+                session_id="session_legacy",
+                event_type="skill_started",
+                payload_json={"to_skill_id": content.skill_id},
+            )
+        )
+        db.add(
+            SkillFeedback(
+                tenant_id="tenant_demo",
+                skill_id=content.skill_id,
+                session_id="session_legacy",
+                message_id="msg_legacy",
+                user_id="user_legacy",
+                rating="down",
+            )
+        )
+        db.commit()
+
+        versions = list_skill_versions(content.skill_id, "tenant_demo", db)
+        stats = _skill_stats(db, "tenant_demo")
+        current_skill = db.exec(
+            select(Skill).where(Skill.tenant_id == "tenant_demo", Skill.skill_id == content.skill_id)
+        ).one()
+        payload = skill_read(current_skill, stats)
+
+    assert stats[content.skill_id]["call_count"] == 1
+    assert stats[content.skill_id]["negative_feedback_count"] == 1
+    assert versions[0].version == "1.1.0"
+    assert versions[0].call_count == 0
+    assert versions[0].negative_feedback_count == 0
+    assert versions[0].negative_rate == 0.0
+    assert payload.call_count == 0
+    assert payload.negative_feedback_count == 0
+    assert payload.negative_rate == 0.0
+
+
+def test_rollback_skill_version_restores_content_without_copying_stats() -> None:
+    with _test_session() as db:
+        db.add(Tenant(id="tenant_demo", name="Demo"))
+        old_content = _skill_card()
+        old_content.version = "1.0.0"
+        old_content.name = "旧版购买"
+        new_content = _skill_card()
+        new_content.version = "1.1.0"
+        new_content.name = "新版购买"
+        db.add(
+            Skill(
+                tenant_id="tenant_demo",
+                skill_id=old_content.skill_id,
+                version="1.1.0",
+                name=new_content.name,
+                content_json=new_content.model_dump(),
+                status="published",
+            )
+        )
+        db.add(
+            SkillVersion(
+                tenant_id="tenant_demo",
+                skill_id=old_content.skill_id,
+                version="1.0.0",
+                name=old_content.name,
+                content_json=old_content.model_dump(),
+                status="published",
+            )
+        )
+        db.add(
+            SkillVersion(
+                tenant_id="tenant_demo",
+                skill_id=old_content.skill_id,
+                version="1.1.0",
+                name=new_content.name,
+                content_json=new_content.model_dump(),
+                status="published",
+            )
+        )
+        db.commit()
+
+        payload = rollback_skill_version(old_content.skill_id, "1.0.0", "tenant_demo", db)
+        row = db.exec(
+            select(Skill).where(
+                Skill.tenant_id == "tenant_demo",
+                Skill.skill_id == old_content.skill_id,
+            )
+        ).one()
+
+    assert payload.version == "1.0.0"
+    assert payload.name == "旧版购买"
+    assert payload.status == "published"
+    assert row.content_json["version"] == "1.0.0"
+    assert row.content_json["name"] == "旧版购买"
+
+
+def test_skill_read_uses_current_version_stats_for_skill_list() -> None:
     content = _skill_card()
     row = Skill(
         tenant_id="tenant_demo",
@@ -234,9 +352,9 @@ def test_skill_read_uses_aggregate_stats_for_skill_list() -> None:
         },
     )
 
-    assert payload.call_count == 3
-    assert payload.positive_feedback_count == 2
-    assert payload.negative_feedback_count == 1
+    assert payload.call_count == 1
+    assert payload.positive_feedback_count == 0
+    assert payload.negative_feedback_count == 0
 
 
 def test_message_feedback_attribution_uses_turn_active_skill() -> None:

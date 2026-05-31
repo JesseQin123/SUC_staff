@@ -28,6 +28,7 @@ export type SkillRead = {
   negative_feedback_count: number;
   positive_rate: number;
   negative_rate: number;
+  created_at: string;
   updated_at: string;
 };
 

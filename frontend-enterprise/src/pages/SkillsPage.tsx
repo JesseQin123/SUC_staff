@@ -2,12 +2,14 @@ import {
   CheckCircleOutlined,
   DeleteOutlined,
   EditOutlined,
+  EyeOutlined,
   HistoryOutlined,
   MoreOutlined,
   PlusOutlined,
+  RollbackOutlined,
   StopOutlined,
 } from '@ant-design/icons';
-import { Button, Card, Col, Dropdown, Modal, Row, Table, Tag, Typography, message } from 'antd';
+import { Button, Card, Col, Descriptions, Dropdown, Modal, Row, Table, Tag, Typography, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -24,6 +26,8 @@ export default function SkillsPage() {
   const navigate = useNavigate();
   const [rows, setRows] = useState<SkillRead[]>([]);
   const [versionRows, setVersionRows] = useState<SkillVersionRead[]>([]);
+  const [versionSkill, setVersionSkill] = useState<SkillRead | null>(null);
+  const [detailVersion, setDetailVersion] = useState<SkillVersionRead | null>(null);
   const [versionModalTitle, setVersionModalTitle] = useState('');
   const [versionModalOpen, setVersionModalOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -119,6 +123,7 @@ export default function SkillsPage() {
   }
 
   async function openVersions(row: SkillRead) {
+    setVersionSkill(row);
     setVersionModalTitle(`版本管理：${row.name}`);
     setVersionModalOpen(true);
     try {
@@ -129,6 +134,34 @@ export default function SkillsPage() {
     } catch (error) {
       message.error(error instanceof Error ? error.message : '加载版本失败');
     }
+  }
+
+  async function showVersionDetail(row: SkillVersionRead) {
+    try {
+      const result = await api.get<SkillVersionRead>(
+        `/api/enterprise/skills/${encodeURIComponent(row.skill_id)}/versions/${encodeURIComponent(row.version)}?tenant_id=${TENANT_ID}`,
+      );
+      setDetailVersion(result);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '加载版本详情失败');
+    }
+  }
+
+  function rollbackVersion(row: SkillVersionRead) {
+    Modal.confirm({
+      title: `回滚到版本 ${row.version}？`,
+      content: `当前技能将切换为「${row.name}」的 ${row.version} 版本内容，历史版本记录和历史反馈数据不会被删除。`,
+      okText: '回滚',
+      cancelText: '取消',
+      onOk: async () => {
+        const result = await api.post<SkillRead>(
+          `/api/enterprise/skills/${encodeURIComponent(row.skill_id)}/versions/${encodeURIComponent(row.version)}/rollback?tenant_id=${TENANT_ID}`,
+        );
+        message.success(`已回滚到 ${row.version}`);
+        await load();
+        await openVersions(result);
+      },
+    });
   }
 
   function remove(row: SkillRead) {
@@ -187,9 +220,12 @@ export default function SkillsPage() {
       <Modal
         open={versionModalOpen}
         title={versionModalTitle}
-        width={980}
+        width={1080}
         footer={null}
-        onCancel={() => setVersionModalOpen(false)}
+        onCancel={() => {
+          setVersionModalOpen(false);
+          setVersionSkill(null);
+        }}
       >
         <Table
           rowKey="id"
@@ -204,8 +240,58 @@ export default function SkillsPage() {
             { title: '好评率', dataIndex: 'positive_rate', width: 100, render: (value: number) => percent(value) },
             { title: '差评率', dataIndex: 'negative_rate', width: 100, render: (value: number) => percent(value) },
             { title: '更新时间', dataIndex: 'updated_at', width: 150, render: (value: string) => value.slice(0, 10) },
+            {
+              title: '操作',
+              width: 80,
+              fixed: 'right',
+              render: (_, row) => (
+                <Dropdown
+                  trigger={['click']}
+                  menu={{
+                    items: [
+                      { key: 'detail', icon: <EyeOutlined />, label: '查看详情' },
+                      {
+                        key: 'rollback',
+                        icon: <RollbackOutlined />,
+                        label: row.version === versionSkill?.version ? '当前版本' : '回滚到此版本',
+                        disabled: row.version === versionSkill?.version,
+                      },
+                    ],
+                    onClick: ({ key }) => {
+                      if (key === 'detail') void showVersionDetail(row);
+                      if (key === 'rollback') rollbackVersion(row);
+                    },
+                  }}
+                >
+                  <Button type="text" icon={<MoreOutlined />} aria-label="版本操作" />
+                </Dropdown>
+              ),
+            },
           ]}
         />
+      </Modal>
+      <Modal
+        open={Boolean(detailVersion)}
+        title={detailVersion ? `版本详情：${detailVersion.name} / ${detailVersion.version}` : '版本详情'}
+        width={920}
+        footer={null}
+        onCancel={() => setDetailVersion(null)}
+      >
+        {detailVersion && (
+          <div className="version-detail">
+            <Descriptions column={2} size="small" bordered>
+              <Descriptions.Item label="技能 ID">{detailVersion.skill_id}</Descriptions.Item>
+              <Descriptions.Item label="版本">{detailVersion.version}</Descriptions.Item>
+              <Descriptions.Item label="业务域">{detailVersion.business_domain || '-'}</Descriptions.Item>
+              <Descriptions.Item label="状态">{statusText(detailVersion.status)}</Descriptions.Item>
+              <Descriptions.Item label="调用次数">{detailVersion.call_count}</Descriptions.Item>
+              <Descriptions.Item label="好评率">{percent(detailVersion.positive_rate)}</Descriptions.Item>
+              <Descriptions.Item label="差评率">{percent(detailVersion.negative_rate)}</Descriptions.Item>
+              <Descriptions.Item label="更新时间">{detailVersion.updated_at.slice(0, 10)}</Descriptions.Item>
+            </Descriptions>
+            <pre className="version-detail-source">{skillSourceText(detailVersion)}</pre>
+          </div>
+        )}
       </Modal>
     </>
   );
@@ -245,4 +331,39 @@ function rankBy(rows: SkillRead[], field: 'call_count' | 'positive_rate' | 'nega
 
 function percent(value: number | undefined): string {
   return `${Math.round((value || 0) * 100)}%`;
+}
+
+function statusText(status: string): string {
+  return STATUS_LABELS[status as SkillRead['status']]?.text || status;
+}
+
+function skillSourceText(row: SkillVersionRead): string {
+  const skill = row.content;
+  return [
+    `# ${skill.name}`,
+    `- skill_id: ${skill.skill_id}`,
+    `- version: ${skill.version}`,
+    `- business_domain: ${skill.business_domain || '-'}`,
+    `- description: ${skill.description || '-'}`,
+    `- trigger_intents: ${formatList(skill.trigger_intents)}`,
+    `- user_utterance_examples: ${formatList(skill.user_utterance_examples)}`,
+    `- goal: ${formatList(skill.goal)}`,
+    `- required_info: ${formatList(skill.required_info)}`,
+    `- response_rules: ${formatList(skill.response_rules)}`,
+    '',
+    '## 详细步骤',
+    ...skill.steps.flatMap((step, index) => [
+      '',
+      `### Step ${index + 1}: ${String(step.name || step.step_id || '-')}`,
+      `- step_id: ${String(step.step_id || '-')}`,
+      `- instruction: ${String(step.instruction || '-')}`,
+      `- expected_user_info: ${formatList(step.expected_user_info)}`,
+      `- allowed_actions: ${formatList(step.allowed_actions)}`,
+    ]),
+  ].join('\n');
+}
+
+function formatList(value: unknown): string {
+  if (!Array.isArray(value) || value.length === 0) return '-';
+  return value.map(String).join(', ');
 }
