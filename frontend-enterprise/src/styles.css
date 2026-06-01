@@ -1208,6 +1208,34 @@ body.skill-distill-fixed .content {
   color: #166534;
 }
 
+.save-review-action-diff {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.save-review-action-diff .skill-action-list {
+  padding-top: 1px;
+}
+
+.save-review-diff-sign {
+  width: 12px;
+  flex: 0 0 12px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 780;
+  line-height: 24px;
+}
+
+.save-review-action-diff.old .save-review-diff-sign {
+  color: #991b1b;
+}
+
+.save-review-action-diff.new .save-review-diff-sign {
+  color: #166534;
+}
+
 .skill-rank-row {
   margin-top: 16px;
 }

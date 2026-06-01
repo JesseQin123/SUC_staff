@@ -1174,8 +1174,7 @@ export default function DistillPage() {
             saveReviewDiffs.map((diff) => (
               <div key={diff.key} className="save-review-diff-row">
                 <div className="save-review-diff-path">{diffTargetLabel(diff.path, saveReviewDraft)} / {fieldLabel(diff.field)}</div>
-                {diff.removed && <div><span className="diff-old">- {diff.removed}</span></div>}
-                {diff.inserted && <div><span className="diff-new">+ {diff.inserted}</span></div>}
+                <SaveReviewDiffValue diff={diff} toolDescriptions={toolDescriptions} />
               </div>
             ))
           )}
@@ -1539,6 +1538,41 @@ function ActionChip({
   return description ? <Tooltip title={description}>{chip}</Tooltip> : chip;
 }
 
+function SaveReviewDiffValue({
+  diff,
+  toolDescriptions,
+}: {
+  diff: TextDiffAnimation;
+  toolDescriptions: ToolDescriptionMap;
+}) {
+  if (diff.field === 'allowed_actions') {
+    const removedActions = actionsFromDiffText(diffFullOldValue(diff));
+    const insertedActions = actionsFromDiffText(diffFullNewValue(diff));
+    return (
+      <>
+        {diff.removed && (
+          <div className="save-review-action-diff old">
+            <span className="save-review-diff-sign">-</span>
+            <ActionList actions={removedActions} toolDescriptions={toolDescriptions} />
+          </div>
+        )}
+        {diff.inserted && (
+          <div className="save-review-action-diff new">
+            <span className="save-review-diff-sign">+</span>
+            <ActionList actions={insertedActions} toolDescriptions={toolDescriptions} />
+          </div>
+        )}
+      </>
+    );
+  }
+  return (
+    <>
+      {diff.removed && <div><span className="diff-old">- {diff.removed}</span></div>}
+      {diff.inserted && <div><span className="diff-new">+ {diff.inserted}</span></div>}
+    </>
+  );
+}
+
 function InlineDiffText({
   path,
   field,
@@ -1569,6 +1603,23 @@ function InlineDiffText({
       {diff.suffix}
     </>
   );
+}
+
+function diffFullOldValue(diff: TextDiffAnimation): string {
+  return `${diff.prefix}${diff.removed}${diff.suffix}`;
+}
+
+function diffFullNewValue(diff: TextDiffAnimation): string {
+  return `${diff.prefix}${diff.inserted}${diff.suffix}`;
+}
+
+function actionsFromDiffText(value: string): string[] {
+  const normalized = value.replace(/`/g, '').trim();
+  if (!normalized || normalized === '-') return [];
+  return normalized
+    .split(/[、,\n]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function parseInitialSkillPrompt(text: string): { title: string; raw_content: string } {
