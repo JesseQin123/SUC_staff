@@ -13,7 +13,7 @@ import {
   UploadOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
-import { Button, Card, Empty, Input, Modal, Space, Typography, Upload, message } from 'antd';
+import { Button, Card, Empty, Input, Modal, Space, Tooltip, Typography, Upload, message } from 'antd';
 import {
   useEffect,
   useMemo,
@@ -28,7 +28,7 @@ import {
 } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, streamPost, TENANT_ID } from '../api/client';
-import type { SkillCard, SkillRead, ToolSuggestion } from '../types';
+import type { SkillCard, SkillRead, ToolRead, ToolSuggestion } from '../types';
 
 type ChatItem = {
   id: string;
@@ -58,6 +58,7 @@ type TargetSelection = {
   path: string;
   label: string;
 };
+type ToolDescriptionMap = Record<string, string>;
 
 type ViewMode = 'source' | 'flow';
 type PendingChange = {
@@ -131,6 +132,7 @@ export default function DistillPage() {
   const [attachments, setAttachments] = useState<UploadAttachment[]>([]);
   const [dragActive, setDragActive] = useState(false);
   const [toolDetail, setToolDetail] = useState<ToolSuggestionItem | null>(null);
+  const [tools, setTools] = useState<ToolRead[]>([]);
   const [streamStatus, setStreamStatus] = useState('');
   const abortRef = useRef<AbortController | null>(null);
   const uploadControllersRef = useRef<Record<string, AbortController>>({});
@@ -268,6 +270,13 @@ export default function DistillPage() {
   }, []);
 
   useEffect(() => {
+    api
+      .get<ToolRead[]>(`/api/enterprise/tools?tenant_id=${TENANT_ID}`)
+      .then(setTools)
+      .catch(() => setTools([]));
+  }, []);
+
+  useEffect(() => {
     if (!chatMessagesRef.current) return;
     chatMessagesRef.current.scrollTop = chatMessagesRef.current.scrollHeight;
   }, [attachments, loading, messages]);
@@ -281,6 +290,7 @@ export default function DistillPage() {
   const uploadingFile = attachments.some((item) => item.status === 'uploading');
   const readyAttachments = attachments.filter((item) => item.status === 'ready' && item.text?.trim());
   const allSelected = draft ? selectedPaths.length > 0 && allPaths.every((path) => selectedPaths.includes(path)) : false;
+  const toolDescriptions = useMemo(() => buildToolDescriptionMap(tools), [tools]);
   const saveReviewDraft = useMemo(() => {
     const sourceDraft = saveDraftSnapshot || draft;
     if (!sourceDraft) return null;
@@ -630,10 +640,12 @@ export default function DistillPage() {
         allowed_skills: draft ? [draft.skill_id] : [],
         enabled: true,
       });
+      setTools((current) => upsertToolSuggestion(current, suggestion, draft?.skill_id));
       setToolSuggestionStatus(messageId, suggestion.name, 'created');
       message.success('工具已新增');
     } catch (error) {
       if (error instanceof Error && error.message.includes('409')) {
+        setTools((current) => upsertToolSuggestion(current, suggestion, draft?.skill_id));
         setToolSuggestionStatus(messageId, suggestion.name, 'created');
         message.info('工具已存在，已按已新增处理');
         return;
@@ -1013,6 +1025,7 @@ export default function DistillPage() {
               updatingPaths={updatingPaths}
               dirtyPaths={dirtyPaths}
               textDiffs={textDiffs}
+              toolDescriptions={toolDescriptions}
               containerRef={sourceScrollRef}
               onToggle={toggleTarget}
             />
@@ -1024,6 +1037,7 @@ export default function DistillPage() {
               updatingPaths={updatingPaths}
               dirtyPaths={dirtyPaths}
               textDiffs={textDiffs}
+              toolDescriptions={toolDescriptions}
               containerRef={sourceScrollRef}
               onToggle={toggleTarget}
             />
@@ -1101,6 +1115,7 @@ function SkillSource({
   updatingPaths,
   dirtyPaths,
   textDiffs,
+  toolDescriptions,
   containerRef,
   onToggle,
 }: {
@@ -1110,6 +1125,7 @@ function SkillSource({
   updatingPaths: string[];
   dirtyPaths: string[];
   textDiffs: TextDiffAnimation[];
+  toolDescriptions: ToolDescriptionMap;
   containerRef: RefObject<HTMLDivElement>;
   onToggle: (target: TargetSelection) => void;
 }) {
@@ -1125,15 +1141,15 @@ function SkillSource({
         <div className="skill-source-rendered">
           <h2><InlineDiffText path="basic" field="name" value={skill.name} diffs={textDiffs} /></h2>
           <div className="skill-source-meta-list">
-            <SourceTextLine path="basic" field="skill_id" label="skill_id" value={skill.skill_id} diffs={textDiffs} />
-            <SourceTextLine path="basic" field="version" label="version" value={skill.version} diffs={textDiffs} />
-            <SourceTextLine path="basic" field="business_domain" label="business_domain" value={skill.business_domain || '-'} diffs={textDiffs} />
-            <SourceTextLine path="basic" field="description" label="description" value={skill.description || '-'} diffs={textDiffs} />
-            <SourceListLine path="basic" field="trigger_intents" label="trigger_intents" values={skill.trigger_intents} diffs={textDiffs} />
-            <SourceListLine path="basic" field="user_utterance_examples" label="user_utterance_examples" values={skill.user_utterance_examples} diffs={textDiffs} />
-            <SourceListLine path="basic" field="goal" label="goal" values={skill.goal} diffs={textDiffs} />
-            <SourceListLine path="basic" field="required_info" label="required_info" values={skill.required_info} diffs={textDiffs} />
-            <SourceListLine path="basic" field="response_rules" label="response_rules" values={skill.response_rules} diffs={textDiffs} />
+            <SourceTextLine path="basic" field="skill_id" label={fieldLabel('skill_id')} value={skill.skill_id} diffs={textDiffs} />
+            <SourceTextLine path="basic" field="version" label={fieldLabel('version')} value={skill.version} diffs={textDiffs} />
+            <SourceTextLine path="basic" field="business_domain" label={fieldLabel('business_domain')} value={skill.business_domain || '-'} diffs={textDiffs} />
+            <SourceTextLine path="basic" field="description" label={fieldLabel('description')} value={skill.description || '-'} diffs={textDiffs} />
+            <SourceListLine path="basic" field="trigger_intents" label={fieldLabel('trigger_intents')} values={skill.trigger_intents} diffs={textDiffs} />
+            <SourceListLine path="basic" field="user_utterance_examples" label={fieldLabel('user_utterance_examples')} values={skill.user_utterance_examples} diffs={textDiffs} />
+            <SourceListLine path="basic" field="goal" label={fieldLabel('goal')} values={skill.goal} diffs={textDiffs} />
+            <SourceListLine path="basic" field="required_info" label={fieldLabel('required_info')} values={skill.required_info} diffs={textDiffs} />
+            <SourceListLine path="basic" field="response_rules" label={fieldLabel('response_rules')} values={skill.response_rules} diffs={textDiffs} />
           </div>
         </div>
       </SelectableTarget>
@@ -1153,10 +1169,10 @@ function SkillSource({
               <div className="skill-source-rendered">
                 <h3>Step {index + 1}: <InlineDiffText path={path} field="name" value={String(step.name || '-')} diffs={textDiffs} /></h3>
                 <div className="skill-source-meta-list">
-                  <SourceTextLine path={path} field="step_id" label="step_id" value={stepId} diffs={textDiffs} />
-                  <SourceTextLine path={path} field="instruction" label="instruction" value={String(step.instruction || '-')} diffs={textDiffs} />
-                  <SourceListLine path={path} field="expected_user_info" label="expected_user_info" values={asStringList(step.expected_user_info)} diffs={textDiffs} />
-                  <SourceListLine path={path} field="allowed_actions" label="allowed_actions" values={asStringList(step.allowed_actions)} diffs={textDiffs} />
+                  <SourceTextLine path={path} field="step_id" label={fieldLabel('step_id')} value={stepId} diffs={textDiffs} />
+                  <SourceTextLine path={path} field="instruction" label={fieldLabel('instruction')} value={String(step.instruction || '-')} diffs={textDiffs} />
+                  <SourceListLine path={path} field="expected_user_info" label={fieldLabel('expected_user_info')} values={asStringList(step.expected_user_info)} diffs={textDiffs} />
+                  <SourceActionLine path={path} values={asStringList(step.allowed_actions)} diffs={textDiffs} toolDescriptions={toolDescriptions} />
                 </div>
               </div>
             </SelectableTarget>
@@ -1174,6 +1190,7 @@ function SkillFlow({
   updatingPaths,
   dirtyPaths,
   textDiffs,
+  toolDescriptions,
   containerRef,
   onToggle,
 }: {
@@ -1183,6 +1200,7 @@ function SkillFlow({
   updatingPaths: string[];
   dirtyPaths: string[];
   textDiffs: TextDiffAnimation[];
+  toolDescriptions: ToolDescriptionMap;
   containerRef: RefObject<HTMLDivElement>;
   onToggle: (target: TargetSelection) => void;
 }) {
@@ -1199,9 +1217,15 @@ function SkillFlow({
         <small>{skill.skill_id}</small>
         <p><InlineDiffText path="basic" field="description" value={skill.description || '暂无描述'} diffs={textDiffs} /></p>
         <div className="skill-flow-meta">
-          <em>业务域 {skill.business_domain || '-'}</em>
-          <em>必填 {joinPlain(skill.required_info)}</em>
-          <em>意图 {joinPlain(skill.trigger_intents)}</em>
+          <FlowMetaRow label="业务域">
+            <span className="skill-flow-chip">{skill.business_domain || '-'}</span>
+          </FlowMetaRow>
+          <FlowMetaRow label="必填信息">
+            <PlainChipList values={skill.required_info} />
+          </FlowMetaRow>
+          <FlowMetaRow label="触发意图">
+            <PlainChipList values={skill.trigger_intents} />
+          </FlowMetaRow>
         </div>
       </SelectableTarget>
       {skill.steps.map((step, index) => {
@@ -1224,22 +1248,47 @@ function SkillFlow({
               <small>{stepId}</small>
               <p><InlineDiffText path={path} field="instruction" value={String(step.instruction || '暂无说明')} diffs={textDiffs} /></p>
               <div className="skill-flow-meta">
-                <em>字段 {joinPlain(asStringList(step.expected_user_info))}</em>
-                <em>动作 {joinPlain(asStringList(step.allowed_actions))}</em>
+                <FlowMetaRow label="期望字段">
+                  <PlainChipList values={asStringList(step.expected_user_info)} />
+                </FlowMetaRow>
+                <FlowMetaRow label="允许动作">
+                  <ActionList actions={asStringList(step.allowed_actions)} toolDescriptions={toolDescriptions} />
+                </FlowMetaRow>
               </div>
             </SelectableTarget>
             {toolActions.length > 0 && (
               <div className="skill-flow-tools">
                 {toolActions.map((action) => (
-                  <div className="skill-flow-tool" key={String(action)}>
-                    {String(action).replace('call_tool:', '')}
-                  </div>
+                  <ActionChip action={String(action)} toolDescriptions={toolDescriptions} className="skill-flow-tool" key={String(action)} />
                 ))}
               </div>
             )}
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function FlowMetaRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="skill-flow-meta-row">
+      <span className="skill-flow-meta-label">{label}</span>
+      {children}
+    </div>
+  );
+}
+
+function PlainChipList({ values }: { values: unknown }) {
+  const items = asStringList(values);
+  if (items.length === 0) return <span className="skill-flow-chip muted">-</span>;
+  return (
+    <div className="skill-flow-chip-list">
+      {items.map((item, index) => (
+        <span className="skill-flow-chip" key={`${item}_${index}`}>
+          {item}
+        </span>
+      ))}
     </div>
   );
 }
@@ -1320,6 +1369,75 @@ function SourceListLine({
       </span>
     </div>
   );
+}
+
+function SourceActionLine({
+  path,
+  values,
+  diffs,
+  toolDescriptions,
+}: {
+  path: string;
+  values: string[];
+  diffs: TextDiffAnimation[];
+  toolDescriptions: ToolDescriptionMap;
+}) {
+  const activeDiff = diffs.find((diff) => diff.path === path && diff.field === 'allowed_actions');
+  return (
+    <div className="skill-source-line">
+      <span className="skill-source-key">{fieldLabel('allowed_actions')}</span>
+      <span className="skill-source-value">
+        {activeDiff ? (
+          <InlineDiffText path={path} field="allowed_actions" value={joinPlain(values)} diffs={diffs} />
+        ) : (
+          <ActionList actions={values} toolDescriptions={toolDescriptions} />
+        )}
+      </span>
+    </div>
+  );
+}
+
+function ActionList({
+  actions,
+  toolDescriptions,
+}: {
+  actions: string[];
+  toolDescriptions: ToolDescriptionMap;
+}) {
+  if (actions.length === 0) return <span className="skill-action-empty">-</span>;
+  return (
+    <div className="skill-action-list">
+      {actions.map((action, index) => (
+        <ActionChip
+          action={action}
+          toolDescriptions={toolDescriptions}
+          key={`${action}_${index}`}
+        />
+      ))}
+    </div>
+  );
+}
+
+function ActionChip({
+  action,
+  toolDescriptions,
+  className = '',
+}: {
+  action: string;
+  toolDescriptions: ToolDescriptionMap;
+  className?: string;
+}) {
+  const toolName = toolNameFromAction(action);
+  const description = toolName ? toolDescriptions[toolName] || '当前工具配置中暂无描述' : '';
+  const chip = (
+    <span
+      className={`skill-action-chip ${toolName ? 'tool' : ''} ${className}`.trim()}
+      title={description || undefined}
+    >
+      {actionLabel(action)}
+    </span>
+  );
+  return description ? <Tooltip title={description}>{chip}</Tooltip> : chip;
 }
 
 function InlineDiffText({
@@ -1992,6 +2110,40 @@ function bumpSkillVersion(version: string): string {
   return `${major}.${minor + 1}.0`;
 }
 
+function buildToolDescriptionMap(tools: ToolRead[]): ToolDescriptionMap {
+  return tools.reduce<ToolDescriptionMap>((acc, tool) => {
+    acc[tool.name] = [tool.display_name, tool.description].filter(Boolean).join('：') || tool.name;
+    return acc;
+  }, {});
+}
+
+function upsertToolSuggestion(
+  current: ToolRead[],
+  suggestion: ToolSuggestionItem,
+  skillId?: string,
+): ToolRead[] {
+  const nextTool: ToolRead = {
+    id: suggestion.name,
+    tenant_id: TENANT_ID,
+    name: suggestion.name,
+    display_name: suggestion.display_name || suggestion.name,
+    description: suggestion.description || suggestion.reason || '',
+    method: suggestion.method || 'POST',
+    url: suggestion.url || `/api/mock/${suggestion.name.replace(/\./g, '/')}`,
+    headers: {},
+    auth: {},
+    input_schema: suggestion.input_schema || {},
+    output_schema: suggestion.output_schema || {},
+    allowed_skills: skillId ? [skillId] : [],
+    enabled: true,
+    updated_at: new Date().toISOString(),
+  };
+  const exists = current.some((tool) => tool.name === suggestion.name);
+  return exists
+    ? current.map((tool) => (tool.name === suggestion.name ? { ...tool, ...nextTool, id: tool.id } : tool))
+    : [...current, nextTool];
+}
+
 function fieldLabel(field: string): string {
   const labels: Record<string, string> = {
     skill_id: '技能 ID',
@@ -2010,6 +2162,28 @@ function fieldLabel(field: string): string {
     allowed_actions: '允许动作',
   };
   return labels[field] || field;
+}
+
+function toolNameFromAction(action: string): string {
+  return action.startsWith('call_tool:') ? action.replace(/^call_tool:/, '').trim() : '';
+}
+
+function actionLabel(action: string): string {
+  const toolName = toolNameFromAction(action);
+  if (toolName) return `调用工具：${toolName}`;
+  const labels: Record<string, string> = {
+    ask_user: '询问用户',
+    continue_flow: '继续流程',
+    answer_user: '回复用户',
+    handoff_human: '转人工',
+    ask_clarification: '澄清问题',
+    clarify_user: '澄清用户需求',
+    update_memory: '更新记忆',
+    reflect: '反思',
+    finish: '结束流程',
+    stop: '停止流程',
+  };
+  return labels[action] || action;
 }
 
 function diffTargetLabel(path: string, skill: SkillCard | null): string {
