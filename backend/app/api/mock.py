@@ -20,6 +20,49 @@ PRODUCT_CATALOG = {
     "SKU-003": Decimal("299.00"),
 }
 
+PRODUCT_NAME_CATALOG = {
+    "iphone 15": {
+        "product_id": "PHONE-IP15",
+        "display_name": "iPhone 15",
+        "brand": "Apple",
+        "price": Decimal("4599.00"),
+        "currency": "CNY",
+        "spec": "128GB",
+    },
+    "三星s24": {
+        "product_id": "PHONE-S24",
+        "display_name": "三星 Galaxy S24",
+        "brand": "Samsung",
+        "price": Decimal("3999.00"),
+        "currency": "CNY",
+        "spec": "256GB",
+    },
+    "小米14": {
+        "product_id": "PHONE-MI14",
+        "display_name": "小米 14",
+        "brand": "Xiaomi",
+        "price": Decimal("3299.00"),
+        "currency": "CNY",
+        "spec": "256GB",
+    },
+    "a1": {
+        "product_id": "A1",
+        "display_name": "A1 标准商品",
+        "brand": "Mock",
+        "price": Decimal("129.00"),
+        "currency": "CNY",
+        "spec": "standard",
+    },
+    "a3": {
+        "product_id": "A3",
+        "display_name": "A3 高阶商品",
+        "brand": "Mock",
+        "price": Decimal("239.00"),
+        "currency": "CNY",
+        "spec": "pro",
+    },
+}
+
 PRIMARY_ORDER_CENTER = {
     "ORDER-1001": {"status": "signed", "signed_days": 3, "refundable": True},
     "ORDER-1002": {"status": "signed", "signed_days": 16, "refundable": False},
@@ -46,6 +89,10 @@ class MockProductPurchaseRequest(BaseModel):
     sku_id: str | None = None
     quantity: int = Field(default=1, ge=1, le=99)
     payment_method: str = "mock_balance"
+
+
+class MockProductPriceQueryRequest(BaseModel):
+    product_name: str
 
 
 class MockOrderAddRequest(BaseModel):
@@ -119,6 +166,34 @@ def mock_product_purchase(
     return result
 
 
+@router.post("/product/price-query")
+@router.post("/product/price_query")
+def mock_product_price_query(request: MockProductPriceQueryRequest) -> dict[str, Any]:
+    product_name = request.product_name.strip()
+    normalized_name = _normalize_product_name(product_name)
+    record = PRODUCT_NAME_CATALOG.get(normalized_name)
+    if not record:
+        return {
+            "product_name": product_name,
+            "found": False,
+            "results": [],
+            "miss_reason": "product_name_not_found",
+            "hint": "可尝试使用 iPhone 15、三星S24、小米14、A1 或 A3 作为 mock 商品名。",
+        }
+    return {
+        "product_name": product_name,
+        "found": True,
+        "source": "mock_product_price_catalog",
+        "product_id": record["product_id"],
+        "display_name": record["display_name"],
+        "brand": record["brand"],
+        "price": float(record["price"]),
+        "currency": record["currency"],
+        "spec": record["spec"],
+        "updated_at": _now_iso(),
+    }
+
+
 @router.post("/order/add")
 def mock_order_add(
     request: MockOrderAddRequest, db: Session = Depends(get_session)
@@ -161,6 +236,10 @@ def _mock_price(product_id: str) -> Decimal:
 
 def _normalize_id(value: str) -> str:
     return value.strip().upper()
+
+
+def _normalize_product_name(value: str) -> str:
+    return " ".join(value.strip().lower().split())
 
 
 def _order_hit(order_id: str, source: str, record: dict[str, Any]) -> dict[str, Any]:

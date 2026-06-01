@@ -646,6 +646,7 @@ body.skill-distill-fixed .content {
 }
 
 .skill-chat-panel {
+  position: relative;
   height: 100%;
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
@@ -801,15 +802,13 @@ body.skill-distill-fixed .content {
   gap: 10px;
 }
 
-.skill-chat-composer.dragging {
-  border-radius: 12px;
-  outline: 1px dashed var(--foreground);
-  outline-offset: 6px;
+.skill-chat-card.dragging {
+  border-color: var(--foreground);
 }
 
 .skill-upload-drop-hint {
   position: absolute;
-  inset: -6px;
+  inset: 0;
   z-index: 2;
   display: grid;
   place-items: center;

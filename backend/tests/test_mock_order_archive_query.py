@@ -4,12 +4,15 @@ from sqlmodel import Session, SQLModel, create_engine
 from app.api.mock import (
     MockOrderAddRequest,
     MockOrderQueryRequest,
+    MockProductPriceQueryRequest,
     MockProductPurchaseRequest,
+    mock_product_price_query,
     mock_order_add,
     mock_order_archive_query,
     mock_order_query,
     mock_product_purchase,
 )
+from app.db.seed import DEMO_TOOLS
 
 
 def test_primary_order_query_returns_configured_order() -> None:
@@ -66,6 +69,21 @@ def test_order_add_persists_queryable_order() -> None:
     assert result["order_id"] == added["order_id"]
     assert result["product_id"] == "A3"
     assert result["status"] == "created"
+
+
+def test_product_price_query_returns_price_by_product_name() -> None:
+    result = mock_product_price_query(MockProductPriceQueryRequest(product_name="iPhone 15"))
+
+    assert result["found"] is True
+    assert result["source"] == "mock_product_price_catalog"
+    assert result["display_name"] == "iPhone 15"
+    assert result["price"] == 4599.0
+
+
+def test_product_price_query_is_not_seeded_as_configured_tool() -> None:
+    tool_names = {tool["name"] for tool in DEMO_TOOLS}
+
+    assert "product.price_query" not in tool_names
 
 
 def _test_session() -> Session:

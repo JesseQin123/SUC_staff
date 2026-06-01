@@ -80,20 +80,40 @@ type TextDiffAnimation = {
 };
 
 const DEFAULT_TARGET_PATHS = ['basic'];
+const DEFAULT_DISTILL_MESSAGES: ChatItem[] = [
+  {
+    id: 'welcome',
+    role: 'assistant',
+    content: '请粘贴原始技能说明，或点击右侧某一块后告诉我需要怎样改写。',
+  },
+];
+
+type DistillCacheSnapshot = {
+  draft: SkillCard | null;
+  loadedSkill: SkillRead | null;
+  lastSavedDraft: SkillCard | null;
+  messages: ChatItem[];
+  input: string;
+  selectedPaths: string[];
+  highlightedPaths: string[];
+  updatingPaths: string[];
+  dirtyPaths: string[];
+  textDiffs: TextDiffAnimation[];
+  pendingChange: PendingChange | null;
+  viewMode: ViewMode;
+  attachments: UploadAttachment[];
+  streamStatus: string;
+};
 
 export default function DistillPage() {
   const [searchParams] = useSearchParams();
   const skillId = searchParams.get('skill_id');
+  const mode = searchParams.get('mode') || '';
+  const cacheKey = `skill-distill:${TENANT_ID}:${skillId || mode || 'new'}`;
   const [draft, setDraft] = useState<SkillCard | null>(null);
   const [loadedSkill, setLoadedSkill] = useState<SkillRead | null>(null);
   const [lastSavedDraft, setLastSavedDraft] = useState<SkillCard | null>(null);
-  const [messages, setMessages] = useState<ChatItem[]>([
-    {
-      id: 'welcome',
-      role: 'assistant',
-      content: '请粘贴原始技能说明，或点击右侧某一块后告诉我需要怎样改写。',
-    },
-  ]);
+  const [messages, setMessages] = useState<ChatItem[]>(DEFAULT_DISTILL_MESSAGES);
   const [input, setInput] = useState('');
   const [selectedPaths, setSelectedPaths] = useState<string[]>(DEFAULT_TARGET_PATHS);
   const [highlightedPaths, setHighlightedPaths] = useState<string[]>([]);
@@ -118,21 +138,54 @@ export default function DistillPage() {
   const animationTimersRef = useRef<number[]>([]);
   const sourceScrollRef = useRef<HTMLDivElement | null>(null);
   const chatMessagesRef = useRef<HTMLDivElement | null>(null);
+  const [cacheReady, setCacheReady] = useState(false);
+  const [hydratedCacheKey, setHydratedCacheKey] = useState('');
 
   useEffect(() => {
+    setCacheReady(false);
+    setHydratedCacheKey('');
+    const cached = readDistillCache(cacheKey);
+    if (cached) {
+      setDraft(cached.draft);
+      setLoadedSkill(cached.loadedSkill);
+      setLastSavedDraft(cached.lastSavedDraft);
+      setMessages(cached.messages.length > 0 ? cached.messages : DEFAULT_DISTILL_MESSAGES);
+      setInput(cached.input);
+      setSelectedPaths(cached.selectedPaths.length > 0 ? cached.selectedPaths : DEFAULT_TARGET_PATHS);
+      setHighlightedPaths(cached.highlightedPaths);
+      setUpdatingPaths(cached.updatingPaths);
+      setDirtyPaths(cached.dirtyPaths);
+      setTextDiffs(cached.textDiffs);
+      setPendingChange(cached.pendingChange);
+      setViewMode(cached.viewMode || 'source');
+      setAttachments(cached.attachments.filter((item) => item.status !== 'uploading'));
+      setStreamStatus(cached.streamStatus);
+      setSaveDraftSnapshot(null);
+      setHydratedCacheKey(cacheKey);
+      setCacheReady(true);
+      return;
+    }
+
     if (!skillId) {
       setDraft(null);
       setLoadedSkill(null);
       setLastSavedDraft(null);
+      setMessages(DEFAULT_DISTILL_MESSAGES);
+      setInput('');
       setSelectedPaths(DEFAULT_TARGET_PATHS);
       setPendingChange(null);
       setHighlightedPaths([]);
       setUpdatingPaths([]);
       setDirtyPaths([]);
       setTextDiffs([]);
+      setAttachments([]);
+      setStreamStatus('');
       setSaveDraftSnapshot(null);
+      setHydratedCacheKey(cacheKey);
+      setCacheReady(true);
       return;
     }
+
     api
       .get<SkillRead>(`/api/enterprise/skills/${encodeURIComponent(skillId)}?tenant_id=${TENANT_ID}`)
       .then((result) => {
@@ -145,6 +198,8 @@ export default function DistillPage() {
         setUpdatingPaths([]);
         setDirtyPaths([]);
         setTextDiffs([]);
+        setAttachments([]);
+        setStreamStatus('');
         setSaveDraftSnapshot(null);
         setMessages([
           {
@@ -153,9 +208,54 @@ export default function DistillPage() {
             content: `已加载「${result.name}」。你可以在右侧选择一个或多个区域，然后在这里描述需要怎样改写。`,
           },
         ]);
+        setHydratedCacheKey(cacheKey);
+        setCacheReady(true);
       })
-      .catch((error) => message.error(error instanceof Error ? error.message : '加载技能失败'));
-  }, [skillId]);
+      .catch((error) => {
+        message.error(error instanceof Error ? error.message : '加载技能失败');
+        setHydratedCacheKey(cacheKey);
+        setCacheReady(true);
+      });
+  }, [cacheKey, skillId]);
+
+  useEffect(() => {
+    if (!cacheReady || hydratedCacheKey !== cacheKey) return;
+    writeDistillCache(cacheKey, {
+      draft,
+      loadedSkill,
+      lastSavedDraft,
+      messages,
+      input,
+      selectedPaths,
+      highlightedPaths,
+      updatingPaths,
+      dirtyPaths,
+      textDiffs,
+      pendingChange,
+      viewMode,
+      attachments: attachments.filter((item) => item.status !== 'uploading'),
+      streamStatus: loading ? '已中断' : streamStatus,
+    });
+  }, [
+    attachments,
+    cacheKey,
+    cacheReady,
+    dirtyPaths,
+    draft,
+    highlightedPaths,
+    hydratedCacheKey,
+    input,
+    lastSavedDraft,
+    loadedSkill,
+    loading,
+    messages,
+    pendingChange,
+    selectedPaths,
+    streamStatus,
+    textDiffs,
+    updatingPaths,
+    viewMode,
+  ]);
 
   useEffect(() => {
     document.body.classList.add('skill-distill-fixed');
@@ -707,8 +807,15 @@ export default function DistillPage() {
         <Typography.Title level={3}>技能改写</Typography.Title>
       </div>
       <div className="skill-workbench">
-        <Card className="skill-chat-card">
+        <Card
+          className={`skill-chat-card ${dragActive ? 'dragging' : ''}`}
+          onDragEnter={handleDragEnter}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
           <div className="skill-chat-panel">
+            {dragActive && <div className="skill-upload-drop-hint">松开上传文档</div>}
             <div className="skill-chat-messages" ref={chatMessagesRef}>
               {messages.map((item) => (
                 <div key={item.id} className={`skill-chat-row ${item.role}`}>
@@ -799,13 +906,8 @@ export default function DistillPage() {
               ))}
             </div>
             <div
-              className={`skill-chat-composer ${dragActive ? 'dragging' : ''}`}
-              onDragEnter={handleDragEnter}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
+              className="skill-chat-composer"
             >
-              {dragActive && <div className="skill-upload-drop-hint">松开上传文档</div>}
               {attachments.length > 0 && (
                 <div className="skill-upload-list">
                   {attachments.map((attachment) => (
@@ -1630,6 +1732,49 @@ function normalizeToolSuggestions(value: unknown): ToolSuggestionItem[] {
       status: 'pending' as const,
     }))
     .filter((item) => item.name);
+}
+
+function readDistillCache(key: string): DistillCacheSnapshot | null {
+  try {
+    const raw = window.sessionStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<DistillCacheSnapshot>;
+    return {
+      draft: parsed.draft || null,
+      loadedSkill: parsed.loadedSkill || null,
+      lastSavedDraft: parsed.lastSavedDraft || null,
+      messages: Array.isArray(parsed.messages) ? parsed.messages : DEFAULT_DISTILL_MESSAGES,
+      input: typeof parsed.input === 'string' ? parsed.input : '',
+      selectedPaths: Array.isArray(parsed.selectedPaths) ? parsed.selectedPaths.map(String) : DEFAULT_TARGET_PATHS,
+      highlightedPaths: Array.isArray(parsed.highlightedPaths) ? parsed.highlightedPaths.map(String) : [],
+      updatingPaths: Array.isArray(parsed.updatingPaths) ? parsed.updatingPaths.map(String) : [],
+      dirtyPaths: Array.isArray(parsed.dirtyPaths) ? parsed.dirtyPaths.map(String) : [],
+      textDiffs: Array.isArray(parsed.textDiffs) ? parsed.textDiffs : [],
+      pendingChange: parsed.pendingChange || null,
+      viewMode: parsed.viewMode === 'flow' ? 'flow' : 'source',
+      attachments: Array.isArray(parsed.attachments)
+        ? parsed.attachments.filter((item): item is UploadAttachment => isRecord(item)).map((item) => ({
+            id: String(item.id || `file_${Date.now()}_${Math.random().toString(16).slice(2)}`),
+            name: String(item.name || '未命名文件'),
+            status: item.status === 'error' ? 'error' : 'ready',
+            text: typeof item.text === 'string' ? item.text : undefined,
+            error: typeof item.error === 'string' ? item.error : undefined,
+          }))
+        : [],
+      streamStatus: typeof parsed.streamStatus === 'string' ? parsed.streamStatus : '',
+    };
+  } catch {
+    window.sessionStorage.removeItem(key);
+    return null;
+  }
+}
+
+function writeDistillCache(key: string, snapshot: DistillCacheSnapshot): void {
+  try {
+    window.sessionStorage.setItem(key, JSON.stringify(snapshot));
+  } catch {
+    // Cache is best-effort. Large uploaded documents can exceed browser quota.
+  }
 }
 
 function allTargetPaths(skill: SkillCard): string[] {

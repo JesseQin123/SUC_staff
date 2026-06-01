@@ -50,3 +50,4 @@ Base URL: `http://localhost:8000`
 ## Mock
 
 - `POST /api/mock/order/query`
+- `POST /api/mock/product/price-query`
