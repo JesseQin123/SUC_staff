@@ -130,10 +130,37 @@ def _target_paths(request: SkillRewriteRequest) -> list[str]:
 def _merge_targets(current: SkillCard, candidate: SkillCard, target_paths: list[str]) -> SkillCard:
     if "all" in target_paths:
         return candidate
+    if _has_step_structure_change(current, candidate, target_paths):
+        current_data = current.model_dump(mode="json")
+        candidate_data = candidate.model_dump(mode="json")
+        current_data["steps"] = [
+            step for step in candidate_data.get("steps", []) if isinstance(step, dict)
+        ]
+        if "basic" in target_paths:
+            for field in BASIC_FIELDS:
+                if field in candidate_data:
+                    current_data[field] = candidate_data[field]
+        return SkillCard.model_validate(current_data)
     merged = current
     for path in target_paths:
         merged = _merge_target(merged, candidate, path)
     return merged
+
+
+def _has_step_structure_change(current: SkillCard, candidate: SkillCard, target_paths: list[str]) -> bool:
+    if not any(_is_step_target(path) for path in target_paths):
+        return False
+    current_steps = [step for step in current.model_dump(mode="json").get("steps", []) if isinstance(step, dict)]
+    candidate_steps = [step for step in candidate.model_dump(mode="json").get("steps", []) if isinstance(step, dict)]
+    if len(candidate_steps) != len(current_steps):
+        return True
+    current_ids = [str(step.get("step_id") or "") for step in current_steps]
+    candidate_ids = [str(step.get("step_id") or "") for step in candidate_steps]
+    return sorted(current_ids) == sorted(candidate_ids) and current_ids != candidate_ids
+
+
+def _is_step_target(path: str) -> bool:
+    return path.startswith("steps.") or path.startswith("steps[")
 
 
 def _merge_target(current: SkillCard, candidate: SkillCard, target_path: str) -> SkillCard:

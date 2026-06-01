@@ -860,10 +860,6 @@ export default function DistillPage() {
           setDraft(nextDraft);
           setUpdatingPaths([]);
           setDirtyPaths((current) => mergePaths(current, paths));
-          const clearTimer = window.setTimeout(() => {
-            setTextDiffs([]);
-          }, 1800);
-          animationTimersRef.current.push(clearTimer);
         }
       }, 38);
       animationTimersRef.current.push(interval);
@@ -2077,15 +2073,13 @@ function targetClass(
   baseClass: string,
   path: string,
   selectedPaths: string[],
-  highlightedPaths: string[],
-  updatingPaths: string[],
+  _highlightedPaths: string[],
+  _updatingPaths: string[],
   dirtyPaths: string[],
 ): string {
   return [
     baseClass,
     selectedPaths.includes(path) ? 'active' : '',
-    highlightedPaths.includes(path) ? 'changed' : '',
-    updatingPaths.includes(path) ? 'updating' : '',
     dirtyPaths.includes(path) ? 'dirty' : '',
   ].filter(Boolean).join(' ');
 }

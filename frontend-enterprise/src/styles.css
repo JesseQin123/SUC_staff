@@ -1037,7 +1037,8 @@ body.skill-distill-fixed .content {
 }
 
 .skill-inline-add.settled {
-  animation: skill-inline-settle 1.8s ease forwards;
+  animation: none;
+  background: #dcfce7;
 }
 
 .skill-source-section.changed,

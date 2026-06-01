@@ -102,6 +102,68 @@ def test_skill_editor_can_target_duplicate_step_ids_by_index() -> None:
     assert response.draft_skill.steps[1].instruction == "只修改第二个重复 step"
 
 
+def test_skill_editor_allows_selected_step_deletion() -> None:
+    current = _skill_card()
+    candidate_data = current.model_dump(mode="json")
+    candidate_data["steps"] = candidate_data["steps"][:1]
+    candidate = SkillCard.model_validate(candidate_data)
+
+    response = SkillEditor()._normalize_response(  # noqa: SLF001
+        {
+            "assistant_message": "已删除反馈步骤。",
+            "draft_skill": candidate.model_dump(),
+        },
+        SkillRewriteRequest(
+            tenant_id="tenant_demo",
+            current_skill=current,
+            instruction="删除第二步",
+            target_path="steps[1]",
+            target_paths=["steps[1]"],
+            target_label="步骤 2",
+        ),
+    )
+
+    assert [step.step_id for step in response.draft_skill.steps] == ["collect_info"]
+
+
+def test_skill_editor_allows_selected_step_insertion() -> None:
+    current = _skill_card()
+    candidate_data = current.model_dump(mode="json")
+    candidate_data["steps"].insert(
+        1,
+        {
+            "step_id": "confirm_purchase",
+            "name": "确认购买信息",
+            "instruction": "向用户确认商品和数量。",
+            "expected_user_info": ["purchase_confirmed"],
+            "allowed_actions": ["ask_user", "continue_flow"],
+        },
+    )
+    candidate = SkillCard.model_validate(candidate_data)
+
+    response = SkillEditor()._normalize_response(  # noqa: SLF001
+        {
+            "assistant_message": "已新增确认步骤。",
+            "draft_skill": candidate.model_dump(),
+        },
+        SkillRewriteRequest(
+            tenant_id="tenant_demo",
+            current_skill=current,
+            instruction="在第一步后新增确认步骤",
+            target_path="steps[0]",
+            target_paths=["steps[0]"],
+            target_label="步骤 1",
+        ),
+    )
+
+    assert [step.step_id for step in response.draft_skill.steps] == [
+        "collect_info",
+        "confirm_purchase",
+        "reply_result",
+    ]
+    assert response.draft_skill.name == current.name
+
+
 def test_skill_editor_merges_selected_step_id_change() -> None:
     current = _skill_card()
     current.steps[1].step_id = "create_order"
