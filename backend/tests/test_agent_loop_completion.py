@@ -546,6 +546,61 @@ def test_tool_continuation_respects_configured_action_limit() -> None:
     assert len(session.slots_json["_tool_results"]) == 1
 
 
+def test_duplicate_tool_call_with_reply_completes_from_existing_tool_result() -> None:
+    loop = object.__new__(AgentLoop)
+    loop.db = FakeDb()
+    loop.events = FakeEvents()
+    loop.tool_executor = _RecordingPriceToolExecutor()
+    loop.step_agent = _FakeStepAgent(
+        [
+            StepAgentResult(
+                reply="A1 的价格已查到，可以继续。",
+                tool_call=ToolCall(name="product.price_query", arguments={"product_name": "A1"}),
+                is_step_completed=False,
+            )
+        ]
+    )
+    loop._recent_messages = lambda session: []  # type: ignore[method-assign]
+    loop._tool_activity_payload = lambda tenant_id, name, result, *args: {  # type: ignore[method-assign]
+        "toolName": name,
+        "toolCallId": args[1] if len(args) > 1 else "",
+        "content": result.model_dump(mode="json"),
+        "success": result.success,
+        "isError": not result.success,
+    }
+    session = ChatSession(
+        id="session_test",
+        tenant_id="tenant_demo",
+        active_skill_id="price_compare",
+        active_step_id="step_query_price_1",
+        slots_json={"product_name_1": "A1"},
+    )
+
+    step_result, tool_result = loop._execute_tool_action_cycle(
+        _request("查 A1 价格"),
+        session,
+        _price_compare_skill(),
+        [_price_query_tool()],
+        _model_config(),
+        StepAgentResult(
+            tool_call=ToolCall(name="product.price_query", arguments={"product_name": "A1"}),
+            is_step_completed=True,
+        ),
+        [],
+    )
+
+    assert [call.arguments["product_name"] for call in loop.tool_executor.calls] == ["A1"]
+    assert tool_result is not None and tool_result.success is True
+    assert step_result.tool_call is None
+    assert step_result.is_step_completed is True
+    assert step_result.reply == "A1 的价格已查到，可以继续。"
+    assert not any(record[2] == "agent_loop_stopped" for record in loop.events.records)
+    assert any(
+        record[2] == "agent_loop_completed" and record[3]["mode"] == "respond_after_duplicate"
+        for record in loop.events.records
+    )
+
+
 def test_context_repair_does_not_skip_satisfied_tool_step() -> None:
     loop = object.__new__(AgentLoop)
     loop.events = FakeEvents()

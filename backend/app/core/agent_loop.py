@@ -1206,6 +1206,15 @@ class AgentLoop:
             tool_call_id = new_id("toolcall")
             signature = self._tool_call_signature(tool_call)
             if signature in seen_calls:
+                if tool_result and tool_result.success and step_result.reply:
+                    step_result = step_result.model_copy(
+                        update={"tool_call": None, "is_step_completed": True}
+                    )
+                    payload = self._tool_loop_decision_payload(iteration + 1, "respond_after_duplicate")
+                    self.events.record(request.tenant_id, chat_session.id, "agent_loop_completed", payload)
+                    if stream_events is not None:
+                        stream_events.append(("agent_loop_completed", payload))
+                    break
                 self.events.record(
                     request.tenant_id,
                     chat_session.id,

@@ -59,7 +59,7 @@ REFUND_SKILL = {
             "name": "查询退款资格",
             "instruction": "将本步骤作为目标而不是固定话术；仅当 order_id 已存在且 order_confirmed=true 时调用 order.query；根据订单查询结果说明是否可能支持退款/退货，不要承诺一定成功；如还缺原因则继续收集，已满足时给出明确下一步。",
             "expected_user_info": [],
-            "allowed_actions": ["continue_flow", "call_tool:order.query", "handoff_human"],
+            "allowed_actions": ["continue_flow", "call_tool:order.query", "answer_user", "handoff_human"],
         },
         {
             "step_id": "collect_refund_reason",
