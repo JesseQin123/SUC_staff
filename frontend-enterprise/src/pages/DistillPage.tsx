@@ -3,9 +3,7 @@ import {
   CheckOutlined,
   CodeOutlined,
   CloseOutlined,
-  CopyOutlined,
   DownOutlined,
-  EditOutlined,
   FileTextOutlined,
   LoadingOutlined,
   RightOutlined,
@@ -1223,7 +1221,7 @@ export default function DistillPage() {
                           <div className="skill-chat-hover-actions">
                             <span className="skill-chat-time">{formatMessageTime(item.createdAt)}</span>
                             <button type="button" title="复制" onClick={() => void copyHistoryMessage(item)}>
-                              <CopyOutlined />
+                              <CopyGlyph />
                             </button>
                             <button
                               type="button"
@@ -1231,7 +1229,7 @@ export default function DistillPage() {
                               onClick={() => requestEditHistoryMessage(item, index)}
                               disabled={loading}
                             >
-                              <EditOutlined />
+                              <PencilGlyph />
                             </button>
                           </div>
                         )}
@@ -2347,6 +2345,24 @@ function formatMessageTime(value?: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
+function CopyGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <rect x="8" y="4" width="12" height="12" rx="3" />
+      <rect x="4" y="8" width="12" height="12" rx="3" />
+    </svg>
+  );
+}
+
+function PencilGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M5 19l4.2-1 10-10a2.1 2.1 0 0 0-3-3l-10 10L5 19z" />
+      <path d="M14.8 5.2l4 4" />
+    </svg>
+  );
 }
 
 function normalizeToolSuggestions(value: unknown): ToolSuggestionItem[] {

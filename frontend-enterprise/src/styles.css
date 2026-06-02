@@ -696,10 +696,10 @@ body.skill-distill-fixed .content {
 .skill-chat-hover-actions {
   position: absolute;
   right: 10px;
-  bottom: -30px;
+  bottom: -26px;
   display: inline-flex;
   align-items: center;
-  gap: 12px;
+  gap: 9px;
   color: var(--muted);
   opacity: 0;
   transition: opacity 0.16s ease;
@@ -712,13 +712,13 @@ body.skill-distill-fixed .content {
 
 .skill-chat-time {
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1;
 }
 
 .skill-chat-hover-actions button {
-  width: 20px;
-  height: 20px;
+  width: 17px;
+  height: 17px;
   padding: 0;
   display: inline-flex;
   align-items: center;
@@ -727,8 +727,17 @@ body.skill-distill-fixed .content {
   background: transparent;
   border: 0;
   cursor: pointer;
-  font-size: 16px;
   line-height: 1;
+}
+
+.skill-chat-hover-actions svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .skill-chat-hover-actions button:hover {
