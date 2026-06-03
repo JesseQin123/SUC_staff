@@ -1,3 +1,4 @@
+import json
 from io import BytesIO
 from zipfile import ZipFile
 
@@ -215,6 +216,77 @@ def test_skill_editor_applies_step_id_corrections_to_final_draft() -> None:
     assert response.draft_skill.steps[1].step_id == "collect_info_2"
     assert "steps[1]" in response.changed_paths
     assert any("步骤 2" in warning and "collect_info_2" in warning for warning in response.warnings)
+
+
+def test_skill_editor_applies_patch_response_without_full_draft() -> None:
+    current = _skill_card()
+    response = SkillEditor()._normalize_response(  # noqa: SLF001
+        {
+            "assistant_message": "已精简回复规则。",
+            "patches": [
+                {
+                    "path": "response_rules",
+                    "value": ["信息不足时追问；工具成功后给出明确结果，不编造事实。"],
+                }
+            ],
+            "changed_paths": ["basic"],
+        },
+        SkillRewriteRequest(
+            tenant_id="tenant_demo",
+            current_skill=current,
+            instruction="回复规则太长了，精简一下",
+            target_path="basic",
+            target_paths=["basic", "steps[0]", "steps[1]"],
+            target_label="全部区域",
+        ),
+    )
+
+    assert response.draft_skill.response_rules == ["信息不足时追问；工具成功后给出明确结果，不编造事实。"]
+    assert response.draft_skill.steps[0].instruction == current.steps[0].instruction
+
+
+def test_skill_editor_stream_repairs_invalid_json_once(monkeypatch) -> None:
+    def fake_stream(self, _system_prompt: str, _payload: dict):  # noqa: ANN001
+        yield '{"assistant_message": "截断的输出", "patches": ['
+
+    def fake_text(self, _system_prompt: str, payload: dict):  # noqa: ANN001
+        assert "previous_error" in payload
+        return json.dumps(
+            {
+                "assistant_message": "已精简回复规则。",
+                "patches": [
+                    {
+                        "path": "response_rules",
+                        "value": ["信息不足时追问；工具成功后给出明确结果，不编造事实。"],
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        )
+
+    monkeypatch.setattr("app.skills.skill_editor.LLMClient.generate_text_stream", fake_stream)
+    monkeypatch.setattr("app.skills.skill_editor.LLMClient.generate_text", fake_text)
+
+    events = list(
+        SkillEditor().stream_text(
+            SkillRewriteRequest(
+                tenant_id="tenant_demo",
+                current_skill=_skill_card(),
+                instruction="回复规则太长了，精简一下",
+                target_path="basic",
+                target_paths=["basic", "steps[0]", "steps[1]"],
+                target_label="全部区域",
+            ),
+            _model_config(),
+        )
+    )
+    status_texts = [event["data"]["text"] for event in events if event["event"] == "status"]
+    complete = next(event for event in events if event["event"] == "complete")
+
+    assert "模型输出需要修复，正在重试一次" in status_texts
+    assert complete["data"]["draft_skill"]["response_rules"] == [
+        "信息不足时追问；工具成功后给出明确结果，不编造事实。"
+    ]
 
 
 def test_skill_stats_counts_skill_entry_and_feedback() -> None:

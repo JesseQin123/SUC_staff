@@ -40,27 +40,49 @@ class SkillEditor:
         self, request: SkillRewriteRequest, model_config: ModelConfig
     ) -> Iterator[dict[str, object]]:
         chunks: list[str] = []
+        prompt = PROMPT_PATH.read_text(encoding="utf-8")
+        payload = self._payload(request)
+        client = LLMClient(model_config)
         try:
             yield {"event": "status", "data": {"text": "模型正在分析改写范围"}}
-            for chunk in LLMClient(model_config).generate_text_stream(
-                PROMPT_PATH.read_text(encoding="utf-8"), self._payload(request)
-            ):
+            for chunk in client.generate_text_stream(prompt, payload):
                 chunks.append(chunk)
             yield {"event": "status", "data": {"text": "正在校验局部改写结果"}}
-            raw = json.loads(_extract_json("".join(chunks)))
-            response = self._normalize_response(raw, request)
-        except (LLMError, json.JSONDecodeError, ValueError) as exc:
-            yield {"event": "status", "data": {"text": "模型改写失败，正在保留原版本"}}
-            response = SkillRewriteResponse(
-                draft_skill=request.current_skill,
-                assistant_message="改写失败，已保留当前技能内容。",
-                changed_paths=[],
-                warnings=[f"模型未能完成局部改写：{exc}"],
-            )
+            response = self._response_from_text("".join(chunks), request)
+        except (LLMError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            try:
+                yield {"event": "status", "data": {"text": "模型输出需要修复，正在重试一次"}}
+                repair_text = client.generate_text(
+                    prompt,
+                    {
+                        **payload,
+                        "previous_output": "".join(chunks),
+                        "previous_error": str(exc),
+                        "repair_instruction": (
+                            "请基于 current_skill、instruction 和 target_paths 修复上一次输出。"
+                            "只输出合法 JSON，可以使用 patches 做局部修改，或返回完整 draft_skill。"
+                        ),
+                    },
+                )
+                response = self._response_from_text(repair_text, request)
+            except (LLMError, json.JSONDecodeError, TypeError, ValueError) as repair_exc:
+                yield {"event": "status", "data": {"text": "模型改写失败，正在保留原版本"}}
+                response = SkillRewriteResponse(
+                    draft_skill=request.current_skill,
+                    assistant_message="改写失败，已保留当前技能内容。",
+                    changed_paths=[],
+                    warnings=[f"模型未能完成局部改写：{repair_exc}"],
+                )
         for chunk in _chunk_text(response.assistant_message):
             yield {"event": "message_chunk", "data": {"content": chunk}}
             sleep(STREAM_INTERVAL_SECONDS)
         yield {"event": "complete", "data": response.model_dump(mode="json")}
+
+    def _response_from_text(self, text: str, request: SkillRewriteRequest) -> SkillRewriteResponse:
+        raw = json.loads(_extract_json(text))
+        if not isinstance(raw, dict):
+            raise ValueError("模型输出不是 JSON object")
+        return self._normalize_response(raw, request)
 
     def _payload(self, request: SkillRewriteRequest) -> dict[str, Any]:
         return {
@@ -76,9 +98,16 @@ class SkillEditor:
     def _normalize_response(
         self, raw: dict[str, Any], request: SkillRewriteRequest
     ) -> SkillRewriteResponse:
-        draft = raw.get("draft_skill") if isinstance(raw.get("draft_skill"), dict) else raw
-        candidate = SkillCard.model_validate(draft)
         target_paths = _target_paths(request)
+        patched = _skill_from_patches(raw, request, target_paths)
+        draft = (
+            patched.model_dump(mode="json")
+            if patched is not None
+            else raw.get("draft_skill")
+            if isinstance(raw.get("draft_skill"), dict)
+            else raw
+        )
+        candidate = SkillCard.model_validate(draft)
         merged = _merge_targets(request.current_skill, candidate, target_paths)
         merged_data = merged.model_dump(mode="json")
         steps, missing_tool_names = _remove_unknown_tool_actions(
@@ -125,6 +154,108 @@ def _target_paths(request: SkillRewriteRequest) -> list[str]:
         if path not in deduped:
             deduped.append(path)
     return deduped or ["all"]
+
+
+def _skill_from_patches(
+    raw: dict[str, Any],
+    request: SkillRewriteRequest,
+    target_paths: list[str],
+) -> SkillCard | None:
+    patches = raw.get("patches")
+    if not isinstance(patches, list):
+        return None
+    data = request.current_skill.model_dump(mode="json")
+    applied = False
+    ignored_paths: list[str] = []
+    for item in patches:
+        if not isinstance(item, dict):
+            continue
+        path = str(item.get("path") or "").strip()
+        if not path:
+            continue
+        if not _patch_allowed(data, path, target_paths):
+            ignored_paths.append(path)
+            continue
+        if _apply_patch(data, path, item.get("value")):
+            applied = True
+    if ignored_paths:
+        warnings = raw.get("warnings")
+        if not isinstance(warnings, list):
+            warnings = []
+            raw["warnings"] = warnings
+        warnings.append(f"已忽略越界改写路径：{', '.join(ignored_paths)}")
+    if not applied:
+        return None
+    return SkillCard.model_validate(data)
+
+
+def _patch_allowed(data: dict[str, Any], path: str, target_paths: list[str]) -> bool:
+    if "all" in target_paths:
+        return _patch_path_is_known(data, path)
+    if _basic_patch_field(path):
+        return "basic" in target_paths
+    if path == "steps":
+        return any(_is_step_target(target) for target in target_paths)
+    step_index = _patch_step_index(data, path)
+    if step_index is None:
+        return False
+    steps = [step for step in data.get("steps", []) if isinstance(step, dict)]
+    step_id = str(steps[step_index].get("step_id") or "")
+    return f"steps[{step_index}]" in target_paths or f"steps.{step_id}" in target_paths
+
+
+def _patch_path_is_known(data: dict[str, Any], path: str) -> bool:
+    return bool(_basic_patch_field(path)) or path == "steps" or _patch_step_index(data, path) is not None
+
+
+def _apply_patch(data: dict[str, Any], path: str, value: Any) -> bool:
+    basic_field = _basic_patch_field(path)
+    if basic_field:
+        data[basic_field] = value
+        return True
+    if path == "steps" and isinstance(value, list):
+        data["steps"] = value
+        return True
+    step_index = _patch_step_index(data, path)
+    if step_index is None:
+        return False
+    step_field = _patch_step_field(path)
+    steps = [step for step in data.get("steps", []) if isinstance(step, dict)]
+    if not (0 <= step_index < len(steps)):
+        return False
+    if step_field is None:
+        if not isinstance(value, dict):
+            return False
+        steps[step_index] = value
+    else:
+        steps[step_index][step_field] = value
+    data["steps"] = steps
+    return True
+
+
+def _basic_patch_field(path: str) -> str | None:
+    normalized = path.removeprefix("basic.")
+    return normalized if normalized in BASIC_FIELDS else None
+
+
+def _patch_step_index(data: dict[str, Any], path: str) -> int | None:
+    steps = [step for step in data.get("steps", []) if isinstance(step, dict)]
+    bracket_match = re.fullmatch(r"steps\[(\d+)\](?:\.[A-Za-z_][A-Za-z0-9_]*)?", path)
+    if bracket_match:
+        index = int(bracket_match.group(1))
+        return index if 0 <= index < len(steps) else None
+    dot_match = re.fullmatch(r"steps\.([^.]+)(?:\.[A-Za-z_][A-Za-z0-9_]*)?", path)
+    if not dot_match:
+        return None
+    step_id = dot_match.group(1)
+    return next((index for index, step in enumerate(steps) if str(step.get("step_id") or "") == step_id), None)
+
+
+def _patch_step_field(path: str) -> str | None:
+    bracket_match = re.fullmatch(r"steps\[\d+\]\.([A-Za-z_][A-Za-z0-9_]*)", path)
+    dot_match = re.fullmatch(r"steps\.[^.]+\.([A-Za-z_][A-Za-z0-9_]*)", path)
+    field = bracket_match.group(1) if bracket_match else dot_match.group(1) if dot_match else None
+    return field if field in STEP_FIELDS else None
 
 
 def _merge_targets(current: SkillCard, candidate: SkillCard, target_paths: list[str]) -> SkillCard:
