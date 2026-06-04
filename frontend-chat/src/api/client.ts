@@ -1,4 +1,21 @@
-export const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+const resolveApiBase = () => {
+  const { protocol, hostname } = window.location;
+  if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1') {
+    const configured = import.meta.env.VITE_API_BASE_URL;
+    if (configured && !configured.includes('127.0.0.1') && !configured.includes('localhost')) {
+      return configured;
+    }
+    return `${protocol}//${hostname}:45615`;
+  }
+
+  if (import.meta.env.VITE_API_BASE_URL) {
+    return import.meta.env.VITE_API_BASE_URL;
+  }
+
+  return 'http://127.0.0.1:8000';
+};
+
+export const API_BASE = resolveApiBase();
 
 export const TENANT_ID = import.meta.env.VITE_TENANT_ID || 'tenant_demo';
 export const USER_ID = import.meta.env.VITE_USER_ID || 'user_demo';
