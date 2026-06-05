@@ -1106,11 +1106,8 @@ body.skill-distill-fixed .content {
 }
 
 .skill-tool-suggestion {
+  position: relative;
   padding: 12px 12px 11px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) max-content;
-  align-items: start;
-  gap: 12px;
   background: #fffdf9;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -1119,6 +1116,8 @@ body.skill-distill-fixed .content {
 
 .skill-tool-suggestion-main {
   min-width: 0;
+  padding-right: 92px;
+  padding-bottom: 30px;
 }
 
 .skill-tool-suggestion-head {
@@ -1213,8 +1212,8 @@ body.skill-distill-fixed .content {
 }
 
 .skill-tool-suggestion-actions {
-  align-self: start;
-  justify-self: end;
+  position: absolute;
+  right: 12px;
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
@@ -1224,6 +1223,19 @@ body.skill-distill-fixed .content {
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.72);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+.skill-tool-suggestion-actions.top {
+  top: 10px;
+}
+
+.skill-tool-suggestion-actions.bottom {
+  right: 12px;
+  bottom: 10px;
+}
+
+.skill-tool-suggestion-actions.bottom:empty {
+  display: none;
 }
 
 .skill-tool-action.ant-btn {

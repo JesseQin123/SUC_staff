@@ -1724,7 +1724,7 @@ export default function DistillPage({ active = true, searchParamsOverride }: Dis
                                 <span>{suggestion.url || '-'}</span>
                               </div>
                             </div>
-                            <div className="skill-tool-suggestion-actions">
+                            <div className="skill-tool-suggestion-actions top">
                               <Tooltip title="查看详情">
                                 <Button
                                   className="skill-tool-action"
@@ -1734,6 +1734,8 @@ export default function DistillPage({ active = true, searchParamsOverride }: Dis
                                   onClick={() => openToolDetail(item.id, suggestion)}
                                 />
                               </Tooltip>
+                            </div>
+                            <div className="skill-tool-suggestion-actions bottom">
                               {toolSuggestionResolution(suggestion) === 'new_candidate' && suggestion.status !== 'accepted' && suggestion.status !== 'created' && suggestion.status !== 'rejected' && (
                                 <>
                                   <Tooltip title="确认新增">
