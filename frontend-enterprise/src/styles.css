@@ -1799,6 +1799,32 @@ body.skill-distill-fixed .content {
   cursor: help;
 }
 
+.skill-action-chip.tool.existing,
+.skill-action-chip.tool.accepted,
+.skill-action-chip.tool.created {
+  color: #166534;
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.skill-action-chip.tool.pending {
+  color: #92400e;
+  background: #fffbeb;
+  border-color: #fed7aa;
+}
+
+.skill-action-chip.tool.rejected {
+  color: #991b1b;
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+.skill-action-chip.tool.incomplete {
+  color: var(--muted);
+  background: #f7f5ef;
+  border-color: var(--border);
+}
+
 .skill-action-chip.added {
   color: #135f36;
   background: #e8f6ee;

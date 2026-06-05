@@ -252,7 +252,13 @@ class SkillDistiller:
         warnings.extend(step_warnings)
         steps, unique_step_warnings = ensure_unique_step_ids(steps)
         warnings.extend(unique_step_warnings)
-        steps, missing_tool_names = _remove_unknown_tool_actions(steps, request.available_tools)
+        raw_tool_mentions = raw.get("tool_mentions") if isinstance(raw.get("tool_mentions"), list) else raw.get("tool_suggestions")
+        tool_resolutions = _normalize_tool_suggestions(raw_tool_mentions, request, [])
+        steps, missing_tool_names = _remove_unknown_tool_actions(
+            steps,
+            request.available_tools,
+            _tool_action_names_from_suggestions(tool_resolutions),
+        )
         for tool_name in missing_tool_names:
             warnings.append(
                 f"技能草稿引用了未配置工具 {tool_name}，已移出 allowed_actions；"
@@ -289,11 +295,8 @@ class SkillDistiller:
         }
         draft_skill, card_warnings = skill_card_with_unique_step_ids(SkillCard.model_validate(normalized))
         warnings.extend(card_warnings)
-        tool_resolutions = _normalize_tool_suggestions(
-            raw.get("tool_mentions") if isinstance(raw.get("tool_mentions"), list) else raw.get("tool_suggestions"),
-            request,
-            missing_tool_names,
-        )
+        if missing_tool_names:
+            tool_resolutions = _normalize_tool_suggestions(raw_tool_mentions, request, missing_tool_names)
         warnings.extend(_tool_resolution_warnings(tool_resolutions))
         tool_suggestions = [
             item for item in tool_resolutions if item.resolution_status in {"existing", "new_candidate"}
@@ -689,9 +692,12 @@ def _available_tool_names(available_tools: list[dict[str, Any]]) -> set[str]:
 
 
 def _remove_unknown_tool_actions(
-    steps: list[dict[str, Any]], available_tools: list[dict[str, Any]]
+    steps: list[dict[str, Any]],
+    available_tools: list[dict[str, Any]],
+    retain_tool_names: set[str] | None = None,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     available_names = _available_tool_names(available_tools)
+    retained_names = retain_tool_names or set()
     missing_names: list[str] = []
     if not available_names:
         available_names = set()
@@ -705,7 +711,7 @@ def _remove_unknown_tool_actions(
                 actions.append(action_text)
                 continue
             tool_name = action_text.replace("call_tool:", "", 1).strip()
-            if tool_name in available_names:
+            if tool_name in available_names or tool_name in retained_names:
                 actions.append(action_text)
                 continue
             if tool_name and tool_name not in missing_names:
@@ -713,6 +719,18 @@ def _remove_unknown_tool_actions(
         next_step["allowed_actions"] = actions
         normalized_steps.append(next_step)
     return normalized_steps, missing_names
+
+
+def _tool_action_names_from_suggestions(suggestions: list[ToolSuggestion]) -> set[str]:
+    names: set[str] = set()
+    for suggestion in suggestions:
+        if suggestion.resolution_status not in {"existing", "new_candidate"}:
+            continue
+        if suggestion.name:
+            names.add(suggestion.name)
+        if suggestion.matched_tool_name:
+            names.add(suggestion.matched_tool_name)
+    return names
 
 
 def _normalize_tool_suggestions(

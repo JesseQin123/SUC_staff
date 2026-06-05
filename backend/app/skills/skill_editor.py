@@ -15,6 +15,7 @@ from app.skills.skill_distiller import (
     _compact_warnings,
     _normalize_tool_suggestions,
     _remove_unknown_tool_actions,
+    _tool_action_names_from_suggestions,
     _tool_resolution_warnings,
 )
 from app.skills.step_ids import skill_card_with_unique_step_ids
@@ -141,9 +142,12 @@ class SkillEditor:
         candidate = SkillCard.model_validate(draft)
         merged = _merge_targets(request.current_skill, candidate, target_paths)
         merged_data = merged.model_dump(mode="json")
+        raw_tool_mentions = raw.get("tool_mentions") if isinstance(raw.get("tool_mentions"), list) else raw.get("tool_suggestions")
+        tool_resolutions = _normalize_tool_suggestions(raw_tool_mentions, request, [])
         steps, missing_tool_names = _remove_unknown_tool_actions(
             [step for step in merged_data.get("steps", []) if isinstance(step, dict)],
             request.available_tools,
+            _tool_action_names_from_suggestions(tool_resolutions),
         )
         if steps:
             merged_data["steps"] = steps
@@ -163,11 +167,8 @@ class SkillEditor:
         changed_paths = [str(item) for item in raw.get("changed_paths", []) if str(item).strip()]
         if not changed_paths and merged.model_dump() != request.current_skill.model_dump():
             changed_paths = _changed_paths(request.current_skill, merged)
-        tool_resolutions = _normalize_tool_suggestions(
-            raw.get("tool_mentions") if isinstance(raw.get("tool_mentions"), list) else raw.get("tool_suggestions"),
-            request,
-            missing_tool_names,
-        )
+        if missing_tool_names:
+            tool_resolutions = _normalize_tool_suggestions(raw_tool_mentions, request, missing_tool_names)
         warnings = _compact_warnings([*warnings, *_tool_resolution_warnings(tool_resolutions)])
         tool_suggestions = [
             item for item in tool_resolutions if item.resolution_status in {"existing", "new_candidate"}

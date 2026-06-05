@@ -356,16 +356,13 @@ def test_normalize_response_resolves_tool_mentions_as_new_candidates() -> None:
 
     response = SkillDistiller()._normalize_response(raw, request)  # noqa: SLF001
 
-    assert all(
-        "call_tool:product.compare" not in step.allowed_actions
-        for step in response.draft_skill.steps
-    )
+    assert "call_tool:product.compare" in response.draft_skill.steps[0].allowed_actions
     assert [item.name for item in response.tool_suggestions] == ["product.compare"]
     assert response.tool_suggestions[0].resolution_status == "new_candidate"
     assert response.tool_suggestions[0].input_schema["required"] == ["product_name_1", "product_name_2"]
     assert response.tool_suggestions[0].sample_arguments == {"product_name_1": "A1", "product_name_2": "A3"}
     assert response.tool_suggestions[0].source_excerpt == "POST /api/mock/product/compare 使用两个商品名返回比价信息。"
-    assert any("未配置工具 product.compare" in warning for warning in response.warnings)
+    assert not any("未配置工具 product.compare" in warning and "已移出" in warning for warning in response.warnings)
 
 
 def test_normalize_response_resolves_tool_mentions_as_existing_tools() -> None:

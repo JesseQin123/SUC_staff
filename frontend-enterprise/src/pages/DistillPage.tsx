@@ -81,6 +81,8 @@ type TargetSelection = {
   label: string;
 };
 type ToolDescriptionMap = Record<string, string>;
+type ToolActionStatus = 'existing' | 'pending' | 'accepted' | 'created' | 'rejected' | 'incomplete';
+type ToolStatusMap = Record<string, ToolActionStatus>;
 
 type ViewMode = 'source' | 'flow';
 type PendingChange = {
@@ -406,7 +408,8 @@ export default function DistillPage({ active = true, searchParamsOverride }: Dis
   const uploadingFile = attachments.some((item) => item.status === 'uploading');
   const readyAttachments = attachments.filter((item) => item.status === 'ready' && item.text?.trim());
   const allSelected = draft ? selectedPaths.length > 0 && allPaths.every((path) => selectedPaths.includes(path)) : false;
-  const toolDescriptions = useMemo(() => buildToolDescriptionMap(tools), [tools]);
+  const toolDescriptions = useMemo(() => buildToolDescriptionMap(tools, messages), [messages, tools]);
+  const toolStatuses = useMemo(() => buildToolStatusMap(tools, messages), [messages, tools]);
   const saveReviewDraft = useMemo(() => {
     const sourceDraft = saveDraftSnapshot || draft;
     if (!sourceDraft) return null;
@@ -1150,9 +1153,22 @@ export default function DistillPage({ active = true, searchParamsOverride }: Dis
   function rejectToolSuggestion(messageId: string, toolName: string) {
     const nextSuggestions = nextToolSuggestionsWithPatch(messageId, toolName, { status: 'rejected' });
     setToolSuggestionStatus(messageId, toolName, 'rejected');
+    removeToolActionFromDraft(toolName);
     if (toolSuggestionSelectionsComplete(nextSuggestions)) {
       void commitToolSuggestionSelections(messageId, nextSuggestions);
     }
+  }
+
+  function removeToolActionFromDraft(toolName: string) {
+    setDraft((current) => (current ? removeToolActionFromSkill(current, toolName) : current));
+    setPendingChange((current) =>
+      current
+        ? {
+            ...current,
+            nextDraft: removeToolActionFromSkill(current.nextDraft, toolName),
+          }
+        : current,
+    );
   }
 
   function setToolSuggestionStatus(messageId: string, toolName: string, status: ToolSuggestionItem['status']) {
@@ -1899,6 +1915,7 @@ export default function DistillPage({ active = true, searchParamsOverride }: Dis
               dirtyPaths={dirtyPaths}
               textDiffs={textDiffs}
               toolDescriptions={toolDescriptions}
+              toolStatuses={toolStatuses}
               containerRef={sourceScrollRef}
               onToggle={toggleTarget}
             />
@@ -1911,6 +1928,7 @@ export default function DistillPage({ active = true, searchParamsOverride }: Dis
               dirtyPaths={dirtyPaths}
               textDiffs={textDiffs}
               toolDescriptions={toolDescriptions}
+              toolStatuses={toolStatuses}
               containerRef={sourceScrollRef}
               onToggle={toggleTarget}
             />
@@ -1980,7 +1998,7 @@ export default function DistillPage({ active = true, searchParamsOverride }: Dis
             saveReviewDiffs.map((diff) => (
               <div key={diff.key} className="save-review-diff-row">
                 <div className="save-review-diff-path">{diffTargetLabel(diff.path, saveReviewDraft)} / {fieldLabel(diff.field)}</div>
-                <SaveReviewDiffValue diff={diff} toolDescriptions={toolDescriptions} />
+                <SaveReviewDiffValue diff={diff} toolDescriptions={toolDescriptions} toolStatuses={toolStatuses} />
               </div>
             ))
           )}
@@ -2055,6 +2073,7 @@ function SkillSource({
   dirtyPaths,
   textDiffs,
   toolDescriptions,
+  toolStatuses,
   containerRef,
   onToggle,
 }: {
@@ -2065,6 +2084,7 @@ function SkillSource({
   dirtyPaths: string[];
   textDiffs: TextDiffAnimation[];
   toolDescriptions: ToolDescriptionMap;
+  toolStatuses: ToolStatusMap;
   containerRef: RefObject<HTMLDivElement>;
   onToggle: (target: TargetSelection) => void;
 }) {
@@ -2111,7 +2131,7 @@ function SkillSource({
                   <SourceTextLine path={path} field="step_id" label={fieldLabel('step_id')} value={stepId} diffs={textDiffs} />
                   <SourceTextLine path={path} field="instruction" label={fieldLabel('instruction')} value={String(step.instruction || '-')} diffs={textDiffs} />
                   <SourceListLine path={path} field="expected_user_info" label={fieldLabel('expected_user_info')} values={asStringList(step.expected_user_info)} diffs={textDiffs} />
-                  <SourceActionLine path={path} values={asStringList(step.allowed_actions)} diffs={textDiffs} toolDescriptions={toolDescriptions} />
+                  <SourceActionLine path={path} values={asStringList(step.allowed_actions)} diffs={textDiffs} toolDescriptions={toolDescriptions} toolStatuses={toolStatuses} />
                 </div>
               </div>
             </SelectableTarget>
@@ -2130,6 +2150,7 @@ function SkillFlow({
   dirtyPaths,
   textDiffs,
   toolDescriptions,
+  toolStatuses,
   containerRef,
   onToggle,
 }: {
@@ -2140,6 +2161,7 @@ function SkillFlow({
   dirtyPaths: string[];
   textDiffs: TextDiffAnimation[];
   toolDescriptions: ToolDescriptionMap;
+  toolStatuses: ToolStatusMap;
   containerRef: RefObject<HTMLDivElement>;
   onToggle: (target: TargetSelection) => void;
 }) {
@@ -2191,14 +2213,14 @@ function SkillFlow({
                   <PlainChipList values={asStringList(step.expected_user_info)} />
                 </FlowMetaRow>
                 <FlowMetaRow label="允许动作">
-                  <ActionList actions={asStringList(step.allowed_actions)} toolDescriptions={toolDescriptions} />
+                  <ActionList actions={asStringList(step.allowed_actions)} toolDescriptions={toolDescriptions} toolStatuses={toolStatuses} />
                 </FlowMetaRow>
               </div>
             </SelectableTarget>
             {toolActions.length > 0 && (
               <div className="skill-flow-tools">
                 {toolActions.map((action) => (
-                  <ActionChip action={String(action)} toolDescriptions={toolDescriptions} className="skill-flow-tool" key={String(action)} />
+                  <ActionChip action={String(action)} toolDescriptions={toolDescriptions} toolStatuses={toolStatuses} className="skill-flow-tool" key={String(action)} />
                 ))}
               </div>
             )}
@@ -2315,11 +2337,13 @@ function SourceActionLine({
   values,
   diffs,
   toolDescriptions,
+  toolStatuses,
 }: {
   path: string;
   values: string[];
   diffs: TextDiffAnimation[];
   toolDescriptions: ToolDescriptionMap;
+  toolStatuses: ToolStatusMap;
 }) {
   const activeDiff = diffs.find((diff) => diff.path === path && diff.field === 'allowed_actions');
   return (
@@ -2327,9 +2351,9 @@ function SourceActionLine({
       <span className="skill-source-key">{fieldLabel('allowed_actions')}</span>
       <span className="skill-source-value">
         {activeDiff ? (
-          <ActionDiffList diff={activeDiff} currentActions={values} toolDescriptions={toolDescriptions} />
+          <ActionDiffList diff={activeDiff} currentActions={values} toolDescriptions={toolDescriptions} toolStatuses={toolStatuses} />
         ) : (
-          <ActionList actions={values} toolDescriptions={toolDescriptions} />
+          <ActionList actions={values} toolDescriptions={toolDescriptions} toolStatuses={toolStatuses} />
         )}
       </span>
     </div>
@@ -2340,10 +2364,12 @@ function ActionDiffList({
   diff,
   currentActions,
   toolDescriptions,
+  toolStatuses,
 }: {
   diff: TextDiffAnimation;
   currentActions: string[];
   toolDescriptions: ToolDescriptionMap;
+  toolStatuses: ToolStatusMap;
 }) {
   const oldActions = actionsFromDiffText(diffFullOldValue(diff));
   const newActions = actionsFromDiffText(diffFullNewValue(diff));
@@ -2358,6 +2384,7 @@ function ActionDiffList({
         <ActionChip
           action={action}
           toolDescriptions={toolDescriptions}
+          toolStatuses={toolStatuses}
           className="removed"
           key={`removed_${action}_${index}`}
         />
@@ -2366,6 +2393,7 @@ function ActionDiffList({
         <ActionChip
           action={action}
           toolDescriptions={toolDescriptions}
+          toolStatuses={toolStatuses}
           className={inserted.has(action) ? `added ${phaseClass}` : ''}
           key={`${action}_${index}`}
         />
@@ -2377,9 +2405,11 @@ function ActionDiffList({
 function ActionList({
   actions,
   toolDescriptions,
+  toolStatuses,
 }: {
   actions: string[];
   toolDescriptions: ToolDescriptionMap;
+  toolStatuses: ToolStatusMap;
 }) {
   if (actions.length === 0) return <span className="skill-action-empty">-</span>;
   return (
@@ -2388,6 +2418,7 @@ function ActionList({
         <ActionChip
           action={action}
           toolDescriptions={toolDescriptions}
+          toolStatuses={toolStatuses}
           key={`${action}_${index}`}
         />
       ))}
@@ -2398,17 +2429,20 @@ function ActionList({
 function ActionChip({
   action,
   toolDescriptions,
+  toolStatuses,
   className = '',
 }: {
   action: string;
   toolDescriptions: ToolDescriptionMap;
+  toolStatuses: ToolStatusMap;
   className?: string;
 }) {
   const toolName = toolNameFromAction(action);
   const description = toolName ? toolDescriptions[toolName] || '当前工具配置中暂无描述' : '';
+  const status = toolName ? toolStatuses[toolName] || 'incomplete' : '';
   const chip = (
     <span
-      className={`skill-action-chip ${toolName ? 'tool' : ''} ${className}`.trim()}
+      className={`skill-action-chip ${toolName ? `tool ${status}` : ''} ${className}`.trim()}
       title={description || undefined}
     >
       {actionLabel(action)}
@@ -2420,9 +2454,11 @@ function ActionChip({
 function SaveReviewDiffValue({
   diff,
   toolDescriptions,
+  toolStatuses,
 }: {
   diff: TextDiffAnimation;
   toolDescriptions: ToolDescriptionMap;
+  toolStatuses: ToolStatusMap;
 }) {
   if (diff.field === 'allowed_actions') {
     const removedActions = actionsFromDiffText(diffFullOldValue(diff));
@@ -2432,13 +2468,13 @@ function SaveReviewDiffValue({
         {diff.removed && (
           <div className="save-review-action-diff old">
             <span className="save-review-diff-sign">-</span>
-            <ActionList actions={removedActions} toolDescriptions={toolDescriptions} />
+            <ActionList actions={removedActions} toolDescriptions={toolDescriptions} toolStatuses={toolStatuses} />
           </div>
         )}
         {diff.inserted && (
           <div className="save-review-action-diff new">
             <span className="save-review-diff-sign">+</span>
-            <ActionList actions={insertedActions} toolDescriptions={toolDescriptions} />
+            <ActionList actions={insertedActions} toolDescriptions={toolDescriptions} toolStatuses={toolStatuses} />
           </div>
         )}
       </>
@@ -3161,6 +3197,16 @@ function cloneSkill(skill: SkillCard): SkillCard {
   return JSON.parse(JSON.stringify(skill)) as SkillCard;
 }
 
+function removeToolActionFromSkill(skill: SkillCard, toolName: string): SkillCard {
+  const next = cloneSkill(skill);
+  const targetAction = `call_tool:${toolName}`;
+  next.steps = next.steps.map((step) => ({
+    ...step,
+    allowed_actions: asStringList(step.allowed_actions).filter((action) => action !== targetAction),
+  }));
+  return next;
+}
+
 function cloneSkillRead(skill: SkillRead): SkillRead {
   return JSON.parse(JSON.stringify(skill)) as SkillRead;
 }
@@ -3348,11 +3394,40 @@ function bumpSkillVersion(version: string): string {
   return `${major}.${minor + 1}.0`;
 }
 
-function buildToolDescriptionMap(tools: ToolRead[]): ToolDescriptionMap {
-  return tools.reduce<ToolDescriptionMap>((acc, tool) => {
+function buildToolDescriptionMap(tools: ToolRead[], messages: ChatItem[] = []): ToolDescriptionMap {
+  const descriptions = tools.reduce<ToolDescriptionMap>((acc, tool) => {
     acc[tool.name] = [tool.display_name, tool.description].filter(Boolean).join('：') || tool.name;
     return acc;
   }, {});
+  messages.flatMap((item) => item.toolSuggestions || []).forEach((suggestion) => {
+    const label = suggestion.display_name || suggestion.name;
+    descriptions[suggestion.name] = [label, suggestion.description || suggestion.reason].filter(Boolean).join('：') || suggestion.name;
+    if (suggestion.matched_tool_name) {
+      descriptions[suggestion.matched_tool_name] = descriptions[suggestion.name];
+    }
+  });
+  return descriptions;
+}
+
+function buildToolStatusMap(tools: ToolRead[], messages: ChatItem[]): ToolStatusMap {
+  const statuses = tools.reduce<ToolStatusMap>((acc, tool) => {
+    acc[tool.name] = 'existing';
+    return acc;
+  }, {});
+  messages.flatMap((item) => item.toolSuggestions || []).forEach((suggestion) => {
+    const resolution = toolSuggestionResolution(suggestion);
+    const status: ToolActionStatus =
+      resolution === 'existing'
+        ? 'existing'
+        : resolution === 'incomplete'
+          ? 'incomplete'
+          : suggestion.status === 'accepted' || suggestion.status === 'created' || suggestion.status === 'rejected'
+            ? suggestion.status
+            : 'pending';
+    statuses[suggestion.name] = status;
+    if (suggestion.matched_tool_name) statuses[suggestion.matched_tool_name] = status;
+  });
+  return statuses;
 }
 
 function toolPayloadFromSuggestion(suggestion: ToolSuggestionItem, skillId?: string): Record<string, unknown> {

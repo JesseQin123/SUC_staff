@@ -1014,6 +1014,107 @@ def test_skill_distiller_stream_reflects_and_repairs_generated_skill(monkeypatch
     assert [step["step_id"] for step in complete["data"]["draft_skill"]["steps"]][-1] == "reply_result"
 
 
+def test_skill_distiller_reflection_checks_tool_call_format_without_rule_fallback(monkeypatch) -> None:
+    def fake_stream(self, _system_prompt: str, _payload: dict):  # noqa: ANN001
+        assert self.max_output_tokens == 16384
+        yield json.dumps(
+            {
+                "draft_skill": {
+                    "skill_id": "skill_price_compare",
+                    "name": "商品比价",
+                    "version": "1.0.0",
+                    "business_domain": "ecommerce",
+                    "description": "查询商品价格并比较。",
+                    "trigger_intents": ["compare_price"],
+                    "user_utterance_examples": ["比较 A1 和 A3"],
+                    "goal": ["查询价格", "反馈比价结果"],
+                    "required_info": ["product_name_1", "product_name_2"],
+                    "slot_filling_policy": {"enabled": True},
+                    "response_rules": [],
+                    "steps": [
+                        {
+                            "step_id": "query_price",
+                            "name": "查询价格",
+                            "instruction": "当商品名已满足时调用 product.price_query 工具查询价格。",
+                            "expected_user_info": ["product_name_1", "product_name_2"],
+                            "allowed_actions": ["call_tool", "continue_flow"],
+                        },
+                        {
+                            "step_id": "reply_result",
+                            "name": "反馈结果",
+                            "instruction": "基于工具结果反馈比价结果。",
+                            "expected_user_info": [],
+                            "allowed_actions": ["answer_user"],
+                        },
+                    ],
+                    "interruption_policy": {},
+                },
+                "warnings": [],
+                "tool_mentions": [],
+            },
+            ensure_ascii=False,
+        )
+
+    def fake_text(self, _system_prompt: str, payload: dict):  # noqa: ANN001
+        assert self.max_output_tokens == 16384
+        if payload.get("reflection_round") == 1:
+            rubric_names = {item["name"] for item in payload["rubrics"]}
+            assert "tool_call_format" in rubric_names
+            assert payload["candidate_skill"]["steps"][0]["allowed_actions"] == ["call_tool", "continue_flow"]
+            revised = dict(payload["candidate_skill"])
+            revised["steps"] = [dict(step) for step in revised["steps"]]
+            revised["steps"][0]["allowed_actions"] = ["call_tool:product.price_query", "continue_flow"]
+            revised["steps"][0]["instruction"] = (
+                "当商品名已满足时调用 product.price_query 工具查询价格；"
+                "工具成功后基于返回价格继续组织最终回复。"
+            )
+            return json.dumps(
+                {
+                    "passed": False,
+                    "summary": "工具调用动作缺少具体工具名，已修正。",
+                    "rubric_results": [
+                        {
+                            "name": "tool_call_format",
+                            "passed": False,
+                            "finding": "allowed_actions 中出现裸 call_tool，必须写成 call_tool:<tool_name>。",
+                            "origin": "generated_skill",
+                        }
+                    ],
+                    "warnings": [],
+                    "source_warnings": [],
+                    "draft_skill": revised,
+                    "tool_mentions": [],
+                },
+                ensure_ascii=False,
+            )
+        if payload.get("reflection_round") == 2:
+            return _reflection_passes_json()
+        raise AssertionError(f"unexpected payload: {payload}")
+
+    monkeypatch.setattr("app.skills.skill_distiller.LLMClient.generate_text_stream", fake_stream)
+    monkeypatch.setattr("app.skills.skill_distiller.LLMClient.generate_text", fake_text)
+
+    events = list(
+        SkillDistiller().stream_text(
+            SkillDistillRequest(
+                tenant_id="tenant_demo",
+                title="商品比价",
+                raw_content="用商品价格查询工具 product.price_query 查询两个商品价格后反馈比价结果。",
+                available_tools=[{"name": "product.price_query", "input_schema": {"required": ["product_name"]}}],
+            ),
+            _model_config(),
+        )
+    )
+    status_texts = [event["data"]["text"] for event in events if event["event"] == "status"]
+    complete = next(event for event in events if event["event"] == "complete")
+
+    assert any("校验发现：工具调用格式" in text for text in status_texts)
+    assert complete["data"]["draft_skill"]["steps"][0]["allowed_actions"] == [
+        "call_tool:product.price_query",
+        "continue_flow",
+    ]
+
+
 def test_skill_distiller_stream_repairs_invalid_json_with_model(monkeypatch) -> None:
     def fake_stream(self, _system_prompt: str, _payload: dict):  # noqa: ANN001
         assert self.max_output_tokens == 16384
