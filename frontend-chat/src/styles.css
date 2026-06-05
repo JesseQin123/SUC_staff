@@ -595,19 +595,51 @@ textarea,
   width: 28px;
   height: 28px;
   color: var(--muted);
+  border: 1px solid transparent;
   border-radius: 8px;
+  transition:
+    color 140ms ease,
+    background-color 140ms ease,
+    border-color 140ms ease,
+    transform 140ms ease,
+    box-shadow 140ms ease;
 }
 
-.message-feedback .ant-btn:hover,
 .message-feedback .ant-btn.active {
+  animation: feedback-pop 180ms ease;
+}
+
+.message-feedback .ant-btn:hover {
   color: var(--foreground) !important;
   background: var(--surface-muted) !important;
+  transform: translateY(-1px);
+}
+
+.message-feedback .ant-btn.active:not(.danger) {
+  color: var(--success) !important;
+  border-color: rgba(19, 138, 85, 0.3);
+  background: rgba(19, 138, 85, 0.1) !important;
+  box-shadow: 0 4px 10px rgba(19, 138, 85, 0.12);
 }
 
 .message-feedback .ant-btn.danger,
 .message-feedback .ant-btn.danger:hover {
   color: var(--danger) !important;
-  background: #fee2e2 !important;
+  border-color: rgba(220, 38, 38, 0.26);
+  background: rgba(220, 38, 38, 0.09) !important;
+  box-shadow: 0 4px 10px rgba(220, 38, 38, 0.12);
+}
+
+@keyframes feedback-pop {
+  0% {
+    transform: scale(0.92);
+  }
+  70% {
+    transform: scale(1.06);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
 
 .turn-trace-summary,
