@@ -598,12 +598,14 @@ def _build_turn_traces(
     traces: list[dict] = []
     current: dict | None = None
     user_index = 0
+    skill_hint: str | None = None
 
     for event in events:
         if event.event_type == "user_message_received":
             if current:
                 _finish_trace_if_needed(current, event.created_at)
                 traces.append(current)
+            skill_hint = None
             user_message = _matching_user_message(user_messages, user_index, event.payload_json)
             if user_message:
                 user_index = user_messages.index(user_message) + 1
@@ -626,9 +628,17 @@ def _build_turn_traces(
         if not current:
             continue
 
-        lines = _event_trace_lines(event, skill_names)
+        if event.event_type == "router_decision_created":
+            target_skill_id = str((event.payload_json or {}).get("target_skill_id") or "").strip()
+            if target_skill_id:
+                skill_hint = target_skill_id
+
+        lines = _event_trace_lines(event, skill_names, skill_hint)
         for line in lines:
             _upsert_trace_line(current["lines"], line)
+        event_context = _skill_context_from_event(event)
+        if event_context and event_context.get("skill_id"):
+            skill_hint = event_context["skill_id"]
         if event.event_type == "assistant_message_created":
             current["completed_at"] = event.created_at.isoformat()
             _complete_trace_lines(current["lines"])
@@ -654,8 +664,8 @@ def _matching_user_message(
     return None
 
 
-def _event_trace_lines(event: AgentEvent, skill_names: dict[str, str]) -> list[dict]:
-    line = _event_trace_line(event, skill_names)
+def _event_trace_lines(event: AgentEvent, skill_names: dict[str, str], skill_hint: str | None = None) -> list[dict]:
+    line = _event_trace_line(event, skill_names, skill_hint)
     if not line:
         return []
     if isinstance(line, list):
@@ -663,7 +673,9 @@ def _event_trace_lines(event: AgentEvent, skill_names: dict[str, str]) -> list[d
     return [line]
 
 
-def _event_trace_line(event: AgentEvent, skill_names: dict[str, str]) -> dict | list[dict] | None:
+def _event_trace_line(
+    event: AgentEvent, skill_names: dict[str, str], skill_hint: str | None = None
+) -> dict | list[dict] | None:
     payload = event.payload_json or {}
     if event.event_type == "router_decision_created":
         intent = str(payload.get("user_intent") or "").strip()
@@ -678,7 +690,7 @@ def _event_trace_line(event: AgentEvent, skill_names: dict[str, str]) -> dict | 
     if event.event_type in {"skill_started", "skill_suspended", "skill_resumed", "skill_step_changed"}:
         to_skill_id = str(payload.get("to_skill_id") or "")
         from_skill_id = str(payload.get("from_skill_id") or "")
-        skill_id = to_skill_id or from_skill_id
+        skill_id = to_skill_id or from_skill_id or (skill_hint or "")
         if not skill_id:
             return None
         decision = str(payload.get("decision") or "")

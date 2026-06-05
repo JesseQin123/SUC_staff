@@ -86,7 +86,7 @@ def test_tool_call_start_event_is_committed_before_external_execute() -> None:
     ]
 
 
-def test_finalize_turn_updates_last_agent_question_even_without_question_mark() -> None:
+def test_finalize_turn_clears_stale_last_question_for_non_question_reply() -> None:
     loop = object.__new__(AgentLoop)
     loop.db = FakeDb()
     loop.events = FakeEvents()
@@ -99,7 +99,7 @@ def test_finalize_turn_updates_last_agent_question_even_without_question_mark() 
 
     loop._finalize_turn(session, "tenant_demo", reply)
 
-    assert session.last_agent_question == reply
+    assert session.last_agent_question is None
     assert session.summary == f"最近回复：{reply[:120]}"
     assert loop.events.records[0][2] == "assistant_message_created"
 
@@ -115,6 +115,47 @@ def test_finalize_turn_keeps_current_question_reply() -> None:
 
     assert session.last_agent_question == reply
     assert session.summary == f"最近回复：{reply[:120]}"
+
+
+def test_apply_step_result_records_skill_context_for_step_change() -> None:
+    loop = object.__new__(AgentLoop)
+    loop.events = FakeEvents()
+    session = ChatSession(
+        id="session_test",
+        tenant_id="tenant_demo",
+        active_skill_id="skill_purchase_001",
+        active_step_id="collect_user_name",
+    )
+
+    loop._apply_step_result(
+        "tenant_demo",
+        session,
+        StepAgentResult(next_step_id="confirm_purchase"),
+    )
+
+    assert session.active_step_id == "confirm_purchase"
+    event_type, payload = loop.events.records[0][2], loop.events.records[0][3]
+    assert event_type == "skill_step_changed"
+    assert payload["from_skill_id"] == "skill_purchase_001"
+    assert payload["to_skill_id"] == "skill_purchase_001"
+    assert payload["from_step_id"] == "collect_user_name"
+    assert payload["to_step_id"] == "confirm_purchase"
+
+
+def test_apply_step_result_does_not_create_step_without_active_skill() -> None:
+    loop = object.__new__(AgentLoop)
+    loop.events = FakeEvents()
+    session = ChatSession(id="session_test", tenant_id="tenant_demo")
+
+    loop._apply_step_result(
+        "tenant_demo",
+        session,
+        StepAgentResult(next_step_id="confirm_purchase"),
+    )
+
+    assert session.active_skill_id is None
+    assert session.active_step_id is None
+    assert loop.events.records == []
 
 
 def test_terminal_skill_completion_when_required_slots_are_complete() -> None:

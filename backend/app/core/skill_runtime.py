@@ -24,6 +24,8 @@ class SkillRuntime:
             session.resume_after_answer_json = None
 
         elif decision.decision in {"continue_current_skill", "jump_within_current_skill"}:
+            if not session.active_skill_id and decision.target_skill_id:
+                session.active_skill_id = decision.target_skill_id
             if decision.target_step_id:
                 session.active_step_id = decision.target_step_id
 

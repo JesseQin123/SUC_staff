@@ -1670,7 +1670,7 @@ class AgentLoop:
                 {"slot_updates": step_result.slot_updates, "slots": chat_session.slots_json},
             )
 
-        if step_result.next_step_id:
+        if step_result.next_step_id and chat_session.active_skill_id:
             previous_step = chat_session.active_step_id
             chat_session.active_step_id = step_result.next_step_id
             if previous_step != step_result.next_step_id:
@@ -1678,7 +1678,12 @@ class AgentLoop:
                     tenant_id,
                     chat_session.id,
                     "skill_step_changed",
-                    {"from_step_id": previous_step, "to_step_id": step_result.next_step_id},
+                    {
+                        "from_skill_id": chat_session.active_skill_id,
+                        "to_skill_id": chat_session.active_skill_id,
+                        "from_step_id": previous_step,
+                        "to_step_id": step_result.next_step_id,
+                    },
                 )
 
     def _advance_past_satisfied_collection_steps(
@@ -1720,6 +1725,8 @@ class AgentLoop:
                 chat_session.id,
                 "skill_step_changed",
                 {
+                    "from_skill_id": chat_session.active_skill_id,
+                    "to_skill_id": chat_session.active_skill_id,
                     "from_step_id": previous_step,
                     "to_step_id": next_step_id,
                     "reason": "expected_info_satisfied",
@@ -1888,7 +1895,13 @@ class AgentLoop:
             tenant_id,
             chat_session.id,
             "skill_step_changed",
-            {"from_step_id": previous_step, "to_step_id": next_step_id, "reason": "tool_completed"},
+            {
+                "from_skill_id": chat_session.active_skill_id,
+                "to_skill_id": chat_session.active_skill_id,
+                "from_step_id": previous_step,
+                "to_step_id": next_step_id,
+                "reason": "tool_completed",
+            },
         )
         return True
 
@@ -2465,7 +2478,7 @@ class AgentLoop:
 
     def _finalize_turn(self, chat_session: ChatSession, tenant_id: str, reply: str) -> None:
         chat_session.updated_at = utc_now()
-        chat_session.last_agent_question = reply.strip() or None
+        chat_session.last_agent_question = reply.strip() if _is_agent_question(reply) else None
         chat_session.summary = f"最近回复：{reply[:120]}"
         self._append_message(tenant_id, chat_session.id, "assistant", reply)
         self.events.record(
@@ -2480,3 +2493,7 @@ class AgentLoop:
             "session_state_changed",
             public_session(chat_session).model_dump(),
         )
+
+
+def _is_agent_question(reply: str) -> bool:
+    return "？" in reply or "?" in reply

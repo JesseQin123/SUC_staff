@@ -243,3 +243,27 @@ def test_pending_tasks_are_queued_and_popped_without_using_skill_stack():
 
     assert session.active_skill_id == "purchase"
     assert session.slots_json == {"product_id": "A3"}
+
+
+def test_continue_current_skill_can_reattach_missing_active_skill():
+    session = ChatSession(
+        id="session_test",
+        tenant_id="tenant_demo",
+        active_skill_id=None,
+        active_step_id="confirm_purchase",
+    )
+    runtime = SkillRuntime()
+
+    runtime.apply_decision(
+        session,
+        RouterDecision(
+            decision="continue_current_skill",
+            target_skill_id="skill_purchase_001",
+            target_step_id="confirm_purchase",
+            slot_hints={"product_id": "A3"},
+        ),
+    )
+
+    assert session.active_skill_id == "skill_purchase_001"
+    assert session.active_step_id == "confirm_purchase"
+    assert session.slots_json == {"product_id": "A3"}
