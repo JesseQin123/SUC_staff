@@ -18,6 +18,8 @@ from app.db.models import AgentEvent, Message, Skill, SkillFeedback, SkillVersio
 from app.db.models import ModelConfig
 from app.skills.skill_distiller import SkillDistiller
 from app.skills.skill_editor import SkillEditor
+from app.skills.skill_reflection import PROMPT_PATH as SKILL_REFLECTION_PROMPT_PATH
+from app.skills.skill_reflection import RUBRIC_LABELS
 from app.skills.skill_schema import SkillCard, SkillDistillRequest, SkillRewriteRequest
 from app.security.encryption import encrypt_secret
 
@@ -1113,6 +1115,16 @@ def test_skill_distiller_reflection_checks_tool_call_format_without_rule_fallbac
         "call_tool:product.price_query",
         "continue_flow",
     ]
+
+
+def test_skill_reflection_prompt_keeps_new_candidate_tool_actions() -> None:
+    prompt = SKILL_REFLECTION_PROMPT_PATH.read_text(encoding="utf-8")
+
+    assert RUBRIC_LABELS["tool_grounding"] == "工具依据"
+    assert "resolution_status 为 existing 或 new_candidate" in prompt
+    assert "保留该 action" in prompt
+    assert "不得仅因不在 available_tools" in prompt
+    assert "tool_suggestions(existing/new_candidate)" in prompt
 
 
 def test_skill_distiller_stream_repairs_invalid_json_with_model(monkeypatch) -> None:
