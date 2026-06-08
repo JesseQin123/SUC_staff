@@ -23,6 +23,7 @@ RUNNER_PROMPT = PROMPT_DIR / "general_skill_runner_prompt.md"
 REPLY_PROMPT = PROMPT_DIR / "general_skill_reply_prompt.md"
 RUN_TIMEOUT_SECONDS = 12
 MAX_OUTPUT_CHARS = 20000
+GENERAL_SKILL_MAX_TOKENS = 16384
 
 
 class GeneralSkillSelector:
@@ -73,12 +74,29 @@ class GeneralSkillRunner:
     ) -> GeneralSkillRunResponse:
         trace: list[dict[str, Any]] = []
         trace.append({"phase": "skill_loaded", "message": f"已加载通用技能 {skill.name}", "slug": skill.slug})
-        plan = self._generate_plan(skill, query, model_config, trace)
+        try:
+            plan = self._generate_plan(skill, query, model_config, trace)
+        except LLMError as exc:
+            trace.append({"phase": "plan_failed", "message": "模型生成 Python runner 失败", "error": str(exc)})
+            return GeneralSkillRunResponse(
+                skill_slug=skill.slug,
+                execution_trace=trace,
+                generated_code="",
+                stdout="",
+                stderr=str(exc),
+                structured_result={"success": False, "error": "runner_plan_failed", "message": str(exc)},
+                reply="抱歉，当前通用技能执行代码生成失败，暂时无法完成这次运行。",
+            )
         stdout, stderr, structured_result = self._execute_plan(skill, query, plan, user_id, trace)
-        reply = self._generate_reply(skill, query, model_config, trace, stdout, stderr, structured_result)
+        try:
+            reply = self._generate_reply(skill, query, model_config, trace, stdout, stderr, structured_result)
+        except LLMError as exc:
+            trace.append({"phase": "reply_failed", "message": "模型生成最终回复失败", "error": str(exc)})
+            reply = _fallback_reply(structured_result)
         return GeneralSkillRunResponse(
             skill_slug=skill.slug,
             execution_trace=trace,
+            generated_code=plan.code,
             stdout=stdout,
             stderr=stderr,
             structured_result=structured_result,
@@ -108,7 +126,10 @@ class GeneralSkillRunner:
                 "timeout_seconds": RUN_TIMEOUT_SECONDS,
             },
         }
-        raw = LLMClient(model_config).generate_json(RUNNER_PROMPT.read_text(encoding="utf-8"), payload)
+        raw = LLMClient(_with_min_tokens(model_config, GENERAL_SKILL_MAX_TOKENS)).generate_json(
+            RUNNER_PROMPT.read_text(encoding="utf-8"),
+            payload,
+        )
         plan = GeneralSkillExecutionPlan.model_validate(raw)
         if not plan.code.strip():
             raise LLMError("General skill runner code is empty")
@@ -117,6 +138,8 @@ class GeneralSkillRunner:
                 "phase": "plan_created",
                 "message": "已生成 Python runner",
                 "rationale": plan.rationale,
+                "code": plan.code,
+                "expected_output": plan.expected_output,
             }
         )
         return plan
@@ -225,3 +248,16 @@ def _parse_stdout_json(stdout: str) -> dict[str, Any]:
         return {"success": True, "data": value}
     except json.JSONDecodeError:
         return {"success": True, "text": stripped}
+
+
+def _with_min_tokens(model_config: ModelConfig, max_output_tokens: int) -> ModelConfig:
+    copied = model_config.model_copy()
+    copied.max_output_tokens = max(int(getattr(model_config, "max_output_tokens", 0) or 0), max_output_tokens)
+    return copied
+
+
+def _fallback_reply(structured_result: dict[str, Any]) -> str:
+    if structured_result.get("success") is False:
+        message = str(structured_result.get("message") or structured_result.get("error") or "").strip()
+        return f"抱歉，通用技能运行失败。{message}" if message else "抱歉，通用技能运行失败。"
+    return "通用技能已运行完成，结果已展示在运行输出中。"

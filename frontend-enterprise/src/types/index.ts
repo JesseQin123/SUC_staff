@@ -95,6 +95,7 @@ export type GeneralSkillRead = {
 export type GeneralSkillRunResponse = {
   skill_slug: string;
   execution_trace: Array<Record<string, unknown>>;
+  generated_code: string;
   stdout: string;
   stderr: string;
   structured_result: Record<string, unknown>;

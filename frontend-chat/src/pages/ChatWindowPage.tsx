@@ -59,6 +59,8 @@ type TraceLine = {
   kind: 'thinking' | 'decision' | 'skill' | 'tool';
   text: string;
   detail?: string;
+  code?: string;
+  language?: string;
   state: 'running' | 'completed' | 'failed';
 };
 
@@ -912,6 +914,7 @@ export default function ChatWindowPage() {
         if (item.event === 'general_skill_trace') {
           const phase = typeof item.data.phase === 'string' ? item.data.phase : 'trace';
           const text = typeof item.data.message === 'string' ? item.data.message : '执行通用技能';
+          const code = typeof item.data.code === 'string' ? item.data.code : '';
           const detail = typeof item.data.rationale === 'string'
             ? item.data.rationale
             : typeof item.data.stdout_preview === 'string'
@@ -924,6 +927,8 @@ export default function ChatWindowPage() {
             kind: 'decision',
             text,
             detail,
+            code: code || undefined,
+            language: code ? 'python' : undefined,
             state: 'completed',
           });
           return;
@@ -1219,11 +1224,16 @@ export default function ChatWindowPage() {
                                   ) : (
                                     <CloudSyncOutlined />
                                   )}
-                                  <span>
-                                    <span>{line.text}</span>
-                                    {line.detail && <span className="turn-trace-detail">{line.detail}</span>}
-                                  </span>
-                                </div>
+                                    <span>
+                                      <span>{line.text}</span>
+                                      {line.detail && <span className="turn-trace-detail">{line.detail}</span>}
+                                      {line.code && (
+                                        <pre className="turn-trace-code">
+                                          <code data-language={line.language || undefined}>{line.code}</code>
+                                        </pre>
+                                      )}
+                                    </span>
+                                  </div>
                               ))}
                             </div>
                           )}

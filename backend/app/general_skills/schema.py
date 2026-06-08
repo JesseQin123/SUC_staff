@@ -38,6 +38,7 @@ class GeneralSkillRunRequest(BaseModel):
 class GeneralSkillRunResponse(BaseModel):
     skill_slug: str
     execution_trace: list[dict[str, Any]] = Field(default_factory=list)
+    generated_code: str = ""
     stdout: str = ""
     stderr: str = ""
     structured_result: dict[str, Any] = Field(default_factory=dict)

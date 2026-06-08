@@ -411,6 +411,211 @@ body.skill-distill-fixed .content {
   min-width: 0;
 }
 
+.general-skill-workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+  gap: 16px;
+  align-items: start;
+}
+
+.general-skill-main,
+.general-skill-side {
+  min-width: 0;
+}
+
+.general-skill-side {
+  position: sticky;
+  top: 74px;
+}
+
+.general-skill-editor .ant-card-body {
+  padding: 0;
+}
+
+.general-skill-source-input.ant-input {
+  min-height: 520px;
+  padding: 18px 20px;
+  border: 0;
+  border-radius: 0 0 12px 12px !important;
+  background: #fbfaf7;
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.7;
+  resize: vertical;
+}
+
+.general-run-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 260px) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.general-result-card .ant-card-body {
+  padding: 18px;
+}
+
+.general-result-layout {
+  display: grid;
+  gap: 20px;
+}
+
+.general-section-label {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.general-reply-panel {
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.result-reply {
+  margin-bottom: 0 !important;
+  color: var(--foreground);
+  font-size: 15px;
+  line-height: 1.8;
+}
+
+.general-trace-list {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fbfaf7;
+}
+
+.general-trace-item {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
+}
+
+.general-trace-dot {
+  width: 7px;
+  height: 7px;
+  margin-top: 9px;
+  border-radius: 999px;
+  background: #1f1f1f;
+}
+
+.general-trace-title {
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.general-trace-message {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.general-trace-detail,
+.general-code-block,
+.general-json-block {
+  max-width: 100%;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fbfaf7;
+  color: #1f2328;
+  font-family: var(--font-mono);
+  white-space: pre;
+}
+
+.general-trace-detail {
+  max-height: 160px;
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.general-code-block {
+  max-height: 520px;
+  margin: 0;
+  padding: 16px 18px;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.general-code-block code {
+  display: block;
+}
+
+.general-output-tabs .ant-tabs-nav {
+  margin-bottom: 8px;
+}
+
+.general-json-block {
+  max-height: 360px;
+  margin: 0;
+  padding: 14px 16px;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.general-skill-list-card .ant-card-body {
+  padding: 10px;
+}
+
+.general-skill-list {
+  display: grid;
+  gap: 8px;
+}
+
+.general-skill-list-item {
+  width: 100%;
+  min-width: 0;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--foreground);
+  cursor: pointer;
+  text-align: left;
+}
+
+.general-skill-list-item:hover,
+.general-skill-list-item.active {
+  border-color: var(--border);
+  background: #fbfaf7;
+}
+
+.general-skill-list-item span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.general-skill-list-item strong,
+.general-skill-list-item small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.general-skill-list-item strong {
+  font-size: 13px;
+}
+
+.general-skill-list-item small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .settings-card {
   margin-top: 16px;
 }
@@ -2180,6 +2385,14 @@ code {
   .skill-tool-suggestion-meta > span:not(.skill-tool-method) {
     white-space: normal;
   }
+
+  .general-skill-workbench {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .general-skill-side {
+    position: static;
+  }
 }
 
 @media (max-width: 760px) {
@@ -2193,6 +2406,19 @@ code {
 
   .grid-2 {
     grid-template-columns: 1fr;
+  }
+
+  .general-run-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .general-skill-source-input.ant-input {
+    min-height: 360px;
+  }
+
+  .general-code-block,
+  .general-json-block {
+    font-size: 11px;
   }
 
   .content {

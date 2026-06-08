@@ -699,11 +699,14 @@ def _event_trace_line(
         message = str(payload.get("message") or "").strip()
         phase = str(payload.get("phase") or "").strip()
         detail = str(payload.get("rationale") or payload.get("stdout_preview") or payload.get("stderr_preview") or "").strip()
+        code = str(payload.get("code") or "").strip()
         return {
             "id": f"general_skill_trace_{event.id}",
             "kind": "decision",
             "text": message or phase or "执行通用技能",
             "detail": detail[:300] or None,
+            "code": code or None,
+            "language": "python" if code else None,
             "state": "completed",
         }
     if event.event_type == "general_skill_run_finished":
