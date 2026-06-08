@@ -447,7 +447,12 @@ function traceSummary(trace: TurnTrace, lines: TraceLine[]): { text: string; sta
 }
 
 function traceDetails(lines: TraceLine[]): TraceLine[] {
-  const details = lines.filter((line) => line.kind !== 'thinking');
+  const hiddenPlaceholders = new Set(['正在思考', '已完成思考']);
+  const details = lines.filter((line) => {
+    if (line.kind === 'thinking') return false;
+    if (hiddenPlaceholders.has(line.text) && !line.detail && !line.code) return false;
+    return true;
+  });
   return details.length > 0 ? details : lines.filter((line) => line.text !== '已完成思考');
 }
 
@@ -1228,7 +1233,7 @@ export default function ChatWindowPage() {
                             onClick={() => toggleTrace(turnId)}
                           >
                             <CloudSyncOutlined />
-                            <span>{summary.text}</span>
+                            <span className="trace-primary-text" data-text={summary.text}>{summary.text}</span>
                             {details.length > 0 && (expanded ? <DownOutlined /> : <RightOutlined />)}
                           </button>
                           {expanded && details.length > 0 && (
@@ -1243,7 +1248,7 @@ export default function ChatWindowPage() {
                                     <CloudSyncOutlined />
                                   )}
                                     <span>
-                                      <span>{line.text}</span>
+                                      <span className="trace-primary-text" data-text={line.text}>{line.text}</span>
                                       {line.detail && <span className="turn-trace-detail">{line.detail}</span>}
                                       {line.code && (
                                         <details className="turn-trace-code-wrap" open>

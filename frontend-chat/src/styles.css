@@ -772,14 +772,31 @@ textarea,
   color: #7e8b86;
 }
 
-.turn-trace-summary.running > span:first-of-type,
-.turn-trace-line.running > span > span:first-child {
+.trace-primary-text {
+  position: relative;
+  display: inline-block;
+  color: inherit;
+}
+
+.turn-trace-summary.running .trace-primary-text::after,
+.turn-trace-line.running .trace-primary-text::after {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
   color: transparent;
-  background: linear-gradient(90deg, #8d8d8d 0%, #1f1f1f 42%, #8d8d8d 84%);
-  background-size: 220% 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    transparent 34%,
+    rgba(31, 31, 31, 0.92) 48%,
+    transparent 66%,
+    transparent 100%
+  );
+  background-size: 260% 100%;
   -webkit-background-clip: text;
   background-clip: text;
-  animation: trace-text-flow 1.65s ease-in-out infinite;
+  animation: trace-text-flow 5.2s cubic-bezier(0.33, 0, 0.2, 1) infinite;
+  pointer-events: none;
 }
 
 .turn-trace-summary.completed .anticon:first-child,
@@ -872,12 +889,29 @@ textarea,
 }
 
 .process-live span {
+  position: relative;
+  display: inline-block;
+  color: var(--muted);
+}
+
+.process-live span::after {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
   color: transparent;
-  background: linear-gradient(90deg, #8d8d8d 0%, #1f1f1f 42%, #8d8d8d 84%);
-  background-size: 220% 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    transparent 34%,
+    rgba(31, 31, 31, 0.92) 48%,
+    transparent 66%,
+    transparent 100%
+  );
+  background-size: 260% 100%;
   -webkit-background-clip: text;
   background-clip: text;
-  animation: trace-text-flow 1.65s ease-in-out infinite;
+  animation: trace-text-flow 5.2s cubic-bezier(0.33, 0, 0.2, 1) infinite;
+  pointer-events: none;
 }
 
 @keyframes spin-soft {
@@ -888,10 +922,13 @@ textarea,
 
 @keyframes trace-text-flow {
   0% {
-    background-position: 120% 0;
+    background-position: 160% 0;
+  }
+  36% {
+    background-position: -160% 0;
   }
   100% {
-    background-position: -120% 0;
+    background-position: -160% 0;
   }
 }
 
