@@ -5,6 +5,7 @@ from app.api.general_skills import import_general_skill, list_general_skills
 from app.core import AgentLoop
 from app.db.models import GeneralSkill, ModelConfig, Tenant, User
 from app.general_skills.parser import parse_skill_markdown
+from app.general_skills.runner import GeneralSkillRunner
 from app.general_skills.schema import GeneralSkillImportRequest
 from app.llm import LLMClient
 from app.security.auth import hash_password
@@ -117,6 +118,68 @@ def test_chat_turn_uses_general_skill_before_scenario_router(monkeypatch) -> Non
         assert calls == ["selector", "runner", "reply"]
         stored = db.exec(select(GeneralSkill).where(GeneralSkill.slug == "weather-zh")).first()
         assert stored is not None
+
+
+def test_general_skill_runner_repairs_failed_code(monkeypatch) -> None:
+    calls: list[str] = []
+
+    def fake_init(self, model_config):  # noqa: ANN001
+        return None
+
+    def fake_generate_json(self, system_prompt, payload):  # noqa: ANN001
+        prompt_text = str(system_prompt)
+        if "代码修复器" in prompt_text:
+            calls.append("repair")
+            return {
+                "code": (
+                    "import json\n"
+                    "payload=json.loads(input())\n"
+                    "print(json.dumps({'success': True, 'city': '北京', 'weather': '晴', 'query': payload['query']}, ensure_ascii=False))\n"
+                ),
+                "rationale": "修复失败输出",
+            }
+        if "通用技能执行器" in prompt_text:
+            calls.append("runner")
+            return {
+                "code": "import json\nprint(json.dumps({'success': False, 'error': 'first_fail'}, ensure_ascii=False))\n",
+                "rationale": "首次尝试失败",
+            }
+        if "通用技能结果回复器" in prompt_text:
+            calls.append("reply")
+            assert payload["structured_result"]["success"] is True
+            return {"reply": "北京今天晴。"}
+        raise AssertionError("unexpected prompt")
+
+    monkeypatch.setattr(LLMClient, "__init__", fake_init)
+    monkeypatch.setattr(LLMClient, "generate_json", fake_generate_json)
+
+    skill = GeneralSkill(
+        tenant_id="tenant_demo",
+        slug="weather-zh",
+        name="中国城市天气",
+        description="中国城市天气查询工具",
+        homepage="https://www.weather.com.cn/",
+        skill_markdown=WEATHER_SKILL_MD,
+        status="published",
+    )
+    model_config = ModelConfig(
+        tenant_id="tenant_demo",
+        name="Fake model",
+        api_key_encrypted=encrypt_secret("test-key"),
+        model="fake",
+        is_default=True,
+        enabled=True,
+    )
+
+    events: list[dict] = []
+
+    response = GeneralSkillRunner().run(skill, "北京今天天气怎么样", model_config, max_attempts=2, event_sink=events.append)
+
+    assert response.reply == "北京今天晴。"
+    assert response.structured_result["success"] is True
+    assert calls == ["runner", "repair", "reply"]
+    assert any(item["phase"] == "reflection_retrying" for item in response.execution_trace)
+    assert any(item["phase"] == "stdout_chunk" and "first_fail" in item["text"] for item in events)
 
 
 def _seed_minimal_tenant(db: Session) -> None:

@@ -11,7 +11,7 @@ import {
 import { Button, Card, Empty, Input, Select, Space, Tabs, Tag, Typography, Upload, message } from 'antd';
 import type { UploadFile } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
-import { api, TENANT_ID } from '../api/client';
+import { api, streamPost, TENANT_ID } from '../api/client';
 import type { GeneralSkillRead, GeneralSkillRunResponse } from '../types';
 
 const DEFAULT_MARKDOWN = `---
@@ -29,11 +29,21 @@ const PHASE_LABELS: Record<string, string> = {
   skill_loaded: '加载技能',
   planning: '生成执行方案',
   plan_created: '生成代码',
+  attempt_started: '开始运行',
   running_code: '运行代码',
+  stdout_chunk: '运行输出',
+  stderr_chunk: '错误输出',
   code_finished: '读取运行结果',
   code_timeout: '运行超时',
+  reflection_passed: '校验通过',
+  reflection_retrying: '反思修复',
+  reflection_stopped: '停止重试',
+  repair_planning: '重新生成代码',
+  repair_failed: '修复失败',
+  plan_failed: '生成失败',
   replying: '生成回复',
   reply_created: '完成回复',
+  reply_failed: '回复失败',
 };
 
 function formatJson(value: unknown): string {
@@ -48,7 +58,7 @@ function formatJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
-function traceCode(trace: Array<Record<string, unknown>>): string {
+function traceCode(trace: Array<Record<string, unknown>> = []): string {
   const item = trace.find((entry) => typeof entry.code === 'string' && entry.code.trim());
   return typeof item?.code === 'string' ? item.code : '';
 }
@@ -66,7 +76,7 @@ function traceDetail(item: Record<string, unknown>): string {
     .join('\n');
 }
 
-function resultSucceeded(result: GeneralSkillRunResponse | null): boolean {
+function resultSucceeded(result: Partial<GeneralSkillRunResponse> | null): boolean {
   if (!result) return false;
   const success = result.structured_result?.success;
   return success !== false && !result.stderr;
@@ -79,12 +89,14 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
   const [editingSlug, setEditingSlug] = useState<string | null>(null);
   const [query, setQuery] = useState('北京今天天气怎么样');
   const [runResult, setRunResult] = useState<GeneralSkillRunResponse | null>(null);
+  const [liveResult, setLiveResult] = useState<Partial<GeneralSkillRunResponse> | null>(null);
   const [loading, setLoading] = useState(false);
 
   const selectedSkill = useMemo(
     () => rows.find((row) => row.slug === selectedSlug) || rows[0],
     [rows, selectedSlug],
   );
+  const activeResult = runResult || liveResult;
 
   const load = () =>
     api
@@ -144,14 +156,75 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
     }
     setLoading(true);
     setRunResult(null);
+    setLiveResult({
+      skill_slug: slug,
+      execution_trace: [],
+      generated_code: '',
+      stdout: '',
+      stderr: '',
+      structured_result: {},
+      reply: '',
+    });
     try {
-      const result = await api.post<GeneralSkillRunResponse>(`/api/enterprise/general-skills/${slug}/run`, {
-        tenant_id: TENANT_ID,
-        user_id: 'enterprise_demo',
-        query,
-      });
-      setRunResult(result);
-      message.success('运行完成');
+      let completed = false;
+      await streamPost(
+        `/api/enterprise/general-skills/${slug}/run/stream`,
+        {
+          tenant_id: TENANT_ID,
+          user_id: 'enterprise_demo',
+          query,
+          max_attempts: 10,
+        },
+        (item) => {
+          if (item.event === 'trace') {
+            const traceItem = item.data;
+            setLiveResult((current) => {
+              const previous = current || { skill_slug: slug, execution_trace: [] };
+              const executionTrace = [...(previous.execution_trace || []), traceItem];
+              const nextCode = typeof traceItem.code === 'string' && traceItem.code.trim()
+                ? traceItem.code
+                : previous.generated_code || '';
+              const nextStructured = typeof traceItem.structured_result === 'object' && traceItem.structured_result
+                ? traceItem.structured_result as Record<string, unknown>
+                : previous.structured_result || {};
+              const chunk = typeof traceItem.text === 'string' ? traceItem.text : '';
+              const phase = typeof traceItem.phase === 'string' ? traceItem.phase : '';
+              return {
+                ...previous,
+                execution_trace: executionTrace,
+                generated_code: nextCode,
+                stdout: phase === 'stdout_chunk'
+                  ? `${previous.stdout || ''}${chunk}`
+                  : typeof traceItem.stdout_preview === 'string' ? traceItem.stdout_preview : previous.stdout || '',
+                stderr: phase === 'stderr_chunk'
+                  ? `${previous.stderr || ''}${chunk}`
+                  : typeof traceItem.stderr_preview === 'string' ? traceItem.stderr_preview : previous.stderr || '',
+                structured_result: nextStructured,
+              };
+            });
+          }
+          if (item.event === 'complete') {
+            const result = item.data as unknown as GeneralSkillRunResponse;
+            completed = true;
+            setRunResult(result);
+            setLiveResult(null);
+            message.success('运行完成');
+          }
+          if (item.event === 'error') {
+            const text = typeof item.data.message === 'string' ? item.data.message : '运行失败';
+            setLiveResult((current) => ({
+              ...(current || { skill_slug: slug, execution_trace: [] }),
+              stderr: text,
+              structured_result: { success: false, error: text },
+              reply: '运行失败',
+            }));
+            message.error(text);
+          }
+        },
+      );
+      if (!completed) {
+        message.warning('运行流已结束，但未收到最终结果');
+      }
     } catch (error) {
       message.error(error instanceof Error ? error.message : '运行失败');
     } finally {
@@ -167,7 +240,8 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
     return false;
   }
 
-  const generatedCode = runResult?.generated_code || (runResult ? traceCode(runResult.execution_trace) : '');
+  const generatedCode = activeResult?.generated_code || traceCode(activeResult?.execution_trace);
+  const isLiveRunning = loading && !runResult;
 
   return (
     <>
@@ -226,25 +300,29 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
               <Space>
                 <PlayCircleOutlined />
                 <span>运行结果</span>
-                {runResult && (
-                  resultSucceeded(runResult)
+                {activeResult && (
+                  isLiveRunning
+                    ? <Tag color="processing">运行中</Tag>
+                    : resultSucceeded(activeResult)
                     ? <Tag color="green" icon={<CheckCircleOutlined />}>成功</Tag>
                     : <Tag color="red" icon={<CloseCircleOutlined />}>失败</Tag>
                 )}
               </Space>
             )}
           >
-            {runResult ? (
+            {activeResult ? (
               <div className="general-result-layout">
                 <section className="general-reply-panel">
                   <div className="general-section-label">最终回复</div>
-                  <Typography.Paragraph className="result-reply">{runResult.reply}</Typography.Paragraph>
+                  <Typography.Paragraph className="result-reply">
+                    {activeResult.reply || (loading ? '正在运行通用技能...' : '暂无回复')}
+                  </Typography.Paragraph>
                 </section>
 
                 <section>
                   <div className="general-section-label">执行流程</div>
                   <div className="general-trace-list">
-                    {runResult.execution_trace.map((item, index) => {
+                    {(activeResult.execution_trace || []).map((item, index) => {
                       const phase = typeof item.phase === 'string' ? item.phase : '';
                       const detail = traceDetail(item);
                       return (
@@ -278,17 +356,17 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
                       {
                         key: 'structured',
                         label: '结构化结果',
-                        children: <pre className="general-json-block">{formatJson(runResult.structured_result) || '无结构化结果'}</pre>,
+                        children: <pre className="general-json-block">{formatJson(activeResult.structured_result) || '无结构化结果'}</pre>,
                       },
                       {
                         key: 'stdout',
                         label: 'stdout',
-                        children: <pre className="general-json-block">{formatJson(runResult.stdout) || '无 stdout'}</pre>,
+                        children: <pre className="general-json-block">{formatJson(activeResult.stdout) || '无 stdout'}</pre>,
                       },
                       {
                         key: 'stderr',
                         label: 'stderr',
-                        children: <pre className="general-json-block">{formatJson(runResult.stderr) || '无 stderr'}</pre>,
+                        children: <pre className="general-json-block">{formatJson(activeResult.stderr) || '无 stderr'}</pre>,
                       },
                     ]}
                   />

@@ -1,6 +1,13 @@
 from __future__ import annotations
 
+import json
+import queue
+import threading
+from collections.abc import Iterator
+from types import SimpleNamespace
+
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select
 
 from app.db import get_session
@@ -105,7 +112,54 @@ def run_general_skill(
     if skill.status != "published":
         raise HTTPException(status_code=400, detail="General skill is not published")
     model_config = _get_default_model(db, request.tenant_id)
-    return GeneralSkillRunner().run(skill, request.query, model_config, request.user_id)
+    return GeneralSkillRunner().run(skill, request.query, model_config, request.user_id, request.max_attempts)
+
+
+@router.post("/{slug}/run/stream")
+def run_general_skill_stream(
+    slug: str,
+    request: GeneralSkillRunRequest,
+    db: Session = Depends(get_session),
+) -> StreamingResponse:
+    skill = _get_general_skill(db, request.tenant_id, slug)
+    if skill.status != "published":
+        raise HTTPException(status_code=400, detail="General skill is not published")
+    model_config = _get_default_model(db, request.tenant_id)
+    skill_snapshot = _general_skill_snapshot(skill)
+    model_snapshot = _model_config_snapshot(model_config)
+
+    def stream_events() -> Iterator[str]:
+        events: queue.Queue[tuple[str, dict[str, object]] | None] = queue.Queue()
+
+        def sink(item: dict[str, object]) -> None:
+            events.put(("trace", item))
+
+        def worker() -> None:
+            try:
+                response = GeneralSkillRunner().run(
+                    skill_snapshot,
+                    request.query,
+                    model_snapshot,
+                    request.user_id,
+                    request.max_attempts,
+                    sink,
+                )
+                events.put(("complete", response.model_dump(mode="json")))
+            except Exception as exc:  # pragma: no cover - defensive stream boundary
+                events.put(("error", {"message": str(exc)}))
+            finally:
+                events.put(None)
+
+        threading.Thread(target=worker, daemon=True).start()
+        yield _sse("stream_started", {"skill_slug": skill_snapshot.slug, "max_attempts": request.max_attempts})
+        while True:
+            item = events.get()
+            if item is None:
+                return
+            event, payload = item
+            yield _sse(event, payload)
+
+    return StreamingResponse(stream_events(), media_type="text/event-stream")
 
 
 def _get_general_skill(db: Session, tenant_id: str, slug: str) -> GeneralSkill:
@@ -129,3 +183,30 @@ def _get_default_model(db: Session, tenant_id: str) -> ModelConfig:
     if not model_config:
         raise HTTPException(status_code=400, detail="No default model config")
     return model_config
+
+
+def _general_skill_snapshot(row: GeneralSkill) -> SimpleNamespace:
+    return SimpleNamespace(
+        tenant_id=row.tenant_id,
+        slug=row.slug,
+        name=row.name,
+        description=row.description,
+        homepage=row.homepage,
+        skill_markdown=row.skill_markdown,
+        status=row.status,
+    )
+
+
+def _model_config_snapshot(row: ModelConfig) -> SimpleNamespace:
+    return SimpleNamespace(
+        api_key_encrypted=row.api_key_encrypted,
+        base_url=row.base_url,
+        model=row.model,
+        temperature=row.temperature,
+        max_output_tokens=row.max_output_tokens,
+    )
+
+
+def _sse(event: object, data: object) -> str:
+    payload = json.dumps(data, ensure_ascii=False)
+    return f"event: {event}\ndata: {payload}\n\n"
