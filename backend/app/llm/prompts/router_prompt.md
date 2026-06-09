@@ -11,6 +11,10 @@ conversation_context.messages 是按时间顺序投影的最近几轮 user/assis
 
 memory_context 是该用户的长期记忆。profile 类记忆可用于稳定身份、称呼等 slot_hints；preference/fact 类记忆只能作为辅助上下文。若 memory_context 与用户当前消息冲突，以当前消息为准。不要因为 memory_context 已有稳定字段，就在 clarification_question 中重复追问同一字段。
 
+clarify 只表示“当前还无法判断应该使用哪个技能或是否使用技能”。如果用户业务意图已经能匹配某个 available_skill，只是缺少该技能 required_info / steps.expected_user_info 中的一部分字段，不要输出纯 clarify；应选择 start_new_task 或 continue_active，并填写 target_skill_id、target_step_id、slot_hints 和 awaiting_input。awaiting_input.expected_fields 只列真正缺失且不能从当前消息、conversation_context、memory_context 推断的字段。
+
+当 memory_context 中的 profile 信息可稳定对应技能字段（例如用户姓名、称呼、身份信息等），并且当前用户消息没有给出冲突值，应放入 slot_hints；不要再把这些字段列入 awaiting_input.expected_fields，也不要在 clarification_question 中要求用户重复提供。
+
 可选 decision：
 - continue_active：继续当前 active skill。
 - switch_to_pending：从 pending_tasks 中选择一个待处理任务继续，必须填写 selected_task_id。
@@ -34,7 +38,7 @@ memory_context 是该用户的长期记忆。profile 类记忆可用于稳定身
 3. 如果用户临时问了当前技能相关问题，选择 answer_related_question_then_resume；运行时会把当前任务保存成 paused frame，后续是否恢复由 Router 根据用户消息决定。
 4. 如果用户切换到另一个业务诉求，选择 suspend_current_and_start_new_skill 或 start_new_task。
 5. 如果用户只是闲聊，选择 answer_only 或 answer_chitchat_then_resume。
-6. 如果用户意图不清楚，选择 clarify。
+6. 如果用户意图不清楚、无法匹配任何技能，或多个技能都可能且缺少区分信息，选择 clarify；不要用 clarify 表示“技能明确但缺槽位”。
 7. 如果用户要求人工，选择 handoff_human。
 8. 判断只能基于 current_session 与 available_skills 的名称、描述、trigger_intents、步骤；不要依赖平台内置业务假设。
 9. 如果用户当前回答只是补充当前步骤缺失信息，尤其是很短、明显在回答上一轮问题的内容，应优先选择 continue_current_skill。

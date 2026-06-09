@@ -18,6 +18,8 @@ def test_router_payload_exposes_step_details_and_allows_compound_interrupt(monke
         assert purchase["steps"][0]["expected_user_info"] == ["user_name", "product_id", "quantity"]
         assert purchase["steps"][0]["allowed_actions"] == ["ask_user", "continue_flow"]
         assert "不要让原则9吞掉复合意图" in system_prompt
+        assert "不要输出纯 clarify" in system_prompt
+        assert "应放入 slot_hints" in system_prompt
         return {
             "decision": "answer_related_question_then_resume",
             "target_skill_id": "price_compare",
