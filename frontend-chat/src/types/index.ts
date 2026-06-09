@@ -36,7 +36,10 @@ export type TraceLineRead = {
   kind: 'thinking' | 'decision' | 'skill' | 'tool' | 'code';
   text: string;
   detail?: string | null;
+  code?: string | null;
+  language?: string | null;
   state: 'running' | 'completed' | 'failed';
+  collapsible?: boolean | null;
 };
 
 export type TurnTraceRead = {

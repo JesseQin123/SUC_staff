@@ -700,14 +700,24 @@ def _event_trace_line(
         phase = str(payload.get("phase") or "").strip()
         detail = str(payload.get("rationale") or payload.get("stdout_preview") or payload.get("stderr_preview") or "").strip()
         code = str(payload.get("code") or "").strip()
+        code_phases = {
+            "plan_created",
+            "attempt_started",
+            "running_code",
+            "stdout_chunk",
+            "stderr_chunk",
+            "code_finished",
+            "code_timeout",
+        }
         return {
             "id": f"general_skill_trace_{event.id}",
-            "kind": "decision",
+            "kind": "code" if code or phase in code_phases else "decision",
             "text": message or phase or "执行通用技能",
             "detail": detail[:300] or None,
             "code": code or None,
             "language": "python" if code else None,
             "state": "completed",
+            "collapsible": bool(code),
         }
     if event.event_type == "general_skill_run_finished":
         success = bool(payload.get("success"))
