@@ -434,8 +434,8 @@ textarea,
 .session-title-icon .anticon svg,
 .session-chat-icon {
   display: block;
-  width: 21px;
-  height: 21px;
+  width: 20px;
+  height: 20px;
 }
 
 .session-chat-icon {
@@ -444,7 +444,7 @@ textarea,
   stroke-width: 1.85;
   stroke-linecap: round;
   stroke-linejoin: round;
-  transform: translateY(-0.5px);
+  transform: translate(1.8px, 0.2px);
 }
 
 .session-title-text {
@@ -474,8 +474,8 @@ textarea,
 
 .chat-layout.sidebar-collapsed .session-title-icon .anticon svg,
 .chat-layout.sidebar-collapsed .session-chat-icon {
-  width: 23px;
-  height: 23px;
+  width: 22px;
+  height: 22px;
 }
 
 .chat-layout.sidebar-collapsed .session-title-text {
@@ -1722,8 +1722,8 @@ textarea,
 
   .session-title-icon .anticon svg,
   .session-chat-icon {
-    width: 23px;
-    height: 23px;
+    width: 22px;
+    height: 22px;
   }
 
   .session-title-text {
