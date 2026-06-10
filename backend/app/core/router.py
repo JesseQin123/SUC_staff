@@ -6,13 +6,11 @@ from typing import Any, get_args
 from app.db.models import ChatSession, ModelConfig, Skill
 from app.llm import LLMClient, LLMError
 from app.session.helpers import public_session
-from app.session.session_schema import RouterDecision, RouterDecisionValue
+from app.session.session_schema import RouterDecision, RouterDecisionValue, TaskScheduleDecision
 
 
 PROMPT_PATH = Path(__file__).resolve().parents[1] / "llm" / "prompts" / "router_prompt.md"
-PENDING_CONTINUATION_PROMPT_PATH = (
-    Path(__file__).resolve().parents[1] / "llm" / "prompts" / "pending_continuation_router_prompt.md"
-)
+TASK_SCHEDULER_PROMPT_PATH = Path(__file__).resolve().parents[1] / "llm" / "prompts" / "task_scheduler_prompt.md"
 ALLOWED_DECISIONS = set(get_args(RouterDecisionValue))
 
 
@@ -64,7 +62,7 @@ class Router:
             raise LLMError(f"Router returned invalid JSON schema: {exc}") from exc
         return self._normalize_decision(decision, session, available_skills)
 
-    def decide_pending_continuation(
+    def schedule_tasks_after_completion(
         self,
         message: str,
         session: ChatSession,
@@ -73,13 +71,15 @@ class Router:
         conversation_context: dict[str, object] | None = None,
         memory_context: list[dict[str, object]] | None = None,
         completed_reply: str | None = None,
-    ) -> RouterDecision:
+    ) -> TaskScheduleDecision:
+        candidate_frames = self._candidate_task_frames(session)
         payload = {
             "user_message": message,
             "completed_reply": completed_reply or "",
             "conversation_context": conversation_context or {},
             "memory_context": memory_context or [],
             "current_session": public_session(session).model_dump(),
+            "candidate_task_frames": candidate_frames,
             "available_skills": [
                 {
                     "skill_id": skill.skill_id,
@@ -105,25 +105,16 @@ class Router:
         }
         try:
             raw = LLMClient(model_config).generate_json(
-                PENDING_CONTINUATION_PROMPT_PATH.read_text(encoding="utf-8"),
+                TASK_SCHEDULER_PROMPT_PATH.read_text(encoding="utf-8"),
                 payload,
             )
-            raw = self._coerce_raw_decision(raw)
-            decision = RouterDecision.model_validate(raw)
+            raw = self._coerce_raw_schedule(raw)
+            schedule = TaskScheduleDecision.model_validate(raw)
         except Exception as exc:
             if isinstance(exc, LLMError):
                 raise
-            raise LLMError(f"Pending continuation router returned invalid JSON schema: {exc}") from exc
-        decision = self._normalize_decision(decision, session, available_skills)
-        if decision.decision != "switch_to_pending":
-            return RouterDecision(
-                decision="answer_only",
-                confidence=decision.confidence,
-                user_intent=decision.user_intent,
-                reason=decision.reason or "Pending continuation router chose not to continue a pending task",
-                source_message=decision.source_message,
-            )
-        return decision
+            raise LLMError(f"Task scheduler returned invalid JSON schema: {exc}") from exc
+        return self._normalize_schedule(schedule, candidate_frames)
 
     def _coerce_raw_decision(self, raw: object) -> object:
         if not isinstance(raw, dict):
@@ -152,6 +143,35 @@ class Router:
             normalized["decision"] = "clarify"
             normalized.setdefault("reason", f"Router returned unsupported decision: {decision}")
             normalized.setdefault("clarification_question", "请问您想办理哪类业务？")
+        return normalized
+
+    def _coerce_raw_schedule(self, raw: object) -> object:
+        if not isinstance(raw, dict):
+            return raw
+        normalized = dict(raw)
+        action = str(normalized.get("action") or "").strip()
+        selected_ids: list[str] = []
+        raw_selected_ids = normalized.get("selected_task_ids")
+        if isinstance(raw_selected_ids, list):
+            selected_ids.extend(str(item).strip() for item in raw_selected_ids if str(item).strip())
+        raw_selected_tasks = normalized.get("selected_tasks")
+        if isinstance(raw_selected_tasks, list):
+            for item in raw_selected_tasks:
+                if isinstance(item, dict) and item.get("task_id"):
+                    selected_ids.append(str(item["task_id"]).strip())
+                elif isinstance(item, str) and item.strip():
+                    selected_ids.append(item.strip())
+        deduped_ids: list[str] = []
+        seen: set[str] = set()
+        for task_id in selected_ids:
+            if task_id and task_id not in seen:
+                deduped_ids.append(task_id)
+                seen.add(task_id)
+        normalized["selected_task_ids"] = deduped_ids
+        if action in {"run", "continue", "continue_tasks", "schedule"}:
+            normalized["action"] = "run_tasks"
+        elif action not in {"run_tasks", "stop"}:
+            normalized["action"] = "run_tasks" if deduped_ids else "stop"
         return normalized
 
     def _normalize_decision(
@@ -197,3 +217,47 @@ class Router:
                     task.target_step_id = steps[0].get("step_id")
             normalized_tasks.append(task)
         return normalized_tasks
+
+    def _normalize_schedule(
+        self, schedule: TaskScheduleDecision, candidate_frames: list[dict[str, Any]]
+    ) -> TaskScheduleDecision:
+        valid_ids = {
+            str(frame.get("task_id"))
+            for frame in candidate_frames
+            if isinstance(frame, dict) and frame.get("task_id")
+        }
+        selected_ids: list[str] = []
+        for task_id in schedule.selected_task_ids:
+            if task_id in valid_ids and task_id not in selected_ids:
+                selected_ids.append(task_id)
+        schedule.selected_task_ids = selected_ids
+        if not selected_ids:
+            schedule.action = "stop"
+        return schedule
+
+    def _candidate_task_frames(self, session: ChatSession) -> list[dict[str, Any]]:
+        frames: list[dict[str, Any]] = []
+        for source, raw_frames in (
+            ("pending", session.pending_tasks_json or []),
+            ("paused", session.skill_stack_json or []),
+        ):
+            for frame in raw_frames:
+                if not isinstance(frame, dict) or not frame.get("task_id"):
+                    continue
+                frames.append(
+                    {
+                        "source": source,
+                        "task_id": frame.get("task_id"),
+                        "status": frame.get("status"),
+                        "skill_id": frame.get("skill_id") or frame.get("target_skill_id"),
+                        "step_id": frame.get("step_id") or frame.get("target_step_id"),
+                        "slots": frame.get("slots") if isinstance(frame.get("slots"), dict) else {},
+                        "intent_summary": frame.get("intent_summary") or frame.get("user_intent"),
+                        "source_message": frame.get("source_message"),
+                        "parent_task_id": frame.get("parent_task_id"),
+                        "resume_policy": frame.get("resume_policy"),
+                        "created_at": frame.get("created_at"),
+                        "updated_at": frame.get("updated_at"),
+                    }
+                )
+        return frames

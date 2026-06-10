@@ -84,7 +84,7 @@ class PreparedTurn:
 
 
 @dataclass
-class PendingContinuation:
+class TaskScheduleContinuation:
     reply: str
     active_skill: Skill | None
     router_decision: RouterDecision
@@ -458,23 +458,24 @@ class AgentLoop:
     ) -> Iterator[dict[str, object]]:
         if not (chat_session.pending_tasks_json or chat_session.skill_stack_json):
             return None
-        max_rounds = max(1, self._get_agent_loop_max_actions(request.tenant_id))
+        max_actions = max(1, self._get_agent_loop_max_actions(request.tenant_id))
+        executed_actions = 0
         replies: list[str] = []
         active_skill: Skill | None = None
         router_decision = RouterDecision(decision="answer_only", reason="No pending task selected")
         step_result = StepAgentResult()
         tool_result: ToolResult | None = None
 
-        for round_index in range(max_rounds):
+        for schedule_round in range(max_actions):
             if not (chat_session.pending_tasks_json or chat_session.skill_stack_json):
                 break
             yield self._stream_status(
                 chat_session,
                 "routing",
-                "正在判断后续任务",
-                {"pending_round": round_index + 1},
+                "正在规划后续任务",
+                {"schedule_round": schedule_round + 1},
             )
-            router_decision = self.router.decide_pending_continuation(
+            schedule = self.router.schedule_tasks_after_completion(
                 request.message,
                 chat_session,
                 skills,
@@ -486,150 +487,163 @@ class AgentLoop:
             self.events.record(
                 request.tenant_id,
                 chat_session.id,
-                "pending_continuation_router_decision_created",
-                {**router_decision.model_dump(mode="json"), "round": round_index + 1},
+                "task_scheduler_decision_created",
+                {**schedule.model_dump(mode="json"), "round": schedule_round + 1},
             )
-            if router_decision.decision != "switch_to_pending":
+            yield self._stream_event(
+                "task_schedule",
+                chat_session,
+                {**schedule.model_dump(mode="json"), "round": schedule_round + 1},
+            )
+            if schedule.action != "run_tasks" or not schedule.selected_task_ids:
                 break
 
-            before_skill = chat_session.active_skill_id
-            before_step = chat_session.active_step_id
-            self.runtime.apply_decision(chat_session, router_decision)
-            self._record_runtime_event(
-                request.tenant_id, chat_session, before_skill, before_step, router_decision
-            )
-            self.db.commit()
-            self.db.refresh(chat_session)
-
-            active_skill = self._get_active_skill(request.tenant_id, chat_session.active_skill_id)
-            yield self._stream_event(
-                "skill_state",
-                chat_session,
-                self._skill_state_payload(
+            for task_id in schedule.selected_task_ids:
+                if executed_actions >= max_actions:
+                    break
+                router_decision = self._router_decision_from_task_frame(
                     chat_session,
-                    skills,
-                    self._runtime_stream_context(router_decision, before_skill, before_step, chat_session),
-                ),
-            )
-            yield self._stream_status(
-                chat_session,
-                "stepping",
-                "正在思考",
-                {"active_skill_id": chat_session.active_skill_id, "active_step_id": chat_session.active_step_id},
-            )
-            repair_stream_events: list[tuple[str, dict[str, object]]] = []
-            step_result = self._run_step_agent_with_context_repair(
-                request,
-                chat_session,
-                active_skill,
-                tools,
-                model_config,
-                router_decision,
-                memory_context,
-                conversation_context,
-                repair_stream_events,
-            )
-            self.db.commit()
-            self.db.refresh(chat_session)
-            for event_name, payload in repair_stream_events:
-                yield self._stream_event(event_name, chat_session, payload)
+                    task_id,
+                    schedule.reason,
+                )
+                if not router_decision:
+                    continue
 
-            tool_result = None
-            if step_result.tool_call:
-                tool_stream_events: list[tuple[str, dict[str, object]]] = []
-                step_result, tool_result = self._execute_tool_action_cycle(
+                before_skill = chat_session.active_skill_id
+                before_step = chat_session.active_step_id
+                self.runtime.apply_decision(chat_session, router_decision)
+                self._record_runtime_event(
+                    request.tenant_id, chat_session, before_skill, before_step, router_decision
+                )
+                self.db.commit()
+                self.db.refresh(chat_session)
+
+                active_skill = self._get_active_skill(request.tenant_id, chat_session.active_skill_id)
+                yield self._stream_event(
+                    "skill_state",
+                    chat_session,
+                    self._skill_state_payload(
+                        chat_session,
+                        skills,
+                        self._runtime_stream_context(router_decision, before_skill, before_step, chat_session),
+                    ),
+                )
+                yield self._stream_status(
+                    chat_session,
+                    "stepping",
+                    "正在思考",
+                    {"active_skill_id": chat_session.active_skill_id, "active_step_id": chat_session.active_step_id},
+                )
+                repair_stream_events: list[tuple[str, dict[str, object]]] = []
+                step_result = self._run_step_agent_with_context_repair(
                     request,
                     chat_session,
                     active_skill,
                     tools,
                     model_config,
-                    step_result,
-                    tool_stream_events,
+                    router_decision,
+                    memory_context,
+                    conversation_context,
+                    repair_stream_events,
                 )
-                for event_name, payload in tool_stream_events:
+                self.db.commit()
+                self.db.refresh(chat_session)
+                for event_name, payload in repair_stream_events:
                     yield self._stream_event(event_name, chat_session, payload)
 
-            reflection_stream_events: list[tuple[str, dict[str, object]]] = []
-            reflection_max_rounds = self._get_reflection_max_rounds(request.tenant_id)
-            if reflection_max_rounds > 0 and self._should_try_reflection(router_decision, step_result, tool_result):
-                yield self._stream_status(
-                    chat_session,
-                    "reflecting",
-                    "正在反思",
-                    {"reflection_round": 1, "reflection_max_rounds": reflection_max_rounds},
-                )
-            (
-                active_skill,
-                router_decision,
-                step_result,
-                tool_result,
-            ) = self._run_reflection_rounds(
-                request,
-                chat_session,
-                skills,
-                tools,
-                model_config,
-                active_skill,
-                router_decision,
-                step_result,
-                tool_result,
-                reflection_max_rounds,
-                conversation_context,
-                reflection_stream_events,
-            )
-            for event_name, payload in reflection_stream_events:
-                yield self._stream_event(event_name, chat_session, payload)
+                tool_result = None
+                if step_result.tool_call:
+                    tool_stream_events: list[tuple[str, dict[str, object]]] = []
+                    step_result, tool_result = self._execute_tool_action_cycle(
+                        request,
+                        chat_session,
+                        active_skill,
+                        tools,
+                        model_config,
+                        step_result,
+                        tool_stream_events,
+                    )
+                    for event_name, payload in tool_stream_events:
+                        yield self._stream_event(event_name, chat_session, payload)
 
-            yield self._stream_status(chat_session, "responding", "正在生成回复")
-            chunks: list[str] = []
-            for chunk in self._generate_reply_stream_segment(
-                request.message,
-                chat_session,
-                active_skill,
-                router_decision,
-                step_result,
-                tool_result,
-                model_config,
-                persona_prompt,
-                memory_context,
-                conversation_context,
-            ):
-                chunks.append(chunk)
-                yield self._stream_event("stream_delta", chat_session, {"content": chunk})
-                self._pace_stream()
-            segment = "".join(chunks).strip() or FALLBACK_REPLY
-            if not chunks:
-                for chunk in self.response_generator.chunk_text(segment):
+                reflection_stream_events: list[tuple[str, dict[str, object]]] = []
+                reflection_max_rounds = self._get_reflection_max_rounds(request.tenant_id)
+                if reflection_max_rounds > 0 and self._should_try_reflection(router_decision, step_result, tool_result):
+                    yield self._stream_status(
+                        chat_session,
+                        "reflecting",
+                        "正在反思",
+                        {"reflection_round": 1, "reflection_max_rounds": reflection_max_rounds},
+                    )
+                (
+                    active_skill,
+                    router_decision,
+                    step_result,
+                    tool_result,
+                ) = self._run_reflection_rounds(
+                    request,
+                    chat_session,
+                    skills,
+                    tools,
+                    model_config,
+                    active_skill,
+                    router_decision,
+                    step_result,
+                    tool_result,
+                    reflection_max_rounds,
+                    conversation_context,
+                    reflection_stream_events,
+                )
+                for event_name, payload in reflection_stream_events:
+                    yield self._stream_event(event_name, chat_session, payload)
+
+                yield self._stream_status(chat_session, "responding", "正在生成回复")
+                chunks: list[str] = []
+                for chunk in self._generate_reply_stream_segment(
+                    request.message,
+                    chat_session,
+                    active_skill,
+                    router_decision,
+                    step_result,
+                    tool_result,
+                    model_config,
+                    persona_prompt,
+                    memory_context,
+                    conversation_context,
+                ):
                     chunks.append(chunk)
                     yield self._stream_event("stream_delta", chat_session, {"content": chunk})
                     self._pace_stream()
-            replies.append(segment)
-            completed = self._finalize_execution_after_reply(
-                request.tenant_id,
-                chat_session,
-                active_skill,
-                router_decision,
-                step_result,
-                tool_result,
-            )
-            if not completed:
+                segment = "".join(chunks).strip() or FALLBACK_REPLY
+                if not chunks:
+                    for chunk in self.response_generator.chunk_text(segment):
+                        chunks.append(chunk)
+                        yield self._stream_event("stream_delta", chat_session, {"content": chunk})
+                        self._pace_stream()
+                replies.append(segment)
+                executed_actions += 1
+                completed = self._finalize_execution_after_reply(
+                    request.tenant_id,
+                    chat_session,
+                    active_skill,
+                    router_decision,
+                    step_result,
+                    tool_result,
+                )
+                if not completed:
+                    return self._scheduled_continuation(
+                        replies, active_skill, router_decision, step_result, tool_result
+                    )
+                self.events.record(
+                    request.tenant_id,
+                    chat_session.id,
+                    "pending_tasks_waiting",
+                    {"pending_tasks": chat_session.pending_tasks_json or [], "round": schedule_round + 1},
+                )
+            if executed_actions >= max_actions:
                 break
-            self.events.record(
-                request.tenant_id,
-                chat_session.id,
-                "pending_tasks_waiting",
-                {"pending_tasks": chat_session.pending_tasks_json or [], "round": round_index + 1},
-            )
 
-        if not replies:
-            return None
-        return PendingContinuation(
-            reply="\n\n".join(replies).strip(),
-            active_skill=active_skill,
-            router_decision=router_decision,
-            step_result=step_result,
-            tool_result=tool_result,
-        )
+        return self._scheduled_continuation(replies, active_skill, router_decision, step_result, tool_result)
 
     def handle_turn_stream(self, request: ChatTurnRequest) -> Iterator[dict[str, object]]:
         router_decision: RouterDecision | None = None
@@ -1193,20 +1207,21 @@ class AgentLoop:
         memory_context: list[dict[str, object]],
         conversation_context: dict[str, object],
         completed_reply: str,
-    ) -> PendingContinuation | None:
+    ) -> TaskScheduleContinuation | None:
         if not (chat_session.pending_tasks_json or chat_session.skill_stack_json):
             return None
-        max_rounds = max(1, self._get_agent_loop_max_actions(request.tenant_id))
+        max_actions = max(1, self._get_agent_loop_max_actions(request.tenant_id))
+        executed_actions = 0
         replies: list[str] = []
         active_skill: Skill | None = None
         router_decision = RouterDecision(decision="answer_only", reason="No pending task selected")
         step_result = StepAgentResult()
         tool_result: ToolResult | None = None
 
-        for round_index in range(max_rounds):
+        for schedule_round in range(max_actions):
             if not (chat_session.pending_tasks_json or chat_session.skill_stack_json):
                 break
-            router_decision = self.router.decide_pending_continuation(
+            schedule = self.router.schedule_tasks_after_completion(
                 request.message,
                 chat_session,
                 skills,
@@ -1218,103 +1233,165 @@ class AgentLoop:
             self.events.record(
                 request.tenant_id,
                 chat_session.id,
-                "pending_continuation_router_decision_created",
-                {**router_decision.model_dump(mode="json"), "round": round_index + 1},
+                "task_scheduler_decision_created",
+                {**schedule.model_dump(mode="json"), "round": schedule_round + 1},
             )
-            if router_decision.decision != "switch_to_pending":
+            if schedule.action != "run_tasks" or not schedule.selected_task_ids:
                 break
 
-            before_skill = chat_session.active_skill_id
-            before_step = chat_session.active_step_id
-            self.runtime.apply_decision(chat_session, router_decision)
-            self._record_runtime_event(
-                request.tenant_id, chat_session, before_skill, before_step, router_decision
-            )
-            self.db.commit()
-            self.db.refresh(chat_session)
+            for task_id in schedule.selected_task_ids:
+                if executed_actions >= max_actions:
+                    break
+                router_decision = self._router_decision_from_task_frame(
+                    chat_session,
+                    task_id,
+                    schedule.reason,
+                )
+                if not router_decision:
+                    continue
 
-            active_skill = self._get_active_skill(request.tenant_id, chat_session.active_skill_id)
-            step_result = self._run_step_agent_with_context_repair(
-                request,
-                chat_session,
-                active_skill,
-                tools,
-                model_config,
-                router_decision,
-                memory_context,
-                conversation_context,
-            )
-            self.db.commit()
-            self.db.refresh(chat_session)
-            tool_result = None
-            if step_result.tool_call:
-                step_result, tool_result = self._execute_tool_action_cycle(
+                before_skill = chat_session.active_skill_id
+                before_step = chat_session.active_step_id
+                self.runtime.apply_decision(chat_session, router_decision)
+                self._record_runtime_event(
+                    request.tenant_id, chat_session, before_skill, before_step, router_decision
+                )
+                self.db.commit()
+                self.db.refresh(chat_session)
+
+                active_skill = self._get_active_skill(request.tenant_id, chat_session.active_skill_id)
+                step_result = self._run_step_agent_with_context_repair(
                     request,
                     chat_session,
                     active_skill,
                     tools,
                     model_config,
-                    step_result,
+                    router_decision,
+                    memory_context,
+                    conversation_context,
                 )
+                self.db.commit()
+                self.db.refresh(chat_session)
+                tool_result = None
+                if step_result.tool_call:
+                    step_result, tool_result = self._execute_tool_action_cycle(
+                        request,
+                        chat_session,
+                        active_skill,
+                        tools,
+                        model_config,
+                        step_result,
+                    )
 
-            (
-                active_skill,
-                router_decision,
-                step_result,
-                tool_result,
-            ) = self._run_reflection_rounds(
-                request,
-                chat_session,
-                skills,
-                tools,
-                model_config,
-                active_skill,
-                router_decision,
-                step_result,
-                tool_result,
-                self._get_reflection_max_rounds(request.tenant_id),
-                conversation_context,
-            )
-            segment = self._generate_reply_segment(
-                request.message,
-                chat_session,
-                active_skill,
-                router_decision,
-                step_result,
-                tool_result,
-                model_config,
-                persona_prompt,
-                memory_context,
-                conversation_context,
-            )
-            if segment:
-                replies.append(segment)
-            completed = self._finalize_execution_after_reply(
-                request.tenant_id,
-                chat_session,
-                active_skill,
-                router_decision,
-                step_result,
-                tool_result,
-            )
-            if not completed:
+                (
+                    active_skill,
+                    router_decision,
+                    step_result,
+                    tool_result,
+                ) = self._run_reflection_rounds(
+                    request,
+                    chat_session,
+                    skills,
+                    tools,
+                    model_config,
+                    active_skill,
+                    router_decision,
+                    step_result,
+                    tool_result,
+                    self._get_reflection_max_rounds(request.tenant_id),
+                    conversation_context,
+                )
+                segment = self._generate_reply_segment(
+                    request.message,
+                    chat_session,
+                    active_skill,
+                    router_decision,
+                    step_result,
+                    tool_result,
+                    model_config,
+                    persona_prompt,
+                    memory_context,
+                    conversation_context,
+                )
+                if segment:
+                    replies.append(segment)
+                executed_actions += 1
+                completed = self._finalize_execution_after_reply(
+                    request.tenant_id,
+                    chat_session,
+                    active_skill,
+                    router_decision,
+                    step_result,
+                    tool_result,
+                )
+                if not completed:
+                    return self._scheduled_continuation(
+                        replies, active_skill, router_decision, step_result, tool_result
+                    )
+                self.events.record(
+                    request.tenant_id,
+                    chat_session.id,
+                    "pending_tasks_waiting",
+                    {"pending_tasks": chat_session.pending_tasks_json or [], "round": schedule_round + 1},
+                )
+            if executed_actions >= max_actions:
                 break
-            self.events.record(
-                request.tenant_id,
-                chat_session.id,
-                "pending_tasks_waiting",
-                {"pending_tasks": chat_session.pending_tasks_json or [], "round": round_index + 1},
-            )
 
+        return self._scheduled_continuation(replies, active_skill, router_decision, step_result, tool_result)
+
+    def _scheduled_continuation(
+        self,
+        replies: list[str],
+        active_skill: Skill | None,
+        router_decision: RouterDecision,
+        step_result: StepAgentResult,
+        tool_result: ToolResult | None,
+    ) -> TaskScheduleContinuation | None:
         if not replies:
             return None
-        return PendingContinuation(
+        return TaskScheduleContinuation(
             reply="\n\n".join(replies).strip(),
             active_skill=active_skill,
             router_decision=router_decision,
             step_result=step_result,
             tool_result=tool_result,
         )
+
+    def _router_decision_from_task_frame(
+        self,
+        chat_session: ChatSession,
+        task_id: str,
+        scheduler_reason: str | None = None,
+    ) -> RouterDecision | None:
+        frame = self._find_task_frame(chat_session, task_id)
+        if not frame:
+            return None
+        skill_id = frame.get("skill_id") or frame.get("target_skill_id")
+        if not skill_id:
+            return None
+        slot_hints = {}
+        if isinstance(frame.get("slots"), dict):
+            slot_hints = dict(frame["slots"])
+        elif isinstance(frame.get("slot_hints"), dict):
+            slot_hints = dict(frame["slot_hints"])
+        return RouterDecision(
+            decision="switch_to_pending",
+            selected_task_id=str(task_id),
+            target_skill_id=str(skill_id),
+            target_step_id=frame.get("step_id") or frame.get("target_step_id"),
+            confidence=float(frame.get("confidence") or 0.0),
+            user_intent=frame.get("intent_summary") or frame.get("user_intent"),
+            reason=scheduler_reason or frame.get("reason"),
+            source_message=frame.get("source_message"),
+            slot_hints=slot_hints,
+        )
+
+    def _find_task_frame(self, chat_session: ChatSession, task_id: str) -> dict[str, Any] | None:
+        for frames in (chat_session.pending_tasks_json or [], chat_session.skill_stack_json or []):
+            for frame in frames:
+                if isinstance(frame, dict) and str(frame.get("task_id") or "") == str(task_id):
+                    return frame
+        return None
 
     def _run_reflection_rounds(
         self,

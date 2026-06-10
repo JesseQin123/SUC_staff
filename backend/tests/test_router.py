@@ -107,30 +107,26 @@ def test_router_accepts_ordered_pending_tasks(monkeypatch):
     assert decision.pending_tasks[0].target_step_id == "collect_user_name"
 
 
-def test_pending_continuation_router_requires_selected_pending_task(monkeypatch):
+def test_task_scheduler_selects_multiple_existing_task_frames(monkeypatch):
     def fake_init(self, model_config):  # noqa: ANN001
         return None
 
     def fake_generate_json(self, system_prompt, payload):  # noqa: ANN001
-        assert "pending task 继续推进路由器" in system_prompt
-        assert payload["current_session"]["pending_tasks"][0]["task_id"] == "task_purchase_a3"
+        assert "task scheduler" in system_prompt
+        assert payload["candidate_task_frames"][0]["task_id"] == "task_purchase_a3"
+        assert payload["candidate_task_frames"][1]["task_id"] == "task_purchase_a1"
         return {
-            "decision": "switch_to_pending",
-            "selected_task_id": "task_purchase_a3",
-            "target_skill_id": "purchase",
-            "target_step_id": "collect_user_name",
+            "action": "run_tasks",
+            "selected_task_ids": ["task_purchase_a3", "missing_task", "task_purchase_a1"],
             "confidence": 0.91,
-            "user_intent": "继续购买 A3",
-            "reason": "当前任务完成后，用户原始消息包含后续购买 A3。",
-            "source_message": "退完帮我买一个 A3",
-            "slot_hints": {"product_id": "A3", "quantity": 1},
+            "reason": "当前任务完成后，用户原始消息包含后续购买 A3 和 A1。",
         }
 
     monkeypatch.setattr(LLMClient, "__init__", fake_init)
     monkeypatch.setattr(LLMClient, "generate_json", fake_generate_json)
 
-    decision = Router().decide_pending_continuation(
-        "退完帮我买一个 A3",
+    decision = Router().schedule_tasks_after_completion(
+        "退完帮我买一个 A3，再买一个 A1",
         ChatSession(
             id="session_test",
             tenant_id="tenant_demo",
@@ -142,6 +138,14 @@ def test_pending_continuation_router_requires_selected_pending_task(monkeypatch)
                     "step_id": "collect_user_name",
                     "target_step_id": "collect_user_name",
                     "slots": {"product_id": "A3", "quantity": 1},
+                },
+                {
+                    "task_id": "task_purchase_a1",
+                    "skill_id": "purchase",
+                    "target_skill_id": "purchase",
+                    "step_id": "collect_user_name",
+                    "target_step_id": "collect_user_name",
+                    "slots": {"product_id": "A1", "quantity": 1},
                 }
             ],
         ),
@@ -150,10 +154,8 @@ def test_pending_continuation_router_requires_selected_pending_task(monkeypatch)
         completed_reply="退款已完成。",
     )
 
-    assert decision.decision == "switch_to_pending"
-    assert decision.selected_task_id == "task_purchase_a3"
-    assert decision.target_skill_id == "purchase"
-    assert decision.slot_hints["product_id"] == "A3"
+    assert decision.action == "run_tasks"
+    assert decision.selected_task_ids == ["task_purchase_a3", "task_purchase_a1"]
 
 
 def test_router_coerces_answer_alias_before_schema_validation(monkeypatch):
