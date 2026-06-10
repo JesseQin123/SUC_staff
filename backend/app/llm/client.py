@@ -15,6 +15,9 @@ class LLMError(Exception):
     """Raised when an LLM provider request or response normalization fails."""
 
 
+JSON_REPAIR_ATTEMPTS = 3
+
+
 class LLMClient:
     def __init__(self, model_config: ModelConfig):
         api_key = decrypt_secret(model_config.api_key_encrypted)
@@ -74,23 +77,33 @@ class LLMClient:
             raise LLMError(str(exc)) from exc
 
     def generate_json(self, system_prompt: str, user_payload: dict[str, Any]) -> dict[str, Any]:
-        text = self.generate_text(system_prompt, user_payload)
-        try:
-            return json.loads(_extract_json(text))
-        except json.JSONDecodeError:
-            retry_payload = copy.deepcopy(user_payload)
-            retry_payload["_json_repair"] = {
-                "previous_output": _preview(text),
-                "instruction": "请基于原始任务上下文，将上一次输出修正为合法 JSON，不要输出任何解释。",
-            }
-            retry_text = self.generate_text(system_prompt, retry_payload)
+        outputs: list[str] = []
+        next_payload = user_payload
+        last_error: json.JSONDecodeError | None = None
+        for attempt in range(JSON_REPAIR_ATTEMPTS + 1):
+            text = self.generate_text(system_prompt, next_payload)
+            outputs.append(text)
             try:
-                return json.loads(_extract_json(retry_text))
+                return json.loads(_extract_json(text))
             except json.JSONDecodeError as exc:
-                raise LLMError(
-                    "Model did not return valid JSON after retry; "
-                    f"first_output_preview={_preview(text)!r}; retry_output_preview={_preview(retry_text)!r}"
-                ) from exc
+                last_error = exc
+                if attempt >= JSON_REPAIR_ATTEMPTS:
+                    break
+                next_payload = copy.deepcopy(user_payload)
+                next_payload["_json_repair"] = {
+                    "attempt": attempt + 1,
+                    "max_attempts": JSON_REPAIR_ATTEMPTS,
+                    "previous_output": _preview(text),
+                    "parser_error": str(exc),
+                    "instruction": (
+                        "上一轮输出不是合法 JSON。请基于原始任务上下文重新输出完整、可解析的 JSON object。"
+                        "字符串内部的双引号必须转义；不要输出 Markdown、解释、代码块或额外文本。"
+                    ),
+                }
+        previews = "; ".join(f"attempt_{index + 1}_preview={_preview(output)!r}" for index, output in enumerate(outputs))
+        raise LLMError(
+            f"Model did not return valid JSON after {JSON_REPAIR_ATTEMPTS} repair attempts; {previews}"
+        ) from last_error
 
 
 def _extract_json(text: str) -> str:
