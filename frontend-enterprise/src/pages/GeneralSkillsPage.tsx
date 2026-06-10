@@ -94,6 +94,7 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
   const [runResult, setRunResult] = useState<GeneralSkillRunResponse | null>(null);
   const [liveResult, setLiveResult] = useState<Partial<GeneralSkillRunResponse> | null>(null);
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const selectedSkill = useMemo(
     () => rows.find((row) => row.slug === selectedSlug) || rows[0],
@@ -131,20 +132,36 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
       message.warning('请填写通用技能名称和 Slug');
       return;
     }
-    const row = await api.post<GeneralSkillRead>('/api/enterprise/general-skills/import', {
-      tenant_id: TENANT_ID,
-      name: skillName.trim(),
-      slug: skillSlug.trim(),
-      description: skillDescription.trim() || undefined,
-      homepage: skillHomepage.trim() || undefined,
-      markdown,
-      status: 'published',
-      original_slug: editingSlug || undefined,
-    });
-    message.success(editingSlug ? `已保存 ${row.name}` : `已导入 ${row.name}`);
-    setSelectedSlug(row.slug);
-    setEditingSlug(row.slug);
-    load();
+    setSaving(true);
+    try {
+      const row = await api.post<GeneralSkillRead>('/api/enterprise/general-skills/import', {
+        tenant_id: TENANT_ID,
+        name: skillName.trim(),
+        slug: skillSlug.trim(),
+        description: skillDescription.trim() || undefined,
+        homepage: skillHomepage.trim() || undefined,
+        markdown,
+        status: 'published',
+        original_slug: editingSlug || undefined,
+      });
+      message.success(editingSlug ? `已保存 ${row.name}` : `已导入 ${row.name}`);
+      setSelectedSlug(row.slug);
+      setEditingSlug(row.slug);
+      setMarkdown(row.skill_markdown);
+      setSkillName(row.name);
+      setSkillSlug(row.slug);
+      setSkillDescription(row.description || '');
+      setSkillHomepage(row.homepage || '');
+      setRows((current) => {
+        const withoutSaved = current.filter((item) => item.id !== row.id && item.slug !== row.slug);
+        return [row, ...withoutSaved];
+      });
+      void load();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '保存通用技能失败');
+    } finally {
+      setSaving(false);
+    }
   }
 
   function newSkill() {
@@ -290,7 +307,7 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
                 <Upload beforeUpload={beforeUpload} showUploadList={false} accept=".md,.txt">
                   <Button icon={<UploadOutlined />}>选择文件</Button>
                 </Upload>
-                <Button type="primary" icon={<CloudOutlined />} onClick={importSkill}>保存并发布</Button>
+                <Button type="primary" loading={saving} icon={<CloudOutlined />} onClick={importSkill}>保存并发布</Button>
               </Space>
             )}
           >

@@ -20,7 +20,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   });
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(text || response.statusText);
+    throw new Error(parseErrorMessage(text) || response.statusText);
   }
   return response.json() as Promise<T>;
 }
@@ -54,7 +54,7 @@ export async function streamPost(
   });
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(text || response.statusText);
+    throw new Error(parseErrorMessage(text) || response.statusText);
   }
   if (!response.body) {
     throw new Error('当前浏览器不支持流式响应');
@@ -89,7 +89,7 @@ export async function streamGet(
   const response = await fetch(`${API_BASE}${path}`, { signal });
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(text || response.statusText);
+    throw new Error(parseErrorMessage(text) || response.statusText);
   }
   if (!response.body) {
     throw new Error('当前浏览器不支持流式响应');
@@ -128,4 +128,26 @@ function parseSseBlock(block: string): StreamEvent | null {
   } catch {
     return { event, data: { raw: rawData } };
   }
+}
+
+function parseErrorMessage(text: string): string {
+  if (!text) return '';
+  try {
+    const payload = JSON.parse(text) as { detail?: unknown; message?: unknown; error?: unknown };
+    const detail = payload.detail ?? payload.message ?? payload.error;
+    if (typeof detail === 'string') return detail;
+    if (Array.isArray(detail)) {
+      return detail
+        .map((item) => {
+          if (typeof item === 'string') return item;
+          if (item && typeof item === 'object' && 'msg' in item) return String((item as { msg: unknown }).msg);
+          return '';
+        })
+        .filter(Boolean)
+        .join('；');
+    }
+  } catch {
+    return text;
+  }
+  return text;
 }
