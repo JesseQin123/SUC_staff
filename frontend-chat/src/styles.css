@@ -291,19 +291,26 @@ textarea,
   background: transparent;
   border-color: transparent;
   box-shadow: none;
+  vertical-align: middle;
 }
 
+.icon-button .ant-btn-icon,
+.ant-btn.icon-button .ant-btn-icon,
+.session-action .ant-btn-icon,
 .icon-button .anticon,
 .ant-btn.icon-button .anticon,
 .session-action .anticon,
 .message-feedback .anticon {
-  display: inline-grid;
-  width: 1em;
-  height: 1em;
+  display: grid;
+  width: 100%;
+  height: 100%;
   place-items: center;
   line-height: 0;
 }
 
+.icon-button .ant-btn-icon > *,
+.ant-btn.icon-button .ant-btn-icon > *,
+.session-action .ant-btn-icon > *,
 .icon-button .anticon svg,
 .ant-btn.icon-button .anticon svg,
 .session-action .anticon svg,
@@ -444,7 +451,6 @@ textarea,
   stroke-width: 1.85;
   stroke-linecap: round;
   stroke-linejoin: round;
-  transform: translate(1.8px, 0.2px);
 }
 
 .session-title-text {
@@ -919,7 +925,7 @@ textarea,
 .turn-trace-line {
   min-width: 0;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
   max-width: 100%;
   color: var(--muted);
@@ -954,7 +960,7 @@ textarea,
 }
 
 .turn-trace-line {
-  align-items: flex-start;
+  align-items: center;
   padding: 0;
 }
 
@@ -1037,8 +1043,7 @@ textarea,
 .turn-trace-summary .anticon,
 .turn-trace-line .anticon,
 .trace-terminal-icon {
-  flex: 0 0 auto;
-  margin-top: 3px;
+  flex: 0 0 20px;
   color: #7e8b86;
 }
 

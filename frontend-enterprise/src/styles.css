@@ -1447,6 +1447,18 @@ body.skill-distill-fixed .content {
   line-height: 1.5;
 }
 
+.skill-chat-thinking .anticon {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  line-height: 0;
+}
+
+.skill-chat-thinking .anticon svg {
+  display: block;
+}
+
 .skill-chat-thinking:hover {
   color: var(--foreground);
 }
@@ -1767,8 +1779,24 @@ body.skill-distill-fixed .content {
   height: 26px;
   min-width: 26px;
   padding: 0;
+  display: inline-grid;
+  place-items: center;
   color: var(--muted);
   border-radius: 999px;
+}
+
+.skill-tool-action.ant-btn .ant-btn-icon,
+.skill-tool-action.ant-btn .anticon {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  line-height: 0;
+}
+
+.skill-tool-action.ant-btn .ant-btn-icon > *,
+.skill-tool-action.ant-btn .anticon svg {
+  display: block;
 }
 
 .skill-tool-action.ant-btn:hover {
