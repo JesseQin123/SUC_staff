@@ -5,13 +5,21 @@ from typing import Any, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class GeneralSkillFile(BaseModel):
+    path: str
+    content: str
+    size: Optional[int] = None
+    mime_type: Optional[str] = None
+
+
 class GeneralSkillImportRequest(BaseModel):
     tenant_id: str
-    name: str
-    slug: str
+    name: Optional[str] = None
+    slug: Optional[str] = None
     description: Optional[str] = None
     homepage: Optional[str] = None
-    markdown: str
+    markdown: Optional[str] = None
+    files: list[GeneralSkillFile] = Field(default_factory=list)
     status: str = "published"
     original_slug: Optional[str] = None
 
@@ -24,6 +32,8 @@ class GeneralSkillRead(BaseModel):
     description: Optional[str] = None
     homepage: Optional[str] = None
     skill_markdown: str
+    skill_files: list[GeneralSkillFile] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
     status: str
     permissions: dict[str, Any] = Field(default_factory=dict)
     runtime_config: dict[str, Any] = Field(default_factory=dict)

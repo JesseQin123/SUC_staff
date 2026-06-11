@@ -83,6 +83,8 @@ class GeneralSkill(SQLModel, table=True):
     description: Optional[str] = None
     homepage: Optional[str] = None
     skill_markdown: str
+    skill_files_json: list[dict[str, Any]] = Field(default_factory=list, sa_column=Column(JSON))
+    metadata_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
     status: str = Field(default="draft", index=True)
     permissions_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
     runtime_config_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))

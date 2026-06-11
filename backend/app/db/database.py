@@ -107,6 +107,15 @@ def _migrate_sqlite_skill_schema() -> None:
             if "analysis_json" not in message_feedback_columns:
                 conn.execute(text("UPDATE message_feedback SET analysis_json = '{}' WHERE analysis_json IS NULL"))
 
+        if "general_skills" in tables:
+            general_skill_columns = {column["name"] for column in inspector.get_columns("general_skills")}
+            if "skill_files_json" not in general_skill_columns:
+                conn.execute(text("ALTER TABLE general_skills ADD COLUMN skill_files_json JSON"))
+                conn.execute(text("UPDATE general_skills SET skill_files_json = '[]' WHERE skill_files_json IS NULL"))
+            if "metadata_json" not in general_skill_columns:
+                conn.execute(text("ALTER TABLE general_skills ADD COLUMN metadata_json JSON"))
+                conn.execute(text("UPDATE general_skills SET metadata_json = '{}' WHERE metadata_json IS NULL"))
+
         if legacy_table in tables and "skills" in tables:
             rows = conn.execute(text(f"SELECT * FROM {legacy_table}")).mappings().all()
             for row in rows:

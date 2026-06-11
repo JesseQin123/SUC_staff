@@ -25,6 +25,13 @@ const DEFAULT_GENERAL_META = {
   homepage: 'https://www.weather.com.cn/',
 };
 
+type GeneralSkillFile = {
+  path: string;
+  content: string;
+  size?: number;
+  mime_type?: string;
+};
+
 const PHASE_LABELS: Record<string, string> = {
   skill_loaded: '加载技能',
   planning: '生成执行方案',
@@ -111,6 +118,44 @@ function resultSucceeded(result: Partial<GeneralSkillRunResponse> | null): boole
   return success !== false && !result.stderr;
 }
 
+function packagePath(file: File): string {
+  const rawPath = ((file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name).replace(/\\/g, '/');
+  const parts = rawPath.split('/').filter(Boolean);
+  return parts.length > 1 ? parts.slice(1).join('/') : rawPath;
+}
+
+function parseMetadata(markdownText: string): Record<string, string> {
+  const lines = markdownText.split(/\r?\n/);
+  if (lines[0]?.trim() !== '---') return {};
+  const result: Record<string, string> = {};
+  for (let index = 1; index < lines.length; index += 1) {
+    const line = lines[index].trim();
+    if (line === '---') break;
+    const colon = line.indexOf(':');
+    if (colon < 0) continue;
+    const key = line.slice(0, colon).trim();
+    const value = line.slice(colon + 1).trim().replace(/^['"]|['"]$/g, '');
+    if (key && value) result[key] = value;
+  }
+  return result;
+}
+
+function applyMetadata(
+  markdownText: string,
+  setters: {
+    setSkillName: (value: string) => void;
+    setSkillSlug: (value: string) => void;
+    setSkillDescription: (value: string) => void;
+    setSkillHomepage: (value: string) => void;
+  },
+) {
+  const metadata = parseMetadata(markdownText);
+  if (metadata.name || metadata.title) setters.setSkillName(metadata.name || metadata.title);
+  if (metadata.slug || metadata.id) setters.setSkillSlug(metadata.slug || metadata.id);
+  if (metadata.description || metadata.summary) setters.setSkillDescription(metadata.description || metadata.summary);
+  if (metadata.homepage || metadata.url) setters.setSkillHomepage(metadata.homepage || metadata.url);
+}
+
 export default function GeneralSkillsPage({ embedded = false }: { embedded?: boolean }) {
   const [rows, setRows] = useState<GeneralSkillRead[]>([]);
   const [markdown, setMarkdown] = useState(DEFAULT_MARKDOWN);
@@ -118,6 +163,9 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
   const [skillSlug, setSkillSlug] = useState(DEFAULT_GENERAL_META.slug);
   const [skillDescription, setSkillDescription] = useState(DEFAULT_GENERAL_META.description);
   const [skillHomepage, setSkillHomepage] = useState(DEFAULT_GENERAL_META.homepage);
+  const [skillFiles, setSkillFiles] = useState<GeneralSkillFile[]>([
+    { path: 'SKILL.md', content: DEFAULT_MARKDOWN, size: DEFAULT_MARKDOWN.length, mime_type: 'text/markdown' },
+  ]);
   const [selectedSlug, setSelectedSlug] = useState<string>();
   const [editingSlug, setEditingSlug] = useState<string | null>(null);
   const [query, setQuery] = useState('北京今天天气怎么样');
@@ -145,6 +193,7 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
           setSkillSlug(items[0].slug);
           setSkillDescription(items[0].description || '');
           setSkillHomepage(items[0].homepage || '');
+          setSkillFiles(items[0].skill_files?.length ? items[0].skill_files : [{ path: 'SKILL.md', content: items[0].skill_markdown }]);
         }
       })
       .catch((error) => message.error(error.message));
@@ -158,19 +207,16 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
       message.warning('请先粘贴或上传 SKILL.md');
       return;
     }
-    if (!skillName.trim() || !skillSlug.trim()) {
-      message.warning('请填写通用技能名称和 Slug');
-      return;
-    }
     setSaving(true);
     try {
       const row = await api.post<GeneralSkillRead>('/api/enterprise/general-skills/import', {
         tenant_id: TENANT_ID,
-        name: skillName.trim(),
-        slug: skillSlug.trim(),
+        name: skillName.trim() || undefined,
+        slug: skillSlug.trim() || undefined,
         description: skillDescription.trim() || undefined,
         homepage: skillHomepage.trim() || undefined,
         markdown,
+        files: skillFiles.length ? skillFiles : [{ path: 'SKILL.md', content: markdown }],
         status: 'published',
         original_slug: editingSlug || undefined,
       });
@@ -182,6 +228,7 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
       setSkillSlug(row.slug);
       setSkillDescription(row.description || '');
       setSkillHomepage(row.homepage || '');
+      setSkillFiles(row.skill_files?.length ? row.skill_files : [{ path: 'SKILL.md', content: row.skill_markdown }]);
       setRows((current) => {
         const withoutSaved = current.filter((item) => item.id !== row.id && item.slug !== row.slug);
         return [row, ...withoutSaved];
@@ -200,6 +247,7 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
     setSkillSlug('');
     setSkillDescription('');
     setSkillHomepage('');
+    setSkillFiles([{ path: 'SKILL.md', content: DEFAULT_MARKDOWN, size: DEFAULT_MARKDOWN.length, mime_type: 'text/markdown' }]);
     setEditingSlug(null);
     setRunResult(null);
   }
@@ -210,6 +258,7 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
     setSkillSlug(row.slug);
     setSkillDescription(row.description || '');
     setSkillHomepage(row.homepage || '');
+    setSkillFiles(row.skill_files?.length ? row.skill_files : [{ path: 'SKILL.md', content: row.skill_markdown }]);
     setSelectedSlug(row.slug);
     setEditingSlug(row.slug);
     setRunResult(null);
@@ -306,8 +355,27 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
   async function beforeUpload(file: UploadFile | File) {
     const target = file as File;
     const text = await target.text();
+    const nextFile = { path: 'SKILL.md', content: text, size: target.size, mime_type: target.type || 'text/markdown' };
+    setSkillFiles([nextFile]);
     setMarkdown(text);
+    applyMetadata(text, { setSkillName, setSkillSlug, setSkillDescription, setSkillHomepage });
     message.success(`已读取 ${target.name}`);
+    return false;
+  }
+
+  async function beforeFolderUpload(file: UploadFile | File) {
+    const target = file as File;
+    const path = packagePath(target);
+    const text = await target.text();
+    const nextFile = { path, content: text, size: target.size, mime_type: target.type || undefined };
+    setSkillFiles((current) => {
+      const next = [...current.filter((item) => item.path !== path), nextFile].sort((a, b) => a.path.localeCompare(b.path));
+      return next;
+    });
+    if (path.split('/').pop()?.toLowerCase() === 'skill.md') {
+      setMarkdown(text);
+      applyMetadata(text, { setSkillName, setSkillSlug, setSkillDescription, setSkillHomepage });
+    }
     return false;
   }
 
@@ -336,6 +404,14 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
                 <Button onClick={newSkill}>新建</Button>
                 <Upload beforeUpload={beforeUpload} showUploadList={false} accept=".md,.txt">
                   <Button icon={<UploadOutlined />}>选择文件</Button>
+                </Upload>
+                <Upload
+                  beforeUpload={beforeFolderUpload}
+                  showUploadList={false}
+                  multiple
+                  directory
+                >
+                  <Button icon={<UploadOutlined />} onClick={() => setSkillFiles([])}>选择文件夹</Button>
                 </Upload>
                 <Button type="primary" loading={saving} icon={<CloudOutlined />} onClick={importSkill}>保存并发布</Button>
               </Space>
@@ -366,10 +442,22 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
             <Input.TextArea
               className="general-skill-source-input"
               value={markdown}
-              onChange={(event) => setMarkdown(event.target.value)}
+              onChange={(event) => {
+                const text = event.target.value;
+                setMarkdown(text);
+                setSkillFiles((current) => {
+                  const withoutSkill = current.filter((item) => item.path !== 'SKILL.md');
+                  return [{ path: 'SKILL.md', content: text, size: text.length, mime_type: 'text/markdown' }, ...withoutSkill];
+                });
+              }}
               rows={20}
               spellCheck={false}
             />
+            <div className="general-skill-file-list">
+              {skillFiles.map((file) => (
+                <Tag key={file.path}>{file.path}</Tag>
+              ))}
+            </div>
           </Card>
           <Card
             className="editor-card general-skill-run-card"

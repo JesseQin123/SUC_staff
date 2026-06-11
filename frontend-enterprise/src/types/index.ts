@@ -85,6 +85,13 @@ export type GeneralSkillRead = {
   description?: string;
   homepage?: string;
   skill_markdown: string;
+  skill_files: Array<{
+    path: string;
+    content: string;
+    size?: number;
+    mime_type?: string;
+  }>;
+  metadata: Record<string, unknown>;
   status: 'draft' | 'published' | 'archived';
   permissions: Record<string, unknown>;
   runtime_config: Record<string, unknown>;

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import queue
+import re
 import threading
 from collections.abc import Iterator
 from types import SimpleNamespace
@@ -13,6 +14,7 @@ from sqlmodel import Session, select
 from app.db import get_session
 from app.db.models import GeneralSkill, ModelConfig, utc_now
 from app.general_skills import GeneralSkillImportRequest, GeneralSkillRead, GeneralSkillRunRequest, GeneralSkillRunResponse
+from app.general_skills.schema import GeneralSkillFile
 from app.general_skills.runner import GeneralSkillRunner
 from app.security.tenant import ensure_tenant
 
@@ -28,6 +30,8 @@ def general_skill_read(row: GeneralSkill) -> GeneralSkillRead:
         description=row.description,
         homepage=row.homepage,
         skill_markdown=row.skill_markdown,
+        skill_files=[GeneralSkillFile.model_validate(item) for item in _skill_files_or_markdown(row)],
+        metadata=row.metadata_json or {},
         status=row.status,
         permissions=row.permissions_json or {},
         runtime_config=row.runtime_config_json or {},
@@ -42,11 +46,13 @@ def import_general_skill(
     db: Session = Depends(get_session),
 ) -> GeneralSkillRead:
     ensure_tenant(db, request.tenant_id)
-    name = _required_text(request.name, "name")
-    slug = _required_text(request.slug, "slug")
-    markdown = _required_text(request.markdown, "markdown")
-    description = _optional_text(request.description)
-    homepage = _optional_text(request.homepage)
+    files = _normalize_skill_files(request.files, request.markdown)
+    markdown = _skill_markdown_from_files(files)
+    metadata = _parse_skill_metadata(markdown)
+    name = _optional_text(request.name) or _metadata_text(metadata, "name", "title") or "未命名通用技能"
+    slug = _optional_text(request.slug) or _metadata_text(metadata, "slug", "id") or _slugify(name)
+    description = _optional_text(request.description) or _metadata_text(metadata, "description", "summary")
+    homepage = _optional_text(request.homepage) or _metadata_text(metadata, "homepage", "url", "source")
     _validate_slug(slug)
     lookup_slug = _optional_text(request.original_slug) or slug
     row = db.exec(
@@ -71,6 +77,8 @@ def import_general_skill(
         row.description = description
         row.homepage = homepage
         row.skill_markdown = markdown
+        row.skill_files_json = [file.model_dump(mode="json") for file in files]
+        row.metadata_json = metadata
         row.status = request.status
         row.updated_at = now
     else:
@@ -81,6 +89,8 @@ def import_general_skill(
             description=description,
             homepage=homepage,
             skill_markdown=markdown,
+            skill_files_json=[file.model_dump(mode="json") for file in files],
+            metadata_json=metadata,
             status=request.status,
             permissions_json={"network": True, "python": True},
             runtime_config_json={"runtime": "python", "timeout_seconds": 12},
@@ -205,6 +215,8 @@ def _general_skill_snapshot(row: GeneralSkill) -> SimpleNamespace:
         description=row.description,
         homepage=row.homepage,
         skill_markdown=row.skill_markdown,
+        skill_files_json=_skill_files_or_markdown(row),
+        metadata_json=row.metadata_json or {},
         status=row.status,
     )
 
@@ -229,6 +241,109 @@ def _required_text(value: str | None, field: str) -> str:
 def _optional_text(value: str | None) -> str | None:
     cleaned = (value or "").strip()
     return cleaned or None
+
+
+def _normalize_skill_files(
+    requested_files: list[GeneralSkillFile],
+    markdown: str | None,
+) -> list[GeneralSkillFile]:
+    if not requested_files:
+        content = _required_text(markdown, "markdown")
+        return [GeneralSkillFile(path="SKILL.md", content=content, size=len(content.encode("utf-8")))]
+    cleaned_files: list[GeneralSkillFile] = []
+    for file in requested_files:
+        path = _clean_package_path(file.path)
+        content = file.content or ""
+        cleaned_files.append(
+            GeneralSkillFile(
+                path=path,
+                content=content,
+                size=file.size if file.size is not None else len(content.encode("utf-8")),
+                mime_type=file.mime_type,
+            )
+        )
+    skill_file = _find_skill_file(cleaned_files)
+    if not skill_file:
+        raise HTTPException(status_code=400, detail="General skill folder must contain SKILL.md")
+    base_dir = skill_file.path.rsplit("/", 1)[0] if "/" in skill_file.path else ""
+    if not base_dir:
+        return cleaned_files
+    normalized: list[GeneralSkillFile] = []
+    prefix = f"{base_dir}/"
+    for file in cleaned_files:
+        if file.path == base_dir or not file.path.startswith(prefix):
+            continue
+        normalized.append(file.model_copy(update={"path": file.path[len(prefix):]}))
+    return normalized
+
+
+def _clean_package_path(path: str) -> str:
+    cleaned = str(path or "").replace("\\", "/").strip().strip("/")
+    parts = [part for part in cleaned.split("/") if part not in {"", "."}]
+    if not parts or any(part == ".." for part in parts):
+        raise HTTPException(status_code=400, detail=f"Invalid general skill file path: {path}")
+    return "/".join(parts)
+
+
+def _find_skill_file(files: list[GeneralSkillFile]) -> GeneralSkillFile | None:
+    return next((file for file in files if file.path.rsplit("/", 1)[-1].lower() == "skill.md"), None)
+
+
+def _skill_markdown_from_files(files: list[GeneralSkillFile]) -> str:
+    skill_file = _find_skill_file(files)
+    if not skill_file or not skill_file.content.strip():
+        raise HTTPException(status_code=400, detail="General skill SKILL.md cannot be empty")
+    return skill_file.content
+
+
+def _skill_files_or_markdown(row: GeneralSkill) -> list[dict[str, object]]:
+    files = row.skill_files_json or []
+    if files:
+        return files
+    return [{"path": "SKILL.md", "content": row.skill_markdown, "size": len(row.skill_markdown.encode("utf-8"))}]
+
+
+def _parse_skill_metadata(markdown: str) -> dict[str, object]:
+    lines = markdown.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return {}
+    metadata: dict[str, object] = {}
+    for line in lines[1:]:
+        stripped = line.strip()
+        if stripped == "---":
+            return metadata
+        if not stripped or stripped.startswith("#") or ":" not in stripped:
+            continue
+        key, value = stripped.split(":", 1)
+        key = key.strip()
+        if not key:
+            continue
+        metadata[key] = _parse_metadata_value(value.strip())
+    return metadata
+
+
+def _parse_metadata_value(value: str) -> object:
+    cleaned = value.strip().strip("'\"")
+    if cleaned.startswith("[") and cleaned.endswith("]"):
+        return [
+            item.strip().strip("'\"")
+            for item in cleaned[1:-1].split(",")
+            if item.strip()
+        ]
+    return cleaned
+
+
+def _metadata_text(metadata: dict[str, object], *keys: str) -> str | None:
+    for key in keys:
+        value = metadata.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _slugify(value: str) -> str:
+    slug = re.sub(r"[^a-zA-Z0-9_-]+", "-", value.strip().lower()).strip("-_")
+    return slug or "general-skill"
 
 
 def _validate_slug(value: str) -> None:

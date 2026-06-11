@@ -658,6 +658,15 @@ body.skill-distill-fixed .content {
   resize: vertical;
 }
 
+.general-skill-file-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 20px 18px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+
 .general-run-form {
   display: grid;
   grid-template-columns: minmax(180px, 260px) minmax(0, 1fr);

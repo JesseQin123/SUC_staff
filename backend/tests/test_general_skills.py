@@ -56,6 +56,45 @@ def test_import_general_skill_uses_user_supplied_metadata() -> None:
         assert rows[0].skill_markdown.startswith("# 天气 demo")
 
 
+def test_import_general_skill_folder_reads_skill_md_metadata() -> None:
+    with _test_session() as db:
+        _seed_minimal_tenant(db)
+
+        row = import_general_skill(
+            GeneralSkillImportRequest(
+                tenant_id="tenant_demo",
+                files=[
+                    {
+                        "path": "weather-bundle/SKILL.md",
+                        "content": (
+                            "---\n"
+                            "name: 中国城市天气\n"
+                            "slug: weather-zh\n"
+                            "description: 从目录包读取天气技能\n"
+                            "homepage: https://example.com/weather\n"
+                            "---\n\n"
+                            "# 使用说明\n"
+                            "读取 data/cities.json 完成查询。\n"
+                        ),
+                    },
+                    {
+                        "path": "weather-bundle/data/cities.json",
+                        "content": "{\"北京\": \"101010100\"}",
+                    },
+                ],
+            ),
+            db,
+        )
+
+        assert row.name == "中国城市天气"
+        assert row.slug == "weather-zh"
+        assert row.description == "从目录包读取天气技能"
+        assert row.homepage == "https://example.com/weather"
+        assert row.metadata["name"] == "中国城市天气"
+        assert [file.path for file in row.skill_files] == ["SKILL.md", "data/cities.json"]
+        assert row.skill_markdown.startswith("---\nname: 中国城市天气")
+
+
 def test_chat_turn_uses_general_skill_after_scene_router_skips_unmatched_scene(
     monkeypatch,
 ) -> None:
@@ -379,6 +418,75 @@ def test_general_skill_runner_repairs_failed_code(monkeypatch) -> None:
     assert calls == ["runner", "repair", "reply"]
     assert any(item["phase"] == "reflection_retrying" for item in response.execution_trace)
     assert any(item["phase"] == "stdout_chunk" and "first_fail" in item["text"] for item in events)
+
+
+def test_general_skill_runner_materializes_folder_package(monkeypatch) -> None:
+    calls: list[str] = []
+
+    def fake_init(self, model_config):  # noqa: ANN001
+        return None
+
+    def fake_generate_json(self, system_prompt, payload):  # noqa: ANN001
+        prompt_text = str(system_prompt)
+        if "通用技能执行器" in prompt_text:
+            calls.append("runner")
+            assert payload["skill"]["package"]["file_count"] == 2
+            assert [item["path"] for item in payload["skill"]["package"]["files"]] == ["SKILL.md", "data/city.txt"]
+            return {
+                "code": (
+                    "import json\n"
+                    "from pathlib import Path\n"
+                    "payload=json.loads(input())\n"
+                    "city=(Path(payload['skill_workspace'])/'data'/'city.txt').read_text(encoding='utf-8').strip()\n"
+                    "print(json.dumps({'success': True, 'city': city, 'files': payload['skill_files']}, ensure_ascii=False))\n"
+                ),
+                "rationale": "读取技能目录里的数据文件。",
+            }
+        if "通用技能运行结果审查器" in prompt_text:
+            calls.append("review")
+            assert payload["structured_result"]["city"] == "北京"
+            return {
+                "result_sufficient": True,
+                "needs_retry": False,
+                "terminal": False,
+                "reason": "目录文件已读取成功。",
+            }
+        if "通用技能结果回复器" in prompt_text:
+            calls.append("reply")
+            assert payload["structured_result"]["city"] == "北京"
+            return {"reply": "已读取目录技能，城市是北京。"}
+        raise AssertionError("unexpected prompt")
+
+    monkeypatch.setattr(LLMClient, "__init__", fake_init)
+    monkeypatch.setattr(LLMClient, "generate_json", fake_generate_json)
+
+    skill = GeneralSkill(
+        tenant_id="tenant_demo",
+        slug="folder-weather",
+        name="目录天气技能",
+        description="读取目录内数据",
+        skill_markdown="# 目录天气技能\n读取 data/city.txt。",
+        skill_files_json=[
+            {"path": "SKILL.md", "content": "# 目录天气技能\n读取 data/city.txt。"},
+            {"path": "data/city.txt", "content": "北京"},
+        ],
+        status="published",
+    )
+    model_config = ModelConfig(
+        tenant_id="tenant_demo",
+        name="Fake model",
+        api_key_encrypted=encrypt_secret("test-key"),
+        model="fake",
+        is_default=True,
+        enabled=True,
+    )
+
+    response = GeneralSkillRunner().run(skill, "查一下目录里的城市", model_config, max_attempts=1)
+
+    assert response.reply == "已读取目录技能，城市是北京。"
+    assert response.structured_result["city"] == "北京"
+    assert response.structured_result["files"] == ["SKILL.md", "data/city.txt"]
+    assert calls == ["runner", "review", "reply"]
 
 
 def test_general_skill_runner_reflects_failed_initial_plan(monkeypatch) -> None:

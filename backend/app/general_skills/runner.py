@@ -237,10 +237,17 @@ class GeneralSkillRunner:
                 "description": skill.description,
                 "homepage": skill.homepage,
                 "markdown": skill.skill_markdown,
+                "package": _skill_package_payload(skill),
             },
             "runtime": {
                 "language": "python",
-                "stdin_json": {"query": query, "skill_slug": skill.slug, "skill_name": skill.name},
+                "stdin_json": {
+                    "query": query,
+                    "skill_slug": skill.slug,
+                    "skill_name": skill.name,
+                    "skill_workspace": "<runtime absolute path to the restored skill folder>",
+                    "skill_files": [file["path"] for file in _skill_files(skill)],
+                },
                 "timeout_seconds": RUN_TIMEOUT_SECONDS,
             },
         }
@@ -361,10 +368,17 @@ class GeneralSkillRunner:
                 "description": skill.description,
                 "homepage": skill.homepage,
                 "markdown": skill.skill_markdown,
+                "package": _skill_package_payload(skill),
             },
             "runtime": {
                 "language": "python",
-                "stdin_json": {"query": query, "skill_slug": skill.slug, "skill_name": skill.name},
+                "stdin_json": {
+                    "query": query,
+                    "skill_slug": skill.slug,
+                    "skill_name": skill.name,
+                    "skill_workspace": "<runtime absolute path to the restored skill folder>",
+                    "skill_files": [file["path"] for file in _skill_files(skill)],
+                },
                 "timeout_seconds": RUN_TIMEOUT_SECONDS,
             },
             "previous_attempts": attempts[-3:],
@@ -401,6 +415,8 @@ class GeneralSkillRunner:
         attempt: int = 1,
     ) -> tuple[str, str, dict[str, Any]]:
         run_dir = Path(mkdtemp(prefix="ultrarag_general_skill_"))
+        skill_dir = run_dir / "skill"
+        _materialize_skill_package(skill, skill_dir)
         runner_path = run_dir / "runner.py"
         runner_path.write_text(plan.code, encoding="utf-8")
         stdin_payload = {
@@ -408,6 +424,8 @@ class GeneralSkillRunner:
             "skill_slug": skill.slug,
             "skill_name": skill.name,
             "user_id": user_id,
+            "skill_workspace": str(skill_dir),
+            "skill_files": [file["path"] for file in _skill_files(skill)],
         }
         _emit(
             trace,
@@ -539,6 +557,7 @@ class GeneralSkillRunner:
                 "description": skill.description,
                 "homepage": skill.homepage,
                 "markdown": _truncate(skill.skill_markdown, 6000),
+                "package": _skill_package_payload(skill, preview_limit=6000),
             },
             "runner": {
                 "rationale": plan.rationale,
@@ -581,6 +600,72 @@ def _truncate(value: str, limit: int = MAX_OUTPUT_CHARS) -> str:
     if len(value) <= limit:
         return value
     return value[:limit] + "\n...<truncated>"
+
+
+def _skill_files(skill: GeneralSkill) -> list[dict[str, Any]]:
+    raw_files = getattr(skill, "skill_files_json", None)
+    files = raw_files if isinstance(raw_files, list) else []
+    normalized: list[dict[str, Any]] = []
+    for raw_file in files:
+        if not isinstance(raw_file, dict):
+            continue
+        path = _safe_package_path(str(raw_file.get("path") or ""))
+        content = str(raw_file.get("content") or "")
+        if not path:
+            continue
+        normalized.append(
+            {
+                "path": path,
+                "content": content,
+                "size": int(raw_file.get("size") or len(content.encode("utf-8"))),
+                "mime_type": raw_file.get("mime_type"),
+            }
+        )
+    if normalized:
+        return normalized
+    markdown = str(getattr(skill, "skill_markdown", "") or "")
+    return [{"path": "SKILL.md", "content": markdown, "size": len(markdown.encode("utf-8")), "mime_type": "text/markdown"}]
+
+
+def _skill_package_payload(skill: GeneralSkill, preview_limit: int = 12000) -> dict[str, Any]:
+    files = _skill_files(skill)
+    previews: list[dict[str, Any]] = []
+    remaining = preview_limit
+    for file in files:
+        content = str(file.get("content") or "")
+        preview = content[: max(0, min(len(content), remaining))]
+        remaining -= len(preview)
+        previews.append(
+            {
+                "path": file["path"],
+                "size": file.get("size"),
+                "mime_type": file.get("mime_type"),
+                "content_preview": preview,
+                "truncated": len(preview) < len(content),
+            }
+        )
+    return {
+        "entrypoint": "SKILL.md",
+        "file_count": len(files),
+        "files": previews,
+    }
+
+
+def _materialize_skill_package(skill: GeneralSkill, target_dir: Path) -> None:
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for file in _skill_files(skill):
+        relative_path = _safe_package_path(str(file["path"]))
+        output_path = target_dir / relative_path
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(str(file.get("content") or ""), encoding="utf-8")
+
+
+def _safe_package_path(path: str) -> str:
+    cleaned = path.replace("\\", "/").strip().strip("/")
+    parts = [part for part in cleaned.split("/") if part and part != "."]
+    if not parts or any(part == ".." for part in parts):
+        return ""
+    return "/".join(parts)
 
 
 def _parse_stdout_json(stdout: str) -> dict[str, Any]:
