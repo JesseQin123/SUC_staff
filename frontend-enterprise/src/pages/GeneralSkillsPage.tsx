@@ -6,10 +6,11 @@ import {
   FileTextOutlined,
   PlayCircleOutlined,
   UploadOutlined,
+  DownOutlined,
 } from '@ant-design/icons';
-import { Button, Card, Empty, Input, Select, Space, Tag, Typography, Upload, message } from 'antd';
-import type { UploadFile } from 'antd';
-import { useEffect, useMemo, useState } from 'react';
+import { Button, Card, Dropdown, Empty, Input, Select, Space, Tag, Typography, message } from 'antd';
+import type { ChangeEvent } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, streamPost, TENANT_ID } from '../api/client';
 import CodeBlock from '../components/CodeBlock';
 import type { GeneralSkillRead, GeneralSkillRunResponse } from '../types';
@@ -173,6 +174,8 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
   const [liveResult, setLiveResult] = useState<Partial<GeneralSkillRunResponse> | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const folderInputRef = useRef<HTMLInputElement | null>(null);
 
   const selectedSkill = useMemo(
     () => rows.find((row) => row.slug === selectedSlug) || rows[0],
@@ -200,6 +203,11 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
 
   useEffect(() => {
     load();
+  }, []);
+
+  useEffect(() => {
+    folderInputRef.current?.setAttribute('webkitdirectory', '');
+    folderInputRef.current?.setAttribute('directory', '');
   }, []);
 
   async function importSkill() {
@@ -352,31 +360,50 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
     }
   }
 
-  async function beforeUpload(file: UploadFile | File) {
-    const target = file as File;
+  async function importSingleFile(target: File) {
     const text = await target.text();
     const nextFile = { path: 'SKILL.md', content: text, size: target.size, mime_type: target.type || 'text/markdown' };
     setSkillFiles([nextFile]);
     setMarkdown(text);
     applyMetadata(text, { setSkillName, setSkillSlug, setSkillDescription, setSkillHomepage });
     message.success(`已读取 ${target.name}`);
-    return false;
   }
 
-  async function beforeFolderUpload(file: UploadFile | File) {
-    const target = file as File;
-    const path = packagePath(target);
-    const text = await target.text();
-    const nextFile = { path, content: text, size: target.size, mime_type: target.type || undefined };
-    setSkillFiles((current) => {
-      const next = [...current.filter((item) => item.path !== path), nextFile].sort((a, b) => a.path.localeCompare(b.path));
-      return next;
-    });
-    if (path.split('/').pop()?.toLowerCase() === 'skill.md') {
-      setMarkdown(text);
-      applyMetadata(text, { setSkillName, setSkillSlug, setSkillDescription, setSkillHomepage });
+  async function importFolderFiles(fileList: FileList | null) {
+    const targets = Array.from(fileList || []);
+    if (!targets.length) return;
+    const nextFiles = await Promise.all(
+      targets.map(async (target) => {
+        const text = await target.text();
+        return {
+          path: packagePath(target),
+          content: text,
+          size: target.size,
+          mime_type: target.type || undefined,
+        };
+      }),
+    );
+    nextFiles.sort((a, b) => a.path.localeCompare(b.path));
+    setSkillFiles(nextFiles);
+    const skillFile = nextFiles.find((item) => item.path.split('/').pop()?.toLowerCase() === 'skill.md');
+    if (skillFile) {
+      setMarkdown(skillFile.content);
+      applyMetadata(skillFile.content, { setSkillName, setSkillSlug, setSkillDescription, setSkillHomepage });
+      message.success(`已读取 ${nextFiles.length} 个文件`);
+    } else {
+      message.warning('文件夹中没有找到 SKILL.md');
     }
-    return false;
+  }
+
+  async function handleFileInputChange(event: ChangeEvent<HTMLInputElement>) {
+    const target = event.target.files?.[0];
+    if (target) await importSingleFile(target);
+    event.target.value = '';
+  }
+
+  async function handleFolderInputChange(event: ChangeEvent<HTMLInputElement>) {
+    await importFolderFiles(event.target.files);
+    event.target.value = '';
   }
 
   const isLiveRunning = loading && !runResult;
@@ -402,21 +429,33 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
             extra={(
               <Space wrap>
                 <Button onClick={newSkill}>新建</Button>
-                <Upload beforeUpload={beforeUpload} showUploadList={false} accept=".md,.txt">
-                  <Button icon={<UploadOutlined />}>选择文件</Button>
-                </Upload>
-                <Upload
-                  beforeUpload={beforeFolderUpload}
-                  showUploadList={false}
-                  multiple
-                  directory
+                <Dropdown
+                  trigger={['click']}
+                  menu={{
+                    items: [
+                      { key: 'file', label: '选择文件' },
+                      { key: 'folder', label: '选择文件夹' },
+                    ],
+                    onClick: ({ key }) => {
+                      if (key === 'folder') {
+                        setSkillFiles([]);
+                        folderInputRef.current?.click();
+                        return;
+                      }
+                      fileInputRef.current?.click();
+                    },
+                  }}
                 >
-                  <Button icon={<UploadOutlined />} onClick={() => setSkillFiles([])}>选择文件夹</Button>
-                </Upload>
+                  <Button icon={<UploadOutlined />}>
+                    导入 <DownOutlined />
+                  </Button>
+                </Dropdown>
                 <Button type="primary" loading={saving} icon={<CloudOutlined />} onClick={importSkill}>保存并发布</Button>
               </Space>
             )}
           >
+            <input ref={fileInputRef} className="visually-hidden-file-input" type="file" accept=".md,.txt" onChange={handleFileInputChange} />
+            <input ref={folderInputRef} className="visually-hidden-file-input" type="file" multiple onChange={handleFolderInputChange} />
             <div className="general-skill-meta-form">
               <Input
                 value={skillName}
