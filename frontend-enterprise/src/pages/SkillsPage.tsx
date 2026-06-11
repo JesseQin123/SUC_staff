@@ -582,6 +582,7 @@ function statusText(status: string): string {
 
 function skillSourceText(row: SkillVersionRead): string {
   const skill = row.content;
+  const steps = skillGraphSteps(skill);
   return [
     `# ${skill.name}`,
     `- skill_id: ${skill.skill_id}`,
@@ -595,15 +596,32 @@ function skillSourceText(row: SkillVersionRead): string {
     `- response_rules: ${formatList(skill.response_rules)}`,
     '',
     '## 详细步骤',
-    ...skill.steps.flatMap((step, index) => [
+    ...steps.flatMap((step, index) => [
       '',
       `### Step ${index + 1}: ${String(step.name || step.step_id || '-')}`,
       `- step_id: ${String(step.step_id || '-')}`,
+      `- node_type: ${String(step.type || 'collect_info')}`,
+      `- condition: ${String(step.condition || '-')}`,
       `- instruction: ${String(step.instruction || '-')}`,
       `- expected_user_info: ${formatList(step.expected_user_info)}`,
       `- allowed_actions: ${formatList(step.allowed_actions)}`,
     ]),
   ].join('\n');
+}
+
+function skillGraphSteps(skill: SkillVersionRead['content']): Array<Record<string, unknown>> {
+  if (Array.isArray(skill.nodes) && skill.nodes.length > 0) {
+    return skill.nodes.map((node, index) => ({
+      step_id: node.node_id || node.step_id || `step_${index + 1}`,
+      type: node.type || 'collect_info',
+      condition: node.condition || '',
+      name: node.name || node.node_id || `步骤 ${index + 1}`,
+      instruction: node.instruction || '',
+      expected_user_info: Array.isArray(node.expected_user_info) ? node.expected_user_info : [],
+      allowed_actions: Array.isArray(node.allowed_actions) ? node.allowed_actions : [],
+    }));
+  }
+  return Array.isArray(skill.steps) ? skill.steps : [];
 }
 
 function formatList(value: unknown): string {

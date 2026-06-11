@@ -455,6 +455,8 @@ def bucket_read(row: KnowledgeBucket) -> KnowledgeBucketRead:
         title=row.title,
         summary=row.summary,
         token_estimate=row.token_estimate,
+        chunk_count=0,
+        status="ready",
         metadata=row.metadata_json or {},
         created_at=row.created_at.isoformat(),
         updated_at=row.updated_at.isoformat(),

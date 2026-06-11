@@ -3,6 +3,7 @@ import {
   DashboardOutlined,
   DatabaseOutlined,
   DislikeOutlined,
+  FileAddOutlined,
   FileSearchOutlined,
   MessageOutlined,
   ProfileOutlined,
@@ -17,7 +18,7 @@ import DashboardPage from './pages/DashboardPage';
 import DistillPage from './pages/DistillPage';
 import FeedbackPage from './pages/FeedbackPage';
 import GeneralSkillsPage from './pages/GeneralSkillsPage';
-import KnowledgePage from './pages/KnowledgePage';
+import KnowledgeManagePage, { KnowledgeAddPage } from './pages/KnowledgePage';
 import MemoriesPage from './pages/MemoriesPage';
 import ModelsPage from './pages/ModelsPage';
 import PersonaPage from './pages/PersonaPage';
@@ -30,7 +31,11 @@ const { Header, Sider, Content } = Layout;
 function Shell({ effectiveTheme }: { effectiveTheme: EffectiveTheme }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const selected = location.pathname === '/enterprise' ? '/enterprise/dashboard' : location.pathname;
+  const selected = location.pathname === '/enterprise'
+    ? '/enterprise/dashboard'
+    : location.pathname.startsWith('/enterprise/knowledge/new')
+      ? '/enterprise/knowledge/new'
+      : location.pathname;
   const isDistillRoute = location.pathname === '/enterprise/skills/distill';
   const [lastDistillSearch, setLastDistillSearch] = useState(() => (isDistillRoute ? location.search : ''));
   const distillSearch = isDistillRoute ? location.search : lastDistillSearch;
@@ -61,7 +66,15 @@ function Shell({ effectiveTheme }: { effectiveTheme: EffectiveTheme }) {
           items={[
             { key: '/enterprise/dashboard', icon: <DashboardOutlined />, label: 'Dashboard' },
             { key: '/enterprise/memories', icon: <DatabaseOutlined />, label: 'Memory 查询' },
-            { key: '/enterprise/knowledge', icon: <FileSearchOutlined />, label: '知识库' },
+            {
+              key: 'knowledge',
+              type: 'group',
+              label: '知识',
+              children: [
+                { key: '/enterprise/knowledge', icon: <FileSearchOutlined />, label: '知识管理' },
+                { key: '/enterprise/knowledge/new', icon: <FileAddOutlined />, label: '新增知识' },
+              ],
+            },
             { key: '/enterprise/feedback', icon: <DislikeOutlined />, label: '负反馈会话' },
             {
               key: 'skills',
@@ -101,7 +114,8 @@ function Shell({ effectiveTheme }: { effectiveTheme: EffectiveTheme }) {
               <Route path="/enterprise" element={<Navigate to="/enterprise/dashboard" replace />} />
               <Route path="/enterprise/dashboard" element={<DashboardPage />} />
               <Route path="/enterprise/memories" element={<MemoriesPage />} />
-              <Route path="/enterprise/knowledge" element={<KnowledgePage />} />
+              <Route path="/enterprise/knowledge" element={<KnowledgeManagePage />} />
+              <Route path="/enterprise/knowledge/new" element={<KnowledgeAddPage />} />
               <Route path="/enterprise/feedback" element={<FeedbackPage />} />
               <Route path="/enterprise/skills" element={<SkillsPage />} />
               <Route path="/enterprise/general-skills" element={<GeneralSkillsPage />} />

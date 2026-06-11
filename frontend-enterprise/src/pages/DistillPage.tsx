@@ -2137,14 +2137,22 @@ function SkillSource({
 
   function editStep(index: number, field: string, value: string | string[]) {
     const next = cloneSkill(skill);
-    const currentStep = { ...(next.steps[index] || {}) };
-    currentStep[field] =
-      field === 'expected_user_info' || field === 'allowed_actions'
-        ? Array.isArray(value)
-          ? value
-          : splitEditableList(value)
-        : value;
-    next.steps[index] = currentStep;
+    const listValue = field === 'expected_user_info' || field === 'allowed_actions'
+      ? Array.isArray(value)
+        ? value
+        : splitEditableList(value)
+      : value;
+    if (Array.isArray(next.nodes) && next.nodes.length > 0) {
+      const currentNode = { ...(next.nodes[index] || {}) };
+      const nodeField = field === 'step_id' ? 'node_id' : field;
+      currentNode[nodeField] = listValue;
+      next.nodes[index] = currentNode;
+      next.steps = graphNodesToSteps(next.nodes);
+    } else {
+      const currentStep = { ...(next.steps[index] || {}) };
+      currentStep[field] = listValue;
+      next.steps[index] = currentStep;
+    }
     onEdit(next, stepTargetPath(index));
   }
 
@@ -2174,7 +2182,7 @@ function SkillSource({
       </SelectableTarget>
       <div className="skill-source-group-title">详细步骤</div>
       <div className="skill-source-steps">
-        {skill.steps.map((step, index) => {
+        {skillGraphSteps(skill).map((step, index) => {
           const stepId = String(step.step_id || `step_${index + 1}`);
           const path = stepTargetPath(index);
           return (
@@ -2194,6 +2202,8 @@ function SkillSource({
                 />
                 <div className="skill-source-meta-list">
                   <EditableSourceTextLine label={fieldLabel('step_id')} value={stepId} onChange={(value) => editStep(index, 'step_id', value)} />
+                  <EditableSourceTextLine label={fieldLabel('type')} value={String(step.type || 'collect_info')} onChange={(value) => editStep(index, 'type', value)} />
+                  <EditableSourceTextLine label={fieldLabel('condition')} value={String(step.condition || '')} onChange={(value) => editStep(index, 'condition', value)} />
                   <EditableSourceTextLine label={fieldLabel('instruction')} value={String(step.instruction || '')} multiline onChange={(value) => editStep(index, 'instruction', value)} />
                   <EditableSourceListLine label={fieldLabel('expected_user_info')} values={asStringList(step.expected_user_info)} onChange={(value) => editStep(index, 'expected_user_info', value)} />
                   <EditableSourceActionLine
@@ -2235,6 +2245,8 @@ function SkillFlow({
   containerRef: RefObject<HTMLDivElement>;
   onToggle: (target: TargetSelection) => void;
 }) {
+  const steps = skillGraphSteps(skill);
+  const edgeMap = skillGraphEdgeMap(skill);
   return (
     <div className="skill-flow" ref={containerRef}>
       <SelectableTarget
@@ -2259,12 +2271,14 @@ function SkillFlow({
           </FlowMetaRow>
         </div>
       </SelectableTarget>
-      {skill.steps.map((step, index) => {
+      {steps.map((step, index) => {
         const stepId = String(step.step_id || `step_${index + 1}`);
         const path = stepTargetPath(index);
         const toolActions = asStringList(step.allowed_actions).filter((action) =>
           String(action).startsWith('call_tool:'),
         );
+        const outgoingEdges = edgeMap[stepId] || [];
+        const conditionText = String(step.condition || '');
         return (
           <div className="skill-flow-step" key={path}>
             <div className="skill-flow-line" />
@@ -2277,13 +2291,24 @@ function SkillFlow({
               <span>Step {index + 1}</span>
               <strong><InlineDiffText path={path} field="name" value={String(step.name || stepId)} diffs={textDiffs} /></strong>
               <small>{stepId}</small>
+              <div className="skill-flow-node-badges">
+                <span className="skill-flow-chip">{nodeTypeLabel(String(step.type || 'collect_info'))}</span>
+                {Boolean(step.optional) && <span className="skill-flow-chip">可选</span>}
+                {conditionText ? <span className="skill-flow-chip">条件：{conditionText}</span> : null}
+              </div>
               <p><InlineDiffText path={path} field="instruction" value={String(step.instruction || '暂无说明')} diffs={textDiffs} /></p>
               <div className="skill-flow-meta">
                 <FlowMetaRow label="期望字段">
                   <PlainChipList values={asStringList(step.expected_user_info)} />
                 </FlowMetaRow>
+                <FlowMetaRow label="知识范围">
+                  <PlainChipList values={knowledgeScopeLabels(step.knowledge_scope)} />
+                </FlowMetaRow>
                 <FlowMetaRow label="允许动作">
                   <ActionList actions={asStringList(step.allowed_actions)} toolDescriptions={toolDescriptions} toolStatuses={toolStatuses} />
+                </FlowMetaRow>
+                <FlowMetaRow label="流转">
+                  <PlainChipList values={outgoingEdges.length > 0 ? outgoingEdges.map(edgeLabel) : ['默认下一步']} />
                 </FlowMetaRow>
               </div>
             </SelectableTarget>
@@ -2322,6 +2347,75 @@ function PlainChipList({ values }: { values: unknown }) {
       ))}
     </div>
   );
+}
+
+function skillGraphSteps(skill: SkillCard): Array<Record<string, unknown>> {
+  if (Array.isArray(skill.nodes) && skill.nodes.length > 0) {
+    return skill.nodes.map((node, index) => ({
+      step_id: node.node_id || node.step_id || `step_${index + 1}`,
+      node_id: node.node_id || node.step_id || `step_${index + 1}`,
+      type: node.type || 'collect_info',
+      name: node.name || node.node_id || `步骤 ${index + 1}`,
+      instruction: node.instruction || '',
+      optional: Boolean(node.optional),
+      condition: node.condition || '',
+      expected_user_info: asStringList(node.expected_user_info),
+      allowed_actions: asStringList(node.allowed_actions),
+      knowledge_scope: isRecord(node.knowledge_scope) ? node.knowledge_scope : {},
+      retry_policy: isRecord(node.retry_policy) ? node.retry_policy : {},
+      metadata: isRecord(node.metadata) ? node.metadata : {},
+    }));
+  }
+  return Array.isArray(skill.steps) ? skill.steps : [];
+}
+
+function graphNodesToSteps(nodes: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+  return nodes.map((node, index) => ({
+    step_id: String(node.node_id || node.step_id || `step_${index + 1}`),
+    name: String(node.name || node.node_id || `步骤 ${index + 1}`),
+    instruction: String(node.instruction || ''),
+    expected_user_info: asStringList(node.expected_user_info),
+    allowed_actions: asStringList(node.allowed_actions),
+  }));
+}
+
+function skillGraphEdgeMap(skill: SkillCard): Record<string, Array<Record<string, unknown>>> {
+  const map: Record<string, Array<Record<string, unknown>>> = {};
+  (Array.isArray(skill.edges) ? skill.edges : []).forEach((edge) => {
+    const source = String(edge.source_node_id || '');
+    if (!source) return;
+    if (!map[source]) map[source] = [];
+    map[source].push(edge);
+  });
+  return map;
+}
+
+function edgeLabel(edge: Record<string, unknown>): string {
+  const target = String(edge.next_node_id || '-');
+  const label = String(edge.label || '');
+  const condition = String(edge.condition || '');
+  if (label && condition) return `${label} -> ${target}（${condition}）`;
+  if (label) return `${label} -> ${target}`;
+  if (condition) return `${target}（${condition}）`;
+  return target;
+}
+
+function nodeTypeLabel(type: string): string {
+  const labels: Record<string, string> = {
+    collect_info: '收集信息',
+    decision: '条件判断',
+    tool_call: '调用工具',
+    knowledge_query: '检索知识',
+    response: '回复用户',
+    handoff: '转人工',
+    subflow: '子流程',
+  };
+  return labels[type] || type || '节点';
+}
+
+function knowledgeScopeLabels(value: unknown): string[] {
+  if (!isRecord(value) || Object.keys(value).length === 0) return [];
+  return Object.entries(value).map(([key, item]) => `${key}: ${String(item)}`);
 }
 
 function EditableSourceHeading({ value, onChange }: { value: string; onChange: (value: string) => void }) {
@@ -3432,7 +3526,7 @@ function normalizeInitialSelectedPaths(paths: string[]): string[] {
 function allTargetPaths(skill: SkillCard): string[] {
   return [
     'basic',
-    ...skill.steps.map((_step, index) => stepTargetPath(index)),
+    ...skillGraphSteps(skill).map((_step, index) => stepTargetPath(index)),
   ];
 }
 
@@ -3469,10 +3563,18 @@ function cloneSkill(skill: SkillCard): SkillCard {
 function removeToolActionFromSkill(skill: SkillCard, toolName: string): SkillCard {
   const next = cloneSkill(skill);
   const targetAction = `call_tool:${toolName}`;
-  next.steps = next.steps.map((step) => ({
-    ...step,
-    allowed_actions: asStringList(step.allowed_actions).filter((action) => action !== targetAction),
-  }));
+  if (Array.isArray(next.nodes) && next.nodes.length > 0) {
+    next.nodes = next.nodes.map((node) => ({
+      ...node,
+      allowed_actions: asStringList(node.allowed_actions).filter((action) => action !== targetAction),
+    }));
+    next.steps = graphNodesToSteps(next.nodes);
+  } else {
+    next.steps = next.steps.map((step) => ({
+      ...step,
+      allowed_actions: asStringList(step.allowed_actions).filter((action) => action !== targetAction),
+    }));
+  }
   return next;
 }
 
@@ -3506,7 +3608,7 @@ function blankSkillForAnimation(skill: SkillCard): SkillCard {
   blank.goal = [];
   blank.required_info = [];
   blank.response_rules = [];
-  blank.steps = skill.steps.map((step) => ({
+  blank.steps = skillGraphSteps(skill).map((step) => ({
     ...step,
     step_id: '',
     name: '',
@@ -3540,7 +3642,7 @@ function sectionSignature(skill: SkillCard, path: string): string {
   }
   const stepIndex = stepIndexFromPath(path);
   if (stepIndex === null) return '';
-  return JSON.stringify(skill.steps[stepIndex] || null);
+  return JSON.stringify(skillGraphSteps(skill)[stepIndex] || null);
 }
 
 function collectTextDiffs(previousDraft: SkillCard, nextDraft: SkillCard, changedPaths: string[]): TextDiffAnimation[] {
@@ -3572,7 +3674,7 @@ function collectTextDiffs(previousDraft: SkillCard, nextDraft: SkillCard, change
     }
     const stepIndex = stepIndexFromPath(path);
     if (stepIndex === null) return;
-    ['step_id', 'name', 'instruction', 'expected_user_info', 'allowed_actions'].forEach((field) => {
+    ['step_id', 'type', 'condition', 'name', 'instruction', 'expected_user_info', 'allowed_actions'].forEach((field) => {
       const diff = makeTextDiff(
         path,
         field,
@@ -3617,7 +3719,7 @@ function getDisplayField(skill: SkillCard, path: string, field: string): string 
   const value =
     path === 'basic'
       ? (skill as unknown as Record<string, unknown>)[field]
-      : skill.steps[stepIndexFromPath(path) ?? -1]?.[field];
+      : skillGraphSteps(skill)[stepIndexFromPath(path) ?? -1]?.[field];
   if (Array.isArray(value)) return joinList(value.map(String));
   if (typeof value === 'string') return value;
   return '';
@@ -3630,7 +3732,14 @@ function setTextField(skill: SkillCard, path: string, field: string, value: stri
     return;
   }
   const stepIndex = stepIndexFromPath(path);
-  if (stepIndex === null || !skill.steps[stepIndex]) return;
+  if (stepIndex === null) return;
+  if (Array.isArray(skill.nodes) && skill.nodes[stepIndex]) {
+    const nodeField = field === 'step_id' ? 'node_id' : field;
+    skill.nodes[stepIndex][nodeField] = value;
+    skill.steps = graphNodesToSteps(skill.nodes);
+    return;
+  }
+  if (!skill.steps[stepIndex]) return;
   skill.steps[stepIndex][field] = value;
 }
 
@@ -3786,6 +3895,8 @@ function fieldLabel(field: string): string {
     required_info: '必填信息',
     response_rules: '回复规则',
     step_id: '步骤 ID',
+    type: '节点类型',
+    condition: '条件',
     instruction: '步骤说明',
     expected_user_info: '期望字段',
     allowed_actions: '允许动作',

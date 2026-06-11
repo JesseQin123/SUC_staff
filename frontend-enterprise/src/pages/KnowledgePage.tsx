@@ -2,13 +2,16 @@ import {
   CheckOutlined,
   CloseOutlined,
   DatabaseOutlined,
+  FileAddOutlined,
   FileSearchOutlined,
   InboxOutlined,
   ReloadOutlined,
+  RightOutlined,
 } from '@ant-design/icons';
-import { Button, Card, Col, Collapse, Progress, Row, Space, Table, Tag, Typography, Upload, message } from 'antd';
+import { Button, Card, Col, Collapse, Empty, Progress, Row, Space, Table, Tag, Typography, Upload, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api, TENANT_ID } from '../api/client';
 import type {
   KnowledgeBucketRead,
@@ -19,37 +22,20 @@ import type {
 
 const { Dragger } = Upload;
 
-export default function KnowledgePage() {
+export default function KnowledgeManagePage() {
+  const navigate = useNavigate();
   const [documents, setDocuments] = useState<KnowledgeDocumentRead[]>([]);
   const [discoveries, setDiscoveries] = useState<KnowledgeDiscoveryRead[]>([]);
-  const [jobs, setJobs] = useState<Record<string, KnowledgeIngestJobRead>>({});
   const [selectedDocument, setSelectedDocument] = useState<KnowledgeDocumentRead | null>(null);
   const [buckets, setBuckets] = useState<KnowledgeBucketRead[]>([]);
   const [loading, setLoading] = useState(false);
-  const activeJobs = useMemo(
-    () => Object.values(jobs).filter((job) => ['queued', 'running'].includes(job.status)),
-    [jobs],
-  );
+
+  const actionableDiscoveries = discoveries.filter((item) => item.status === 'pending' && item.suggestion_type !== 'warning');
+  const warningDiscoveries = discoveries.filter((item) => item.suggestion_type === 'warning' || item.status !== 'pending');
 
   useEffect(() => {
     void refresh();
   }, []);
-
-  useEffect(() => {
-    if (activeJobs.length === 0) return;
-    const timer = window.setInterval(() => {
-      activeJobs.forEach((job) => {
-        void api
-          .get<KnowledgeIngestJobRead>(`/api/enterprise/knowledge/jobs/${job.id}?tenant_id=${TENANT_ID}`)
-          .then((next) => {
-            setJobs((prev) => ({ ...prev, [next.id]: next }));
-            if (!['queued', 'running'].includes(next.status)) void refresh();
-          })
-          .catch(() => undefined);
-      });
-    }, 1400);
-    return () => window.clearInterval(timer);
-  }, [activeJobs]);
 
   async function refresh() {
     setLoading(true);
@@ -60,10 +46,12 @@ export default function KnowledgePage() {
       ]);
       setDocuments(docRows);
       setDiscoveries(discoveryRows);
-      if (selectedDocument) {
-        const current = docRows.find((item) => item.id === selectedDocument.id) || null;
-        setSelectedDocument(current);
-        if (current) void loadBuckets(current);
+      const current = selectedDocument ? docRows.find((item) => item.id === selectedDocument.id) || null : docRows[0] || null;
+      setSelectedDocument(current);
+      if (current) {
+        await loadBuckets(current, false);
+      } else {
+        setBuckets([]);
       }
     } catch (error) {
       message.error(error instanceof Error ? error.message : '刷新知识库失败');
@@ -72,24 +60,8 @@ export default function KnowledgePage() {
     }
   }
 
-  async function uploadFile(file: File) {
-    try {
-      const contentBase64 = await fileToBase64(file);
-      const job = await api.post<KnowledgeIngestJobRead>('/api/enterprise/knowledge/documents', {
-        tenant_id: TENANT_ID,
-        filename: file.name,
-        title: file.name.replace(/\.[^.]+$/, ''),
-        content_base64: contentBase64,
-      });
-      setJobs((prev) => ({ ...prev, [job.id]: job }));
-      message.success('已创建知识入库任务');
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : '上传失败');
-    }
-  }
-
-  async function loadBuckets(document: KnowledgeDocumentRead) {
-    setSelectedDocument(document);
+  async function loadBuckets(document: KnowledgeDocumentRead, select = true) {
+    if (select) setSelectedDocument(document);
     try {
       const rows = await api.get<KnowledgeBucketRead[]>(
         `/api/enterprise/knowledge/documents/${document.id}/buckets?tenant_id=${TENANT_ID}`,
@@ -122,131 +94,259 @@ export default function KnowledgePage() {
 
   const documentColumns: ColumnsType<KnowledgeDocumentRead> = [
     {
-      title: '文档',
+      title: '知识',
       dataIndex: 'title',
       render: (_value, row) => (
-        <button type="button" className="link-button" onClick={() => loadBuckets(row)}>
-          {row.title || row.filename}
+        <button type="button" className="knowledge-doc-link" onClick={() => void loadBuckets(row)}>
+          <span>{row.title || row.filename}</span>
+          <small>{row.filename}</small>
         </button>
       ),
     },
-    { title: '格式', dataIndex: 'file_type', width: 96, render: (value) => <Tag>{value}</Tag> },
-    { title: '状态', dataIndex: 'status', width: 110, render: (value) => statusTag(value) },
-    { title: '桶', dataIndex: 'bucket_count', width: 80 },
-    { title: '片段', dataIndex: 'chunk_count', width: 80 },
-    { title: '更新时间', dataIndex: 'updated_at', width: 150, render: (value) => String(value).slice(0, 10) },
+    { title: '格式', dataIndex: 'file_type', width: 92, render: (value) => <Tag>{value}</Tag> },
+    { title: '状态', dataIndex: 'status', width: 104, render: (value) => statusTag(value) },
+    { title: '桶', dataIndex: 'bucket_count', width: 72 },
+    { title: '片段', dataIndex: 'chunk_count', width: 72 },
+    { title: '更新', dataIndex: 'updated_at', width: 120, render: (value) => String(value).slice(0, 10) },
   ];
 
   return (
-    <div className="knowledge-page">
-      <div className="page-heading">
+    <div className="knowledge-page knowledge-manage-page">
+      <div className="knowledge-hero">
         <div>
-          <Typography.Title level={3}>知识库</Typography.Title>
-          <Typography.Text type="secondary">上传文档，分桶切片，并让模型发现可确认的技能和工具建议。</Typography.Text>
+          <Typography.Title level={3}>知识管理</Typography.Title>
+          <Typography.Text type="secondary">查看已入库文档、分桶切片结果，以及待确认的技能和工具发现。</Typography.Text>
         </div>
-        <Button icon={<ReloadOutlined />} onClick={() => refresh()} loading={loading}>
-          刷新
-        </Button>
+        <Space>
+          <Button icon={<ReloadOutlined />} onClick={() => refresh()} loading={loading}>刷新</Button>
+          <Button type="primary" icon={<FileAddOutlined />} onClick={() => navigate('/enterprise/knowledge/new')}>
+            新增知识
+          </Button>
+        </Space>
       </div>
 
-      <Row gutter={[16, 16]}>
-        <Col xs={24} lg={15}>
-          <Card className="knowledge-card" title="知识输入">
-            <Dragger
-              multiple
-              showUploadList={false}
-              beforeUpload={(file) => {
-                void uploadFile(file);
-                return false;
-              }}
-              accept=".doc,.docx,.txt,.md,.markdown,.html,.htm,.pdf"
-            >
-              <p className="ant-upload-drag-icon"><InboxOutlined /></p>
-              <p className="ant-upload-text">拖拽文档到这里，或点击选择文件</p>
-              <p className="ant-upload-hint">支持 doc/docx/txt/md/html/pdf；旧版 doc 会提示转换为 docx。</p>
-            </Dragger>
-
-            {Object.values(jobs).length > 0 && (
-              <div className="knowledge-jobs">
-                {Object.values(jobs).map((job) => (
-                  <div className="knowledge-job" key={job.id}>
-                    <div>
-                      <Typography.Text strong>{job.filename}</Typography.Text>
-                      <Typography.Text type="secondary"> {job.stage}</Typography.Text>
-                    </div>
-                    <Progress percent={Math.round(job.progress * 100)} status={job.status === 'failed' ? 'exception' : undefined} />
-                    {job.error && <Typography.Text type="danger">{job.error}</Typography.Text>}
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
-
-          <Card className="knowledge-card" title="文档" extra={<DatabaseOutlined />}>
+      <Row gutter={[18, 18]}>
+        <Col xs={24} xl={14}>
+          <Card className="knowledge-card knowledge-card-solid" title="现有知识" extra={<DatabaseOutlined />}>
             <Table
               rowKey="id"
               columns={documentColumns}
               dataSource={documents}
               loading={loading}
               pagination={{ pageSize: 8 }}
+              rowClassName={(row) => (row.id === selectedDocument?.id ? 'knowledge-row-selected' : '')}
             />
           </Card>
         </Col>
-
-        <Col xs={24} lg={9}>
+        <Col xs={24} xl={10}>
           <Card
-            className="knowledge-card knowledge-bucket-card"
-            title={selectedDocument ? `知识桶：${selectedDocument.title || selectedDocument.filename}` : '知识桶'}
+            className="knowledge-card knowledge-card-solid"
+            title={selectedDocument ? `知识桶 · ${selectedDocument.title || selectedDocument.filename}` : '知识桶'}
             extra={<FileSearchOutlined />}
           >
-            {selectedDocument ? (
-              <Collapse
-                items={buckets.map((bucket) => ({
-                  key: bucket.id,
-                  label: bucket.title,
-                  children: (
-                    <div className="knowledge-bucket-body">
-                      <Typography.Paragraph>{bucket.summary}</Typography.Paragraph>
+            {!selectedDocument ? (
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="选择一个文档查看知识桶" />
+            ) : buckets.length === 0 ? (
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无分桶结果" />
+            ) : (
+              <div className="knowledge-bucket-list">
+                {buckets.map((bucket) => (
+                  <div className="knowledge-bucket-item" key={bucket.id}>
+                    <div className="knowledge-bucket-title">
+                      <span>{bucket.title}</span>
+                      {bucketStatusTag(bucket)}
+                    </div>
+                    <Typography.Paragraph ellipsis={{ rows: 3 }}>{bucket.summary}</Typography.Paragraph>
+                    <div className="knowledge-bucket-meta">
                       <Tag>{bucket.bucket_key}</Tag>
+                      <Tag>{bucket.chunk_count} 片段</Tag>
                       <Tag>{bucket.token_estimate} tokens</Tag>
                     </div>
-                  ),
-                }))}
-              />
-            ) : (
-              <Typography.Text type="secondary">选择一个文档查看知识桶。</Typography.Text>
-            )}
-          </Card>
-
-          <Card className="knowledge-card" title="自发现建议">
-            <Space direction="vertical" size={12} className="knowledge-discovery-list">
-              {discoveries.length === 0 && <Typography.Text type="secondary">暂无建议</Typography.Text>}
-              {discoveries.map((item) => (
-                <div className={`knowledge-discovery ${item.suggestion_type}`} key={item.id}>
-                  <div className="knowledge-discovery-header">
-                    <Space>
-                      <Typography.Text strong>{item.title}</Typography.Text>
-                      <Tag>{typeLabel(item.suggestion_type)}</Tag>
-                      {statusTag(item.status)}
-                    </Space>
-                    {item.status === 'pending' && (
-                      <Space>
-                        <Button size="small" shape="circle" icon={<CheckOutlined />} onClick={() => confirmDiscovery(item)} />
-                        <Button size="small" shape="circle" icon={<CloseOutlined />} onClick={() => rejectDiscovery(item)} />
-                      </Space>
-                    )}
                   </div>
-                  {item.reason && <Typography.Paragraph type="secondary">{item.reason}</Typography.Paragraph>}
-                  <details>
-                    <summary>查看 payload</summary>
-                    <pre className="knowledge-json">{JSON.stringify(item.payload, null, 2)}</pre>
-                  </details>
-                </div>
-              ))}
-            </Space>
+                ))}
+              </div>
+            )}
           </Card>
         </Col>
       </Row>
+
+      <Card className="knowledge-card knowledge-card-solid" title="自发现建议">
+        <Row gutter={[16, 16]}>
+          <Col xs={24} lg={13}>
+            <DiscoveryColumn
+              title="可确认建议"
+              description="模型从知识中发现的技能和工具草案。确认后才会进入系统。"
+              items={actionableDiscoveries}
+              onConfirm={confirmDiscovery}
+              onReject={rejectDiscovery}
+            />
+          </Col>
+          <Col xs={24} lg={11}>
+            <DiscoveryColumn
+              title="信息与警告"
+              description="不满足入库条件、已处理或需要人工补充的信息。"
+              items={warningDiscoveries}
+              onConfirm={confirmDiscovery}
+              onReject={rejectDiscovery}
+              readonly
+            />
+          </Col>
+        </Row>
+      </Card>
+    </div>
+  );
+}
+
+export function KnowledgeAddPage() {
+  const navigate = useNavigate();
+  const [jobs, setJobs] = useState<Record<string, KnowledgeIngestJobRead>>({});
+  const activeJobs = useMemo(
+    () => Object.values(jobs).filter((job) => ['queued', 'running'].includes(job.status)),
+    [jobs],
+  );
+
+  useEffect(() => {
+    if (activeJobs.length === 0) return;
+    const timer = window.setInterval(() => {
+      activeJobs.forEach((job) => {
+        void api
+          .get<KnowledgeIngestJobRead>(`/api/enterprise/knowledge/jobs/${job.id}?tenant_id=${TENANT_ID}`)
+          .then((next) => setJobs((prev) => ({ ...prev, [next.id]: next })))
+          .catch(() => undefined);
+      });
+    }, 1400);
+    return () => window.clearInterval(timer);
+  }, [activeJobs]);
+
+  async function uploadFile(file: File) {
+    try {
+      const contentBase64 = await fileToBase64(file);
+      const job = await api.post<KnowledgeIngestJobRead>('/api/enterprise/knowledge/documents', {
+        tenant_id: TENANT_ID,
+        filename: file.name,
+        title: file.name.replace(/\.[^.]+$/, ''),
+        content_base64: contentBase64,
+      });
+      setJobs((prev) => ({ ...prev, [job.id]: job }));
+      message.success('已创建知识入库任务');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '上传失败');
+    }
+  }
+
+  return (
+    <div className="knowledge-page knowledge-add-page">
+      <div className="knowledge-hero">
+        <div>
+          <Typography.Title level={3}>新增知识</Typography.Title>
+          <Typography.Text type="secondary">上传业务文档，后台会完成解析、分桶、切片和自发现建议生成。</Typography.Text>
+        </div>
+        <Button icon={<RightOutlined />} onClick={() => navigate('/enterprise/knowledge')}>查看知识管理</Button>
+      </div>
+
+      <Card className="knowledge-card knowledge-upload-card">
+        <Dragger
+          multiple
+          showUploadList={false}
+          beforeUpload={(file) => {
+            void uploadFile(file);
+            return false;
+          }}
+          accept=".doc,.docx,.txt,.md,.markdown,.html,.htm,.pdf"
+        >
+          <div className="knowledge-upload-inner">
+            <InboxOutlined />
+            <div>
+              <strong>拖拽文档到这里，或点击选择文件</strong>
+              <span>支持 doc/docx/txt/md/html/pdf；旧版 doc 会提示转换为 docx。</span>
+            </div>
+          </div>
+        </Dragger>
+      </Card>
+
+      <Card className="knowledge-card knowledge-card-solid" title="入库任务">
+        {Object.values(jobs).length === 0 ? (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="上传后这里会显示解析和分桶进度" />
+        ) : (
+          <div className="knowledge-jobs">
+            {Object.values(jobs).map((job) => (
+              <div className="knowledge-job" key={job.id}>
+                <div className="knowledge-job-head">
+                  <div>
+                    <Typography.Text strong>{job.filename}</Typography.Text>
+                    <Typography.Text type="secondary"> · {job.stage}</Typography.Text>
+                  </div>
+                  {statusTag(job.status)}
+                </div>
+                <Progress percent={Math.round(job.progress * 100)} status={job.status === 'failed' ? 'exception' : undefined} />
+                {job.error && <Typography.Text type="danger">{job.error}</Typography.Text>}
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+function DiscoveryColumn({
+  title,
+  description,
+  items,
+  readonly = false,
+  onConfirm,
+  onReject,
+}: {
+  title: string;
+  description: string;
+  items: KnowledgeDiscoveryRead[];
+  readonly?: boolean;
+  onConfirm: (item: KnowledgeDiscoveryRead) => Promise<void>;
+  onReject: (item: KnowledgeDiscoveryRead) => Promise<void>;
+}) {
+  return (
+    <div className="knowledge-discovery-column">
+      <div className="knowledge-section-heading">
+        <div>
+          <strong>{title}</strong>
+          <span>{description}</span>
+        </div>
+        <Tag>{items.length}</Tag>
+      </div>
+      {items.length === 0 ? (
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无内容" />
+      ) : (
+        <Space direction="vertical" size={12} className="knowledge-discovery-list">
+          {items.map((item) => (
+            <div className={`knowledge-discovery ${item.suggestion_type}`} key={item.id}>
+              <div className="knowledge-discovery-header">
+                <Space size={8} wrap>
+                  <Typography.Text strong>{item.title}</Typography.Text>
+                  <Tag>{typeLabel(item.suggestion_type)}</Tag>
+                  {statusTag(item.status)}
+                </Space>
+                {!readonly && item.status === 'pending' && (
+                  <Space size={8}>
+                    <Button size="small" shape="circle" icon={<CheckOutlined />} onClick={() => void onConfirm(item)} />
+                    <Button size="small" shape="circle" icon={<CloseOutlined />} onClick={() => void onReject(item)} />
+                  </Space>
+                )}
+              </div>
+              {item.reason && <Typography.Paragraph type="secondary">{item.reason}</Typography.Paragraph>}
+              <Collapse
+                ghost
+                items={[
+                  {
+                    key: 'payload',
+                    label: '查看详情',
+                    children: <pre className="knowledge-json">{JSON.stringify(item.payload, null, 2)}</pre>,
+                  },
+                ]}
+              />
+            </div>
+          ))}
+        </Space>
+      )}
     </div>
   );
 }
@@ -254,6 +354,11 @@ export default function KnowledgePage() {
 function statusTag(status: string) {
   const color = status === 'succeeded' || status === 'ready' || status === 'confirmed' ? 'green' : status === 'failed' ? 'red' : 'gold';
   return <Tag color={color}>{status}</Tag>;
+}
+
+function bucketStatusTag(bucket: KnowledgeBucketRead) {
+  if (bucket.status === 'ready') return <Tag color="green">达标</Tag>;
+  return <Tag color="gold">待补足</Tag>;
 }
 
 function typeLabel(type: string) {

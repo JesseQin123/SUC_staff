@@ -56,6 +56,8 @@ class KnowledgeBucketRead(BaseModel):
     title: str
     summary: str
     token_estimate: int
+    chunk_count: int = 0
+    status: str = "ready"
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: str
     updated_at: str

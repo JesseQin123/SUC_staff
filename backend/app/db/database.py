@@ -187,6 +187,7 @@ def _migrate_sqlite_skill_schema() -> None:
         if "skills" in tables:
             _normalize_existing_skill_rows(conn, legacy_id_prefix)
             if "skill_versions" in tables:
+                _normalize_existing_skill_version_rows(conn, legacy_id_prefix)
                 _seed_skill_versions(conn)
 
 
@@ -204,7 +205,7 @@ def _migrate_skill_content(value: object, skill_id: str) -> dict[str, object]:
         content["skill_id"] = content.pop("so" + "p_id", skill_id)
     else:
         content["skill_id"] = skill_id
-    return content
+    return _ensure_skill_graph(content)
 
 
 def _normalize_existing_skill_rows(conn, legacy_id_prefix: str) -> None:
@@ -234,6 +235,108 @@ def _normalize_existing_skill_rows(conn, legacy_id_prefix: str) -> None:
                 "content_json": json.dumps(content, ensure_ascii=False),
             },
         )
+
+
+def _normalize_existing_skill_version_rows(conn, legacy_id_prefix: str) -> None:
+    rows = conn.execute(text("SELECT id, skill_id, content_json FROM skill_versions")).mappings().all()
+    for row in rows:
+        skill_id = _normalize_skill_identifier(row.get("skill_id"), legacy_id_prefix)
+        if not skill_id:
+            continue
+        content = _migrate_skill_content(row.get("content_json"), skill_id)
+        conn.execute(
+            text("UPDATE skill_versions SET skill_id = :skill_id, content_json = :content_json WHERE id = :id"),
+            {
+                "id": row["id"],
+                "skill_id": skill_id,
+                "content_json": json.dumps(content, ensure_ascii=False),
+            },
+        )
+
+
+def _ensure_skill_graph(content: dict[str, object]) -> dict[str, object]:
+    nodes = content.get("nodes")
+    steps = content.get("steps")
+    if isinstance(nodes, list) and nodes:
+        if not isinstance(steps, list) or not steps:
+            content["steps"] = [_node_to_step_dict(node) for node in nodes if isinstance(node, dict)]
+        content.setdefault("start_node_id", _first_node_id(nodes))
+        content.setdefault("terminal_node_ids", [_last_node_id(nodes)] if _last_node_id(nodes) else [])
+        return content
+    if not isinstance(steps, list) or not steps:
+        content.setdefault("nodes", [])
+        content.setdefault("edges", [])
+        content.setdefault("terminal_node_ids", [])
+        return content
+    normalized_steps = [step for step in steps if isinstance(step, dict)]
+    content["steps"] = normalized_steps
+    content["nodes"] = [_step_to_node_dict(step) for step in normalized_steps]
+    content["edges"] = [
+        {
+            "source_node_id": str(normalized_steps[index].get("step_id") or f"step_{index + 1}"),
+            "next_node_id": str(normalized_steps[index + 1].get("step_id") or f"step_{index + 2}"),
+            "priority": index,
+            "label": "默认推进",
+        }
+        for index in range(len(normalized_steps) - 1)
+    ]
+    if normalized_steps:
+        content["start_node_id"] = content.get("start_node_id") or str(normalized_steps[0].get("step_id") or "step_1")
+        content["terminal_node_ids"] = content.get("terminal_node_ids") or [
+            str(normalized_steps[-1].get("step_id") or f"step_{len(normalized_steps)}")
+        ]
+    return content
+
+
+def _step_to_node_dict(step: dict[str, object]) -> dict[str, object]:
+    actions = step.get("allowed_actions") if isinstance(step.get("allowed_actions"), list) else []
+    expected = step.get("expected_user_info") if isinstance(step.get("expected_user_info"), list) else []
+    node_type = "collect_info" if expected else "response"
+    if any(isinstance(action, str) and action.startswith("call_tool:") for action in actions):
+        node_type = "tool_call"
+    if "handoff_human" in actions:
+        node_type = "handoff"
+    return {
+        "node_id": str(step.get("step_id") or step.get("node_id") or "step"),
+        "type": node_type,
+        "name": str(step.get("name") or step.get("step_id") or "步骤"),
+        "instruction": str(step.get("instruction") or ""),
+        "optional": bool(step.get("optional") or False),
+        "condition": step.get("condition") if isinstance(step.get("condition"), str) else None,
+        "expected_user_info": expected,
+        "allowed_actions": actions,
+        "knowledge_scope": step.get("knowledge_scope") if isinstance(step.get("knowledge_scope"), dict) else {},
+        "retry_policy": step.get("retry_policy") if isinstance(step.get("retry_policy"), dict) else {},
+        "metadata": step.get("metadata") if isinstance(step.get("metadata"), dict) else {},
+    }
+
+
+def _node_to_step_dict(node: dict[str, object]) -> dict[str, object]:
+    return {
+        "step_id": str(node.get("node_id") or node.get("step_id") or "step"),
+        "name": str(node.get("name") or node.get("node_id") or "步骤"),
+        "instruction": str(node.get("instruction") or ""),
+        "expected_user_info": node.get("expected_user_info") if isinstance(node.get("expected_user_info"), list) else [],
+        "allowed_actions": node.get("allowed_actions") if isinstance(node.get("allowed_actions"), list) else [],
+    }
+
+
+def _first_node_id(nodes: object) -> str | None:
+    if not isinstance(nodes, list):
+        return None
+    for node in nodes:
+        if isinstance(node, dict) and node.get("node_id"):
+            return str(node["node_id"])
+    return None
+
+
+def _last_node_id(nodes: object) -> str | None:
+    if not isinstance(nodes, list):
+        return None
+    for node in reversed(nodes):
+        if isinstance(node, dict) and node.get("node_id"):
+            return str(node["node_id"])
+    return None
 
 
 def _seed_skill_versions(conn) -> None:

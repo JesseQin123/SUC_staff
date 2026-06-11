@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func
 from sqlmodel import Session, select
 
 from app.async_jobs import enqueue_async_job
@@ -99,7 +100,14 @@ def get_document_buckets(
         .where(KnowledgeBucket.tenant_id == tenant_id, KnowledgeBucket.document_id == document_id)
         .order_by(KnowledgeBucket.created_at.asc())
     ).all()
-    return [bucket_read(row) for row in rows]
+    chunk_counts = dict(
+        db.exec(
+            select(KnowledgeChunk.bucket_id, func.count(KnowledgeChunk.id))
+            .where(KnowledgeChunk.tenant_id == tenant_id, KnowledgeChunk.document_id == document_id)
+            .group_by(KnowledgeChunk.bucket_id)
+        ).all()
+    )
+    return [bucket_read_with_stats(row, int(chunk_counts.get(row.id, 0))) for row in rows]
 
 
 @router.get("/buckets/{bucket_id}/chunks", response_model=list[KnowledgeChunkRead])
@@ -205,6 +213,13 @@ def document_read(row: KnowledgeDocument) -> KnowledgeDocumentRead:
         created_at=row.created_at.isoformat(),
         updated_at=row.updated_at.isoformat(),
     )
+
+
+def bucket_read_with_stats(row: KnowledgeBucket, chunk_count: int) -> KnowledgeBucketRead:
+    item = bucket_read(row)
+    item.chunk_count = chunk_count
+    item.status = "ready" if chunk_count > 0 and row.summary.strip() else "incomplete"
+    return item
 
 
 def discovery_read(row: KnowledgeDiscoverySuggestion) -> KnowledgeDiscoveryRead:

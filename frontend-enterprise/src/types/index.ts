@@ -56,6 +56,8 @@ export type KnowledgeBucketRead = {
   title: string;
   summary: string;
   token_estimate: number;
+  chunk_count: number;
+  status: string;
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
