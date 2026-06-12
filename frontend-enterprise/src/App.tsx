@@ -3,7 +3,6 @@ import {
   DashboardOutlined,
   DatabaseOutlined,
   DislikeOutlined,
-  EditOutlined,
   FileAddOutlined,
   FileSearchOutlined,
   MessageOutlined,
@@ -39,7 +38,7 @@ function Shell({ effectiveTheme }: { effectiveTheme: EffectiveTheme }) {
   const location = useLocation();
   const [agents, setAgents] = useState<AgentProfileRead[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState(() => window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '');
-  const [agentModalMode, setAgentModalMode] = useState<'create' | 'edit' | null>(null);
+  const [agentCreateOpen, setAgentCreateOpen] = useState(false);
   const [agentForm, setAgentForm] = useState({ name: '', description: '' });
   const selected = location.pathname === '/enterprise'
     ? '/enterprise/dashboard'
@@ -84,35 +83,25 @@ function Shell({ effectiveTheme }: { effectiveTheme: EffectiveTheme }) {
 
   const selectedAgent = agents.find((item) => item.id === selectedAgentId);
 
-  function openAgentModal(mode: 'create' | 'edit') {
-    const target = mode === 'edit' ? selectedAgent : undefined;
+  function openCreateAgentModal() {
     setAgentForm({
-      name: target?.name || '',
-      description: target?.description || '',
+      name: '',
+      description: '',
     });
-    setAgentModalMode(mode);
+    setAgentCreateOpen(true);
   }
 
-  async function saveAgentModal() {
+  async function saveAgentCreateModal() {
     const name = agentForm.name.trim();
     if (!name) return;
-    if (agentModalMode === 'create') {
-      const created = await api.post<AgentProfileRead>('/api/enterprise/agents', {
-        tenant_id: TENANT_ID,
-        name,
-        description: agentForm.description,
-      });
-      await loadAgents();
-      changeAgentScope(created.id);
-    } else if (agentModalMode === 'edit' && selectedAgent) {
-      await api.put<AgentProfileRead>(`/api/enterprise/agents/${selectedAgent.id}`, {
-        tenant_id: TENANT_ID,
-        name,
-        description: agentForm.description,
-      });
-      await loadAgents();
-    }
-    setAgentModalMode(null);
+    const created = await api.post<AgentProfileRead>('/api/enterprise/agents', {
+      tenant_id: TENANT_ID,
+      name,
+      description: agentForm.description,
+    });
+    await loadAgents();
+    changeAgentScope(created.id);
+    setAgentCreateOpen(false);
   }
 
   return (
@@ -179,10 +168,18 @@ function Shell({ effectiveTheme }: { effectiveTheme: EffectiveTheme }) {
                 label: agent.is_overall ? `整体 · ${agent.name}` : agent.name,
               }))}
               onChange={changeAgentScope}
+              popupRender={(menu) => (
+                <>
+                  {menu}
+                  <div className="agent-dock-dropdown-footer" onMouseDown={(event) => event.preventDefault()}>
+                    <Button type="text" block icon={<PlusOutlined />} onClick={openCreateAgentModal}>
+                      新增智能体
+                    </Button>
+                  </div>
+                </>
+              )}
             />
           </div>
-          <Button className="agent-dock-icon" icon={<EditOutlined />} onClick={() => openAgentModal('edit')} />
-          <Button className="agent-dock-icon" icon={<PlusOutlined />} onClick={() => openAgentModal('create')} />
         </div>
       </Sider>
       <Layout>
@@ -221,10 +218,10 @@ function Shell({ effectiveTheme }: { effectiveTheme: EffectiveTheme }) {
         </Content>
       </Layout>
       <Modal
-        title={agentModalMode === 'create' ? '新增智能体' : '编辑智能体'}
-        open={agentModalMode !== null}
-        onCancel={() => setAgentModalMode(null)}
-        onOk={saveAgentModal}
+        title="新增智能体"
+        open={agentCreateOpen}
+        onCancel={() => setAgentCreateOpen(false)}
+        onOk={saveAgentCreateModal}
         okText="保存"
         cancelText="取消"
       >
