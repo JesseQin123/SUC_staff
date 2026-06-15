@@ -276,6 +276,64 @@ def test_import_clawhub_skill_follows_page_to_real_skill_package(monkeypatch) ->
         assert row.skill_files[0].path == "SKILL.md"
 
 
+def test_import_clawhub_skill_uses_clawhub_download_api_for_page_url(monkeypatch) -> None:
+    package = BytesIO()
+    with ZipFile(package, "w") as archive:
+        archive.writestr(
+            "SKILL.md",
+            "---\nname: weather\n---\n\n# 天气\n",
+        )
+        archive.writestr("scripts/weather.py", "print('weather')\n")
+        archive.writestr("references/weather_details.md", "# details\n")
+
+    calls: list[str] = []
+
+    def fake_download(url: str):  # noqa: ANN001
+        calls.append(url)
+        assert url == "https://wry-manatee-359.convex.site/api/v1/download?slug=maomao-weather"
+        return package.getvalue(), "application/zip"
+
+    monkeypatch.setattr("app.api.general_skills._download_url", fake_download)
+
+    with _test_session() as db:
+        _seed_minimal_tenant(db)
+        row = import_clawhub_skill(
+            GeneralSkillClawHubImportRequest(
+                tenant_id="tenant_demo",
+                source="https://clawhub.ai/maomaoshuo/maomao-weather",
+            ),
+            db,
+        )
+
+        assert calls == ["https://wry-manatee-359.convex.site/api/v1/download?slug=maomao-weather"]
+        assert row.name == "weather"
+        assert row.slug == "maomao-weather"
+        assert row.homepage == "https://clawhub.ai/maomaoshuo/maomao-weather"
+        assert [file.path for file in row.skill_files] == ["SKILL.md", "scripts/weather.py", "references/weather_details.md"]
+
+
+def test_import_clawhub_skill_accepts_cli_slug(monkeypatch) -> None:
+    package = BytesIO()
+    with ZipFile(package, "w") as archive:
+        archive.writestr("SKILL.md", "---\nname: weather\n---\n\n# 天气\n")
+
+    def fake_download(url: str):  # noqa: ANN001
+        assert url == "https://wry-manatee-359.convex.site/api/v1/download?slug=maomao-weather"
+        return package.getvalue(), "application/zip"
+
+    monkeypatch.setattr("app.api.general_skills._download_url", fake_download)
+
+    with _test_session() as db:
+        _seed_minimal_tenant(db)
+        row = import_clawhub_skill(
+            GeneralSkillClawHubImportRequest(tenant_id="tenant_demo", source="maomao-weather"),
+            db,
+        )
+
+        assert row.slug == "maomao-weather"
+        assert row.skill_files[0].content.startswith("---\nname: weather")
+
+
 def test_import_clawhub_skill_rejects_plain_html_page(monkeypatch) -> None:
     def fake_download(url: str):  # noqa: ANN001
         assert url == "https://clawhub.example/skills/weather"

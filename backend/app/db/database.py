@@ -1,4 +1,5 @@
-from collections.abc import Generator
+from collections.abc import Callable, Generator
+import hashlib
 import json
 from pathlib import Path
 from urllib.parse import unquote
@@ -215,6 +216,7 @@ def _migrate_sqlite_skill_schema() -> None:
             if "skill_versions" in tables:
                 _normalize_existing_skill_version_rows(conn, legacy_id_prefix)
                 _seed_skill_versions(conn)
+            _normalize_agent_branch_rows(conn, tables)
             _seed_agent_branch_state(conn, inspector, tables)
 
 
@@ -617,7 +619,7 @@ def _seed_default_agent_bindings(conn, tenant_id: str) -> None:
                     """
                 ),
                 {
-                    "id": f"agentres_{abs(hash((tenant_id, default_agent, resource_type, resource_id)))}",
+                    "id": _agent_resource_binding_id(tenant_id, default_agent, resource_type, resource_id),
                     "tenant_id": tenant_id,
                     "agent_id": default_agent,
                     "resource_type": resource_type,
@@ -726,6 +728,79 @@ def _seed_agent_branch_state(conn, inspector, tables: set[str]) -> None:
                     "model_config_id": model_id,
                 },
             )
+
+
+def _normalize_agent_branch_rows(conn, tables: set[str]) -> None:
+    if "agent_resource_bindings" in tables:
+        _normalize_canonical_ids(
+            conn,
+            table="agent_resource_bindings",
+            select_columns=("id", "tenant_id", "agent_id", "resource_type", "resource_id"),
+            key_columns=("tenant_id", "agent_id", "resource_type", "resource_id"),
+            id_factory=lambda row: _agent_resource_binding_id(
+                str(row["tenant_id"]),
+                str(row["agent_id"]),
+                str(row["resource_type"]),
+                str(row["resource_id"]),
+            ),
+        )
+    if "agent_skill_branches" in tables:
+        _normalize_canonical_ids(
+            conn,
+            table="agent_skill_branches",
+            select_columns=("id", "tenant_id", "agent_id", "skill_id"),
+            key_columns=("tenant_id", "agent_id", "skill_id"),
+            id_factory=lambda row: _agent_skill_branch_id(str(row["agent_id"]), str(row["skill_id"])),
+        )
+    if "agent_skill_branch_versions" in tables:
+        _normalize_canonical_ids(
+            conn,
+            table="agent_skill_branch_versions",
+            select_columns=("id", "tenant_id", "agent_id", "skill_id", "version"),
+            key_columns=("tenant_id", "agent_id", "skill_id", "version"),
+            id_factory=lambda row: _agent_skill_branch_version_id(
+                str(row["agent_id"]),
+                str(row["skill_id"]),
+                str(row["version"]),
+            ),
+        )
+    if "agent_knowledge_branches" in tables:
+        _normalize_canonical_ids(
+            conn,
+            table="agent_knowledge_branches",
+            select_columns=("id", "tenant_id", "agent_id", "knowledge_base_id"),
+            key_columns=("tenant_id", "agent_id", "knowledge_base_id"),
+            id_factory=lambda row: _agent_knowledge_branch_id(str(row["agent_id"]), str(row["knowledge_base_id"])),
+        )
+
+
+def _normalize_canonical_ids(
+    conn,
+    *,
+    table: str,
+    select_columns: tuple[str, ...],
+    key_columns: tuple[str, ...],
+    id_factory: Callable[[dict[str, object]], str],
+) -> None:
+    columns_sql = ", ".join(select_columns)
+    rows = conn.execute(text(f"SELECT {columns_sql} FROM {table}")).mappings().all()
+    kept_keys: set[tuple[object, ...]] = set()
+    for row in rows:
+        row_dict = dict(row)
+        row_id = str(row_dict["id"])
+        key = tuple(row_dict[column] for column in key_columns)
+        target_id = id_factory(row_dict)
+        if key in kept_keys:
+            conn.execute(text(f"DELETE FROM {table} WHERE id = :id"), {"id": row_id})
+            continue
+        kept_keys.add(key)
+        if row_id == target_id:
+            continue
+        target_exists = conn.execute(text(f"SELECT id FROM {table} WHERE id = :id"), {"id": target_id}).first()
+        if target_exists:
+            conn.execute(text(f"DELETE FROM {table} WHERE id = :id"), {"id": row_id})
+            continue
+        conn.execute(text(f"UPDATE {table} SET id = :target_id WHERE id = :id"), {"target_id": target_id, "id": row_id})
 
 
 def _seed_agent_skill_branch(conn, agent_id: str, row) -> None:
@@ -864,6 +939,11 @@ def _agent_skill_branch_version_id(agent_id: str, skill_id: str, version: str) -
 
 def _agent_knowledge_branch_id(agent_id: str, knowledge_base_id: str) -> str:
     return f"agentkb_{agent_id}_{knowledge_base_id}"
+
+
+def _agent_resource_binding_id(tenant_id: str, agent_id: str, resource_type: str, resource_id: str) -> str:
+    key = f"{tenant_id}:{agent_id}:{resource_type}:{resource_id}"
+    return f"agentres_{hashlib.sha1(key.encode('utf-8')).hexdigest()[:16]}"
 
 
 def _agent_model_binding_id(agent_id: str, role: str) -> str:

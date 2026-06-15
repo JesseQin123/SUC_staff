@@ -38,6 +38,8 @@ MAX_CLAWHUB_FILE_BYTES = 2 * 1024 * 1024
 MAX_CLAWHUB_FILES = 240
 GITHUB_HOSTS = {"github.com", "www.github.com"}
 RAW_GITHUB_HOST = "raw.githubusercontent.com"
+CLAWHUB_HOSTS = {"clawhub.ai", "www.clawhub.ai"}
+CLAWHUB_DOWNLOAD_ENDPOINT = "https://wry-manatee-359.convex.site/api/v1/download"
 
 
 def _agent_id_or_none(agent_id: object | None) -> str | None:
@@ -150,10 +152,11 @@ def import_clawhub_skill(
     markdown = _skill_markdown_from_files(files)
     metadata = _parse_skill_metadata(markdown)
     name = _optional_text(request.name) or _metadata_text(metadata, "name", "title") or _source_name(request.source)
-    slug_base = _optional_text(request.slug) or _metadata_text(metadata, "slug", "id") or _slugify(name)
+    source_slug = _clawhub_slug_from_source(request.source)
+    slug_base = _optional_text(request.slug) or _metadata_text(metadata, "slug", "id") or source_slug or _slugify(name)
     slug = _unique_slug(db, request.tenant_id, slug_base)
     description = _optional_text(request.description) or _metadata_text(metadata, "description", "summary")
-    homepage = _optional_text(request.homepage) or _metadata_text(metadata, "homepage", "url", "source")
+    homepage = _optional_text(request.homepage) or _metadata_text(metadata, "homepage", "url", "source") or _clawhub_homepage_from_source(request.source)
     _validate_slug(slug)
     now = utc_now()
     row = GeneralSkill(
@@ -576,6 +579,10 @@ def _source_name(source: str) -> str:
 
 def _load_clawhub_source(source: str) -> list[GeneralSkillFile]:
     cleaned = _required_text(source, "source")
+    clawhub_slug = _clawhub_slug_from_source(cleaned)
+    if clawhub_slug:
+        source_url = cleaned if cleaned.startswith(("http://", "https://")) else None
+        return _load_clawhub_skill_package(clawhub_slug, source_url=source_url)
     if cleaned.startswith(("http://", "https://")):
         return _load_remote_skill_source(cleaned)
     if _looks_like_github_shorthand(cleaned):
@@ -584,6 +591,62 @@ def _load_clawhub_source(source: str) -> list[GeneralSkillFile]:
         status_code=400,
         detail="ClawHub source must be a GitHub URL, raw SKILL.md URL, zip URL, or owner/repo path",
     )
+
+
+def _clawhub_slug_from_source(source: str) -> str | None:
+    cleaned = source.strip()
+    if not cleaned:
+        return None
+    if cleaned.startswith(("http://", "https://")):
+        parsed = urlparse(cleaned)
+        if parsed.netloc not in CLAWHUB_HOSTS:
+            return None
+        parts = [part for part in parsed.path.strip("/").split("/") if part]
+        if len(parts) >= 2:
+            slug = parts[1]
+        elif len(parts) == 1:
+            slug = parts[0]
+        else:
+            return None
+        return _valid_clawhub_slug(slug)
+    if "/" not in cleaned:
+        return _valid_clawhub_slug(cleaned)
+    return None
+
+
+def _valid_clawhub_slug(value: str) -> str | None:
+    slug = value.strip().removesuffix(".zip").removesuffix(".md")
+    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{1,127}", slug):
+        return slug
+    return None
+
+
+def _clawhub_homepage_from_source(source: str) -> str | None:
+    cleaned = source.strip()
+    parsed = urlparse(cleaned)
+    if parsed.scheme and parsed.netloc in CLAWHUB_HOSTS:
+        return cleaned
+    slug = _clawhub_slug_from_source(cleaned)
+    if slug:
+        return f"https://clawhub.ai/{slug}"
+    return None
+
+
+def _clawhub_download_url(slug: str) -> str:
+    return f"{CLAWHUB_DOWNLOAD_ENDPOINT}?slug={quote(slug, safe='')}"
+
+
+def _load_clawhub_skill_package(slug: str, source_url: str | None = None) -> list[GeneralSkillFile]:
+    download_url = _clawhub_download_url(slug)
+    try:
+        return _load_remote_skill_source(download_url)
+    except HTTPException as download_error:
+        if source_url:
+            try:
+                return _load_remote_skill_source(source_url)
+            except HTTPException:
+                pass
+        raise download_error
 
 
 def _looks_like_github_shorthand(value: str) -> bool:
@@ -807,6 +870,8 @@ def _extract_skill_source_from_html(text: str, base_url: str) -> str | None:
         lower_path = parsed.path.lower()
         if parsed.netloc == RAW_GITHUB_HOST:
             return cleaned
+        if _is_clawhub_download_url(parsed):
+            return cleaned
         if parsed.netloc in GITHUB_HOSTS and (
             "/tree/" in lower_path
             or "/blob/" in lower_path
@@ -817,6 +882,11 @@ def _extract_skill_source_from_html(text: str, base_url: str) -> str | None:
         if lower_path.endswith(".zip"):
             return cleaned
     return None
+
+
+def _is_clawhub_download_url(parsed) -> bool:
+    path = parsed.path.lower().rstrip("/")
+    return path.endswith("/api/v1/download") and "slug=" in parsed.query.lower()
 
 
 def _download_url(url: str) -> tuple[bytes, str]:
