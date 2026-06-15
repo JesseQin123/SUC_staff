@@ -2264,15 +2264,30 @@ function SkillFlow({
       return [nodeId, String(node.name || nodeId)];
     }),
   );
+  const graphKey = `${skill.skill_id || 'skill'}:${skill.version || 'draft'}:${nodes.length}:${skill.start_node_id || ''}`;
+  const centeredGraphKey = useRef('');
   const graphLayout = buildSkillFlowCanvasLayout(skill, nodes, nodeNameMap);
   const zoomedWidth = graphLayout.width * flowZoom;
   const zoomedHeight = graphLayout.height * flowZoom;
   const updateZoom = (nextZoom: number) => {
-    setFlowZoom(Math.min(1.18, Math.max(0.54, Math.round(nextZoom * 100) / 100)));
+    const next = Math.min(1.18, Math.max(0.54, Math.round(nextZoom * 100) / 100));
+    const container = containerRef.current;
+    if (!container) {
+      setFlowZoom(next);
+      return;
+    }
+    const centerX = (container.scrollLeft + container.clientWidth / 2) / flowZoom;
+    const centerY = (container.scrollTop + container.clientHeight / 2) / flowZoom;
+    setFlowZoom(next);
+    window.requestAnimationFrame(() => {
+      container.scrollLeft = Math.max(0, centerX * next - container.clientWidth / 2);
+      container.scrollTop = Math.max(0, centerY * next - container.clientHeight / 2);
+    });
   };
   useEffect(() => {
     const container = containerRef.current;
-    if (!container) return undefined;
+    if (!container || centeredGraphKey.current === graphKey) return undefined;
+    centeredGraphKey.current = graphKey;
     const frame = window.requestAnimationFrame(() => {
       const rootCenterX = (graphLayout.root.x + graphLayout.root.width / 2) * flowZoom;
       const targetScrollLeft = Math.max(0, rootCenterX - container.clientWidth / 2);
@@ -2280,7 +2295,7 @@ function SkillFlow({
       container.scrollTop = 0;
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [containerRef, flowZoom, graphLayout.root.x, graphLayout.root.width, skill.skill_id, skill.version]);
+  }, [containerRef, flowZoom, graphKey, graphLayout.root.x, graphLayout.root.width]);
   return (
     <>
       <div className="skill-flow-zoom-toolbar" aria-label="流程图缩放">
@@ -2600,6 +2615,7 @@ function buildSkillFlowCanvasLayout(
   const edgeSiblingIndexes: Record<string, number> = {};
   const incomingIndexes: Record<string, number> = {};
   const layoutEdges: SkillFlowCanvasEdge[] = [];
+  const height = paddingY * 2 + rootHeight + rootGap + layerLayout.layers.length * cardHeight + Math.max(0, layerLayout.layers.length - 1) * rowGap;
   const startNode = positionMap.get(String(skill.start_node_id || positionedNodes[0]?.nodeId || ''));
   if (startNode) {
     const sourceX = root.x + root.width / 2;
@@ -2607,6 +2623,12 @@ function buildSkillFlowCanvasLayout(
     const targetX = startNode.x + startNode.width / 2;
     const targetY = startNode.y - 8;
     const laneY = edgeLaneY(sourceY, targetY, 0, 1);
+    const labelAnchor = avoidFlowLabelOverlap(
+      { x: (sourceX + targetX) / 2, y: laneY },
+      [...positionedNodes, { ...root, nodeId: '__root__' } as SkillFlowCanvasNode],
+      width,
+      height,
+    );
     layoutEdges.push({
       id: `root_${startNode.nodeId}`,
       kind: 'root',
@@ -2614,8 +2636,8 @@ function buildSkillFlowCanvasLayout(
       label: '开始',
       title: `开始 -> ${nodeNameMap[startNode.nodeId] || startNode.nodeId}`,
       path: forwardFlowPath(sourceX, sourceY, targetX, targetY, laneY),
-      labelX: (sourceX + targetX) / 2,
-      labelY: laneY,
+      labelX: labelAnchor.x,
+      labelY: labelAnchor.y,
     });
   }
   rawEdges.forEach((edge, index) => {
@@ -2638,25 +2660,30 @@ function buildSkillFlowCanvasLayout(
     const targetY = target.y - 8;
     const isReturn = targetY <= sourceY;
     const laneY = edgeLaneY(sourceY, targetY, siblingIndex, siblingCount);
-    const path = targetY <= sourceY
+    const shouldAvoidNodes = !isReturn && forwardRouteHitsNode(source, target, positionedNodes, laneY);
+    const path = isReturn
       ? sideReturnFlowPath(source, target, width, siblingIndex)
-      : forwardFlowPath(sourceX, sourceY, targetX, targetY, laneY);
+      : shouldAvoidNodes
+        ? sideForwardFlowPath(source, target, positionedNodes, width, siblingIndex, incomingIndex)
+        : forwardFlowPath(sourceX, sourceY, targetX, targetY, laneY);
     const labelAnchor = isReturn
       ? returnEdgeLabelPosition(source, target, width, siblingIndex)
-      : forwardEdgeLabelPosition(sourceX, targetX, laneY, siblingIndex, siblingCount, incomingIndex, incomingCount);
+      : shouldAvoidNodes
+        ? sideForwardEdgeLabelPosition(source, target, positionedNodes, width, siblingIndex, incomingIndex)
+        : forwardEdgeLabelPosition(sourceX, targetX, laneY, siblingIndex, siblingCount, incomingIndex, incomingCount);
+    const safeLabelAnchor = avoidFlowLabelOverlap(labelAnchor, positionedNodes, width, height);
     layoutEdges.push({
       id: `${sourceId}_${targetId}_${index}`,
       kind: 'edge',
       label: compactEdgeLabel(label),
       title,
       path,
-      labelX: labelAnchor.x,
-      labelY: labelAnchor.y,
+      labelX: safeLabelAnchor.x,
+      labelY: safeLabelAnchor.y,
       labelTone: isReturn ? 'return' : (siblingCount > 1 ? 'branch' : 'root'),
     });
   });
 
-  const height = paddingY * 2 + rootHeight + rootGap + layerLayout.layers.length * cardHeight + Math.max(0, layerLayout.layers.length - 1) * rowGap;
   return { width, height, root, nodes: positionedNodes, edges: layoutEdges };
 }
 
@@ -2757,12 +2784,141 @@ function forwardFlowPath(sourceX: number, sourceY: number, targetX: number, targ
       `C ${sourceX} ${sourceY + verticalEase}, ${targetX} ${targetY - verticalEase}, ${targetX} ${targetY}`,
     ].join(' ');
   }
+  const bend = Math.max(44, Math.min(120, horizontalGap * 0.28));
   return [
     `M ${sourceX} ${sourceY}`,
     `C ${sourceX} ${sourceY + verticalEase}, ${sourceX} ${safeLaneY - verticalEase}, ${sourceX} ${safeLaneY}`,
-    `L ${targetX} ${safeLaneY}`,
+    `C ${sourceX + Math.sign(targetX - sourceX) * bend} ${safeLaneY}, ${targetX - Math.sign(targetX - sourceX) * bend} ${safeLaneY}, ${targetX} ${safeLaneY}`,
     `C ${targetX} ${safeLaneY + verticalEase}, ${targetX} ${targetY - verticalEase}, ${targetX} ${targetY}`,
   ].join(' ');
+}
+
+function rectsOverlap(
+  a: { left: number; right: number; top: number; bottom: number },
+  b: { left: number; right: number; top: number; bottom: number },
+) {
+  return !(a.right < b.left || a.left > b.right || a.bottom < b.top || a.top > b.bottom);
+}
+
+function segmentHitsFlowNode(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  node: SkillFlowCanvasNode,
+  margin = 18,
+) {
+  const segmentRect = {
+    left: Math.min(x1, x2) - margin,
+    right: Math.max(x1, x2) + margin,
+    top: Math.min(y1, y2) - margin,
+    bottom: Math.max(y1, y2) + margin,
+  };
+  const nodeRect = {
+    left: node.x,
+    right: node.x + node.width,
+    top: node.y,
+    bottom: node.y + node.height,
+  };
+  return rectsOverlap(segmentRect, nodeRect);
+}
+
+function forwardRouteHitsNode(
+  source: SkillFlowCanvasNode,
+  target: SkillFlowCanvasNode,
+  nodes: SkillFlowCanvasNode[],
+  laneY: number,
+) {
+  const sourceX = source.x + source.width / 2;
+  const sourceY = source.y + source.height + 8;
+  const targetX = target.x + target.width / 2;
+  const targetY = target.y - 8;
+  const safeLaneY = Math.max(sourceY + 48, Math.min(targetY - 48, laneY));
+  return nodes.some((node) => {
+    if (node.nodeId === source.nodeId || node.nodeId === target.nodeId) return false;
+    return segmentHitsFlowNode(sourceX, sourceY, sourceX, safeLaneY, node)
+      || segmentHitsFlowNode(sourceX, safeLaneY, targetX, safeLaneY, node)
+      || segmentHitsFlowNode(targetX, safeLaneY, targetX, targetY, node);
+  });
+}
+
+function sideForwardLaneX(
+  source: SkillFlowCanvasNode,
+  target: SkillFlowCanvasNode,
+  nodes: SkillFlowCanvasNode[],
+  canvasWidth: number,
+  siblingIndex: number,
+  incomingIndex: number,
+) {
+  const sourceY = source.y + source.height + 8;
+  const targetY = target.y - 8;
+  const verticalTop = Math.min(sourceY, targetY);
+  const verticalBottom = Math.max(sourceY, targetY);
+  const relevantNodes = nodes.filter((node) => (
+    node.nodeId !== source.nodeId
+    && node.nodeId !== target.nodeId
+    && node.y < verticalBottom + 80
+    && node.y + node.height > verticalTop - 80
+  ));
+  const laneOffset = 76 + siblingIndex * 28 + incomingIndex * 18;
+  const rightBoundary = Math.max(
+    source.x + source.width,
+    target.x + target.width,
+    ...relevantNodes.map((node) => node.x + node.width),
+  );
+  const leftBoundary = Math.min(
+    source.x,
+    target.x,
+    ...relevantNodes.map((node) => node.x),
+  );
+  const rightX = Math.min(canvasWidth - 74, rightBoundary + laneOffset);
+  const leftX = Math.max(74, leftBoundary - laneOffset);
+  const preferRight = target.x >= source.x;
+  const candidates = preferRight ? [rightX, leftX] : [leftX, rightX];
+  const clear = candidates.find((candidateX) => !relevantNodes.some((node) => (
+    segmentHitsFlowNode(candidateX, sourceY + 34, candidateX, targetY - 34, node, 12)
+  )));
+  return clear ?? candidates[0];
+}
+
+function sideForwardFlowPath(
+  source: SkillFlowCanvasNode,
+  target: SkillFlowCanvasNode,
+  nodes: SkillFlowCanvasNode[],
+  canvasWidth: number,
+  siblingIndex: number,
+  incomingIndex: number,
+): string {
+  const sourceX = source.x + source.width / 2;
+  const sourceY = source.y + source.height + 8;
+  const targetX = target.x + target.width / 2;
+  const targetY = target.y - 8;
+  const sideX = sideForwardLaneX(source, target, nodes, canvasWidth, siblingIndex, incomingIndex);
+  const exitY = sourceY + 54 + (siblingIndex % 2) * 18;
+  const entryY = targetY - 54 - (incomingIndex % 2) * 18;
+  return [
+    `M ${sourceX} ${sourceY}`,
+    `C ${sourceX} ${exitY - 24}, ${sideX} ${exitY - 24}, ${sideX} ${exitY}`,
+    `C ${sideX} ${(exitY + entryY) / 2}, ${sideX} ${(exitY + entryY) / 2}, ${sideX} ${entryY}`,
+    `C ${sideX} ${entryY + 24}, ${targetX} ${entryY + 24}, ${targetX} ${targetY}`,
+  ].join(' ');
+}
+
+function sideForwardEdgeLabelPosition(
+  source: SkillFlowCanvasNode,
+  target: SkillFlowCanvasNode,
+  nodes: SkillFlowCanvasNode[],
+  canvasWidth: number,
+  siblingIndex: number,
+  incomingIndex: number,
+) {
+  const sourceY = source.y + source.height + 8;
+  const targetY = target.y - 8;
+  const sideX = sideForwardLaneX(source, target, nodes, canvasWidth, siblingIndex, incomingIndex);
+  return {
+    x: sideX,
+    y: (sourceY + targetY) / 2,
+  };
 }
 
 function forwardEdgeLabelPosition(
@@ -2797,6 +2953,59 @@ function returnEdgeLabelPosition(
     x: sideX,
     y: Math.max(72, target.y - 84 - siblingIndex * 18),
   };
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function flowLabelOverlapsNode(
+  point: { x: number; y: number },
+  node: Pick<SkillFlowCanvasNode, 'x' | 'y' | 'width' | 'height'>,
+) {
+  const labelWidth = 210;
+  const labelHeight = 34;
+  const margin = 22;
+  const left = point.x - labelWidth / 2;
+  const right = point.x + labelWidth / 2;
+  const top = point.y - labelHeight / 2;
+  const bottom = point.y + labelHeight / 2;
+  return !(
+    right < node.x - margin
+    || left > node.x + node.width + margin
+    || bottom < node.y - margin
+    || top > node.y + node.height + margin
+  );
+}
+
+function avoidFlowLabelOverlap(
+  anchor: { x: number; y: number },
+  nodes: SkillFlowCanvasNode[],
+  canvasWidth: number,
+  canvasHeight: number,
+) {
+  const clampPoint = (point: { x: number; y: number }) => ({
+    x: clampNumber(point.x, 112, canvasWidth - 112),
+    y: clampNumber(point.y, 34, canvasHeight - 34),
+  });
+  const fits = (point: { x: number; y: number }) => !nodes.some((node) => flowLabelOverlapsNode(point, node));
+  const base = clampPoint(anchor);
+  if (fits(base)) return base;
+  const candidates: Array<{ x: number; y: number }> = [];
+  [48, 84, 122, 168, 216].forEach((offset) => {
+    candidates.push(
+      { x: anchor.x, y: anchor.y - offset },
+      { x: anchor.x, y: anchor.y + offset },
+      { x: anchor.x - offset * 1.4, y: anchor.y },
+      { x: anchor.x + offset * 1.4, y: anchor.y },
+      { x: anchor.x - offset, y: anchor.y - offset },
+      { x: anchor.x + offset, y: anchor.y - offset },
+      { x: anchor.x - offset, y: anchor.y + offset },
+      { x: anchor.x + offset, y: anchor.y + offset },
+    );
+  });
+  const found = candidates.map(clampPoint).find(fits);
+  return found || clampPoint({ x: anchor.x, y: anchor.y - 76 });
 }
 
 function sideReturnFlowPath(
