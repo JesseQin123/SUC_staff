@@ -4265,13 +4265,15 @@ function targetClass(
   baseClass: string,
   path: string,
   selectedPaths: string[],
-  _highlightedPaths: string[],
-  _updatingPaths: string[],
+  highlightedPaths: string[],
+  updatingPaths: string[],
   dirtyPaths: string[],
 ): string {
   return [
     baseClass,
     selectedPaths.includes(path) ? 'active' : '',
+    highlightedPaths.includes(path) ? 'changed' : '',
+    updatingPaths.includes(path) ? 'updating' : '',
     dirtyPaths.includes(path) ? 'dirty' : '',
   ].filter(Boolean).join(' ');
 }
