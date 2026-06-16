@@ -17,7 +17,7 @@ import type { ChangeEvent, DragEvent } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, streamPost, TENANT_ID } from '../api/client';
 import CodeBlock, { renderCodeTokens } from '../components/CodeBlock';
-import type { GeneralSkillRead, GeneralSkillRunResponse } from '../types';
+import type { AgentProfileRead, GeneralSkillRead, GeneralSkillRunResponse } from '../types';
 
 const DEFAULT_MARKDOWN = `# 技能说明
 
@@ -304,6 +304,12 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
   const [clawhubModalOpen, setClawhubModalOpen] = useState(false);
   const [clawhubSource, setClawhubSource] = useState('');
   const [clawhubLoading, setClawhubLoading] = useState(false);
+  const [agentImportOpen, setAgentImportOpen] = useState(false);
+  const [agentImportLoading, setAgentImportLoading] = useState(false);
+  const [agentImportAgents, setAgentImportAgents] = useState<AgentProfileRead[]>([]);
+  const [agentImportSourceAgentId, setAgentImportSourceAgentId] = useState('');
+  const [agentImportSourceSkills, setAgentImportSourceSkills] = useState<GeneralSkillRead[]>([]);
+  const [agentImportSelectedSkillIds, setAgentImportSelectedSkillIds] = useState<string[]>([]);
   const [agentId, setAgentId] = useState(() => window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '');
   const [isOverallAgent, setIsOverallAgent] = useState(true);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -576,6 +582,73 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
       setClawhubSource('');
       setClawhubModalOpen(true);
     });
+  }
+
+  function requestAgentImport() {
+    void withImportPreparation(async () => {
+      try {
+        const agents = await api.get<AgentProfileRead[]>(`/api/enterprise/agents?tenant_id=${TENANT_ID}`);
+        const candidates = agents.filter((item) => item.id !== agentId);
+        const firstSource = candidates[0]?.id || '';
+        setAgentImportAgents(candidates);
+        setAgentImportSourceAgentId(firstSource);
+        setAgentImportSelectedSkillIds([]);
+        setAgentImportOpen(true);
+        if (firstSource) {
+          await loadAgentImportSourceSkills(firstSource);
+        } else {
+          setAgentImportSourceSkills([]);
+        }
+      } catch (error) {
+        message.error(error instanceof Error ? error.message : '加载智能体列表失败');
+      }
+    });
+  }
+
+  async function loadAgentImportSourceSkills(sourceAgentId: string) {
+    setAgentImportSourceSkills([]);
+    setAgentImportSelectedSkillIds([]);
+    if (!sourceAgentId) return;
+    try {
+      const sourceRows = await api.get<GeneralSkillRead[]>(
+        `/api/enterprise/general-skills?tenant_id=${TENANT_ID}&agent_id=${encodeURIComponent(sourceAgentId)}`,
+      );
+      const existingIds = new Set(rows.map((item) => item.id));
+      setAgentImportSourceSkills(sourceRows.filter((item) => !existingIds.has(item.id)));
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '加载来源通用技能失败');
+    }
+  }
+
+  async function submitAgentImportSkills() {
+    if (!agentId) {
+      message.warning('请先选择目标智能体');
+      return;
+    }
+    if (!agentImportSourceAgentId) {
+      message.warning('请选择来源智能体');
+      return;
+    }
+    if (!agentImportSelectedSkillIds.length) {
+      message.warning('请选择要导入的通用技能');
+      return;
+    }
+    setAgentImportLoading(true);
+    try {
+      await api.post(`/api/enterprise/agents/${encodeURIComponent(agentId)}/resources/import`, {
+        tenant_id: TENANT_ID,
+        source_agent_id: agentImportSourceAgentId,
+        resource_type: 'general_skill',
+        resource_ids: agentImportSelectedSkillIds,
+      });
+      message.success(`已导入 ${agentImportSelectedSkillIds.length} 个通用技能`);
+      setAgentImportOpen(false);
+      await load();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '导入通用技能失败');
+    } finally {
+      setAgentImportLoading(false);
+    }
   }
 
   async function importClawHubSource() {
@@ -902,10 +975,15 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
                       { key: 'file', label: '选择文件' },
                       { key: 'folder', label: '选择文件夹' },
                       { key: 'clawhub', label: '从 ClawHub / GitHub 导入' },
+                      { key: 'agent', label: '从其他智能体导入' },
                     ],
                     onClick: ({ key }) => {
                       if (key === 'clawhub') {
                         requestClawHubImport();
+                        return;
+                      }
+                      if (key === 'agent') {
+                        requestAgentImport();
                         return;
                       }
                       requestImport(key === 'folder' ? 'folder' : 'file');
@@ -1259,6 +1337,47 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
             value={clawhubSource}
             onChange={(event) => setClawhubSource(event.target.value)}
             placeholder="例如 OpenBMB/PilotDeck/path/to/skill 或 https://github.com/owner/repo/tree/main/skill"
+          />
+        </Space>
+      </Modal>
+      <Modal
+        title="从其他智能体导入通用技能"
+        open={agentImportOpen}
+        okText="导入"
+        cancelText="取消"
+        confirmLoading={agentImportLoading}
+        onOk={() => void submitAgentImportSkills()}
+        onCancel={() => setAgentImportOpen(false)}
+      >
+        <Space direction="vertical" size={14} style={{ width: '100%' }}>
+          <Typography.Text type="secondary">
+            导入会把来源智能体可见的通用技能绑定到当前智能体；不会覆盖当前编辑区内容。
+          </Typography.Text>
+          <Select
+            value={agentImportSourceAgentId || undefined}
+            placeholder="选择来源智能体"
+            onChange={(value) => {
+              setAgentImportSourceAgentId(value);
+              void loadAgentImportSourceSkills(value);
+            }}
+            options={agentImportAgents.map((item) => ({
+              value: item.id,
+              label: `${item.name}${item.is_overall ? '（整体）' : ''}`,
+            }))}
+            style={{ width: '100%' }}
+          />
+          <Select
+            mode="multiple"
+            value={agentImportSelectedSkillIds}
+            placeholder="选择一个或多个通用技能"
+            onChange={setAgentImportSelectedSkillIds}
+            options={agentImportSourceSkills.map((item) => ({
+              value: item.id,
+              label: `${item.name} · ${item.slug} · ${statusLabel(item.status)}`,
+            }))}
+            optionFilterProp="label"
+            notFoundContent={agentImportSourceAgentId ? '没有可导入的通用技能' : '请先选择来源智能体'}
+            style={{ width: '100%' }}
           />
         </Space>
       </Modal>
