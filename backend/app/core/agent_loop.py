@@ -2044,7 +2044,12 @@ class AgentLoop:
         if not reflection.needs_retry:
             return active_skill, router_decision, step_result, tool_result, False
 
-        retry_tool_call = self._tool_call_from_reflection(reflection, chat_session, tools)
+        retry_tool_call = self._tool_call_from_reflection(
+            reflection,
+            chat_session,
+            tools,
+            request.message,
+        )
         if retry_tool_call and self._reflection_tool_retry_targets_current_skill(
             reflection, chat_session
         ):
@@ -3170,7 +3175,11 @@ class AgentLoop:
         )
 
     def _tool_call_from_reflection(
-        self, reflection: ReflectionDecision, chat_session: ChatSession, tools: list[Tool]
+        self,
+        reflection: ReflectionDecision,
+        chat_session: ChatSession,
+        tools: list[Tool],
+        user_message: str | None = None,
     ) -> ToolCall | None:
         if not reflection.target_tool_name:
             return None
@@ -3180,6 +3189,11 @@ class AgentLoop:
         )
         if not tool:
             return None
+        if str(getattr(tool, "name", "") or "").startswith(GENERAL_SKILL_TOOL_PREFIX):
+            query = str(user_message or "").strip()
+            if not query:
+                return None
+            return ToolCall(name=tool.name, arguments={"query": query})
         if (
             chat_session.active_skill_id
             and tool.allowed_skills_json

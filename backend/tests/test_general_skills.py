@@ -1,6 +1,7 @@
 from fastapi import HTTPException
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 from zipfile import ZipFile
@@ -16,6 +17,7 @@ from app.api.general_skills import (
     run_general_skill,
 )
 from app.core import AgentLoop
+from app.core.reflection_agent import ReflectionDecision
 from app.db.models import AgentEvent, AgentProfile, ChatSession, GeneralSkill, ModelConfig, Skill, Tenant, User
 from app.general_skills.runner import GeneralSkillRunner
 from app.general_skills.schema import (
@@ -715,6 +717,55 @@ def test_scene_tool_call_to_general_skill_records_expandable_trace(monkeypatch) 
         assert any(payload.get("phase") == "stdout_chunk" for payload in trace_payloads)
         assert [name for name, _payload in stream_events].count("general_skill_trace") == len(trace_payloads)
         assert any(name == "general_skill_run_finished" for name, _payload in stream_events)
+
+
+def test_reflection_can_retry_general_skill_with_user_query() -> None:
+    loop = AgentLoop.__new__(AgentLoop)
+    tool_call = loop._tool_call_from_reflection(
+        ReflectionDecision(
+            action="retry_tool",
+            needs_retry=True,
+            target_tool_name="general_skill.weather-zh",
+            reason="场景内临时查询需要通用技能执行。",
+        ),
+        ChatSession(
+            id="session_reflection_general_skill",
+            tenant_id="tenant_demo",
+            user_id="user_demo",
+            active_skill_id="skill_purchase_001",
+            active_step_id="collect_user_name",
+            slots_json={"user_name": "hm", "product_id": "A1"},
+        ),
+        [
+            SimpleNamespace(
+                enabled=True,
+                name="general_skill.weather-zh",
+                input_schema={
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}},
+                    "required": ["query"],
+                },
+            )
+        ],
+        "我想买个 A1，同时查一下海淀天气",
+    )
+
+    assert tool_call == ToolCall(
+        name="general_skill.weather-zh",
+        arguments={"query": "我想买个 A1，同时查一下海淀天气"},
+    )
+
+
+def test_scene_layer_prompt_contract_mentions_general_skill_tools() -> None:
+    prompt_dir = Path(__file__).resolve().parents[1] / "app" / "llm" / "prompts"
+
+    router_prompt = (prompt_dir / "router_prompt.md").read_text(encoding="utf-8")
+    step_prompt = (prompt_dir / "step_agent_prompt.md").read_text(encoding="utf-8")
+    reflection_prompt = (prompt_dir / "reflection_prompt.md").read_text(encoding="utf-8")
+
+    assert "Router 只决定场景化技能、任务帧和调度顺序" in router_prompt
+    assert "通用技能是场景内第二层能力" in step_prompt
+    assert "target_tool_name 指向该通用技能工具" in reflection_prompt
 
 
 def test_chat_turn_treats_unmatched_scene_as_chat_when_general_skill_not_selected(
