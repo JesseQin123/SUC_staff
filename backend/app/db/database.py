@@ -536,6 +536,242 @@ def _migrate_knowledge_base_schema(conn, inspector, tables: set[str]) -> None:
                 },
             )
 
+    _split_document_backed_knowledge_bases(conn, tables)
+
+
+def _split_document_backed_knowledge_bases(conn, tables: set[str]) -> None:
+    required_tables = {"knowledge_bases", "knowledge_base_versions", "knowledge_documents"}
+    if not required_tables.issubset(tables):
+        return
+
+    document_groups = conn.execute(
+        text(
+            """
+            SELECT knowledge_base_id, COUNT(id) AS document_count
+            FROM knowledge_documents
+            WHERE knowledge_base_id IS NOT NULL AND knowledge_base_id != ''
+            GROUP BY knowledge_base_id
+            """
+        )
+    ).mappings().all()
+    multi_document_base_ids = {
+        str(row["knowledge_base_id"])
+        for row in document_groups
+        if int(row.get("document_count") or 0) > 1
+    }
+    if not multi_document_base_ids:
+        return
+
+    for source_knowledge_base_id in sorted(multi_document_base_ids):
+        source = conn.execute(
+            text("SELECT * FROM knowledge_bases WHERE id = :id"),
+            {"id": source_knowledge_base_id},
+        ).mappings().first()
+        if not source:
+            continue
+        documents = conn.execute(
+            text(
+                """
+                SELECT *
+                FROM knowledge_documents
+                WHERE knowledge_base_id = :knowledge_base_id
+                ORDER BY created_at, id
+                """
+            ),
+            {"knowledge_base_id": source_knowledge_base_id},
+        ).mappings().all()
+        if len(documents) <= 1:
+            continue
+        for document in documents:
+            target_id = _document_knowledge_base_id(str(document["id"]))
+            target = conn.execute(
+                text("SELECT id FROM knowledge_bases WHERE id = :id"),
+                {"id": target_id},
+            ).first()
+            target_name = _unique_migrated_knowledge_base_name(
+                conn,
+                str(source["tenant_id"]),
+                _document_knowledge_base_name(document),
+                target_id,
+            )
+            metadata = _json_object(source.get("metadata_json"))
+            metadata.update(
+                {
+                    "created_from_document_upload": True,
+                    "source_document_id": document["id"],
+                    "source_filename": document.get("filename"),
+                    "split_from_knowledge_base_id": source_knowledge_base_id,
+                }
+            )
+            if not target:
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO knowledge_bases (
+                            id, tenant_id, name, description, status, metadata_json, created_at, updated_at
+                        )
+                        VALUES (
+                            :id, :tenant_id, :name, :description, :status, :metadata_json,
+                            :created_at, CURRENT_TIMESTAMP
+                        )
+                        """
+                    ),
+                    {
+                        "id": target_id,
+                        "tenant_id": source["tenant_id"],
+                        "name": target_name,
+                        "description": f"由文档 {document.get('filename') or document['id']} 创建",
+                        "status": "active",
+                        "metadata_json": json.dumps(metadata, ensure_ascii=False),
+                        "created_at": document.get("created_at") or source.get("created_at"),
+                    },
+                )
+            version_id = _knowledge_base_version_id(target_id, "1.0.0")
+            version_exists = conn.execute(
+                text("SELECT id FROM knowledge_base_versions WHERE id = :id"),
+                {"id": version_id},
+            ).first()
+            if not version_exists:
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO knowledge_base_versions (
+                            id, tenant_id, knowledge_base_id, version, name, description,
+                            status, metadata_json, created_at, updated_at
+                        )
+                        VALUES (
+                            :id, :tenant_id, :knowledge_base_id, '1.0.0', :name, :description,
+                            'active', :metadata_json, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                        )
+                        """
+                    ),
+                    {
+                        "id": version_id,
+                        "tenant_id": source["tenant_id"],
+                        "knowledge_base_id": target_id,
+                        "name": target_name,
+                        "description": f"由文档 {document.get('filename') or document['id']} 创建",
+                        "metadata_json": json.dumps(metadata, ensure_ascii=False),
+                    },
+                )
+            _move_document_knowledge_rows(conn, tables, str(document["id"]), target_id, version_id)
+
+
+def _move_document_knowledge_rows(
+    conn,
+    tables: set[str],
+    document_id: str,
+    knowledge_base_id: str,
+    version_id: str,
+) -> None:
+    document_scoped_tables = (
+        "knowledge_buckets",
+        "knowledge_chunks",
+        "knowledge_discovery_suggestions",
+    )
+    if "knowledge_documents" in tables:
+        conn.execute(
+            text(
+                """
+                UPDATE knowledge_documents
+                SET knowledge_base_id = :knowledge_base_id,
+                    knowledge_base_version_id = :version_id
+                WHERE id = :document_id
+                """
+            ),
+            {
+                "document_id": document_id,
+                "knowledge_base_id": knowledge_base_id,
+                "version_id": version_id,
+            },
+        )
+    for table_name in document_scoped_tables:
+        if table_name not in tables:
+            continue
+        conn.execute(
+            text(
+                f"""
+                UPDATE {table_name}
+                SET knowledge_base_id = :knowledge_base_id,
+                    knowledge_base_version_id = :version_id
+                WHERE document_id = :document_id
+                """
+            ),
+            {
+                "document_id": document_id,
+                "knowledge_base_id": knowledge_base_id,
+                "version_id": version_id,
+            },
+        )
+    if "knowledge_ingest_jobs" not in tables:
+        return
+    conn.execute(
+        text(
+            """
+            UPDATE knowledge_ingest_jobs
+            SET knowledge_base_id = :knowledge_base_id,
+                knowledge_base_version_id = :version_id
+            WHERE document_id = :document_id
+            """
+        ),
+        {
+            "document_id": document_id,
+            "knowledge_base_id": knowledge_base_id,
+            "version_id": version_id,
+        },
+    )
+
+
+def _json_object(value: object) -> dict[str, object]:
+    if isinstance(value, dict):
+        return dict(value)
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+        if isinstance(parsed, dict):
+            return dict(parsed)
+    return {}
+
+
+def _document_knowledge_base_id(document_id: str) -> str:
+    return f"kb_doc_{document_id}"
+
+
+def _document_knowledge_base_name(document) -> str:
+    title = str(document.get("title") or "").strip()
+    if title:
+        return title
+    filename = str(document.get("filename") or "").strip()
+    stem = Path(filename).stem.strip()
+    return stem or filename or "未命名知识库"
+
+
+def _unique_migrated_knowledge_base_name(
+    conn,
+    tenant_id: str,
+    base_name: str,
+    target_id: str,
+) -> str:
+    normalized = base_name.strip() or "未命名知识库"
+    existing_names = {
+        str(row[0])
+        for row in conn.execute(
+            text("SELECT name FROM knowledge_bases WHERE tenant_id = :tenant_id AND id != :target_id"),
+            {"tenant_id": tenant_id, "target_id": target_id},
+        ).all()
+        if row[0]
+    }
+    if normalized not in existing_names:
+        return normalized
+    index = 2
+    while True:
+        candidate = f"{normalized} {index}"
+        if candidate not in existing_names:
+            return candidate
+        index += 1
+
 
 def _seed_default_agents(conn, tables: set[str]) -> None:
     if "agent_profiles" not in tables:

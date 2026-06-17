@@ -100,9 +100,13 @@ export default function KnowledgeManagePage() {
   const warningDiscoveries = discoveries.filter((item) => item.suggestion_type === 'warning' || item.status !== 'pending');
   const currentAgent = useMemo(() => agents.find((item) => item.id === agentId), [agents, agentId]);
   const isOverallAgent = !currentAgent || currentAgent.is_overall;
-  const knowledgeBaseNameById = useMemo(
-    () => new Map(knowledgeBases.map((item) => [item.id, item.name])),
+  const visibleKnowledgeBases = useMemo(
+    () => knowledgeBases.filter((item) => !isEmptyDefaultKnowledgeBase(item)),
     [knowledgeBases],
+  );
+  const knowledgeBaseNameById = useMemo(
+    () => new Map(visibleKnowledgeBases.map((item) => [item.id, item.name])),
+    [visibleKnowledgeBases],
   );
   const filteredDocuments = useMemo(() => {
     const query = documentSearch.trim().toLowerCase();
@@ -128,10 +132,10 @@ export default function KnowledgeManagePage() {
   }, [agentId]);
 
   useEffect(() => {
-    if (knowledgeBaseFilter !== '__all__' && !knowledgeBases.some((item) => item.id === knowledgeBaseFilter)) {
+    if (knowledgeBaseFilter !== '__all__' && !visibleKnowledgeBases.some((item) => item.id === knowledgeBaseFilter)) {
       setKnowledgeBaseFilter('__all__');
     }
-  }, [knowledgeBases, knowledgeBaseFilter]);
+  }, [visibleKnowledgeBases, knowledgeBaseFilter]);
 
   useEffect(() => {
     const onScopeChange = (event: Event) => {
@@ -186,6 +190,21 @@ export default function KnowledgeManagePage() {
     } catch (error) {
       message.error(error instanceof Error ? error.message : '加载知识桶失败');
     }
+  }
+
+  function selectKnowledgeBase(knowledgeBaseId: string) {
+    setKnowledgeBaseFilter(knowledgeBaseId);
+    const nextDocument =
+      knowledgeBaseId === '__all__'
+        ? documents[0] || null
+        : documents.find((item) => item.knowledge_base_id === knowledgeBaseId) || null;
+    if (nextDocument) {
+      void loadBuckets(nextDocument);
+      return;
+    }
+    setSelectedDocument(null);
+    setBuckets([]);
+    setSearchResult(null);
   }
 
   async function runKnowledgeSearch() {
@@ -548,12 +567,24 @@ export default function KnowledgeManagePage() {
       <Row gutter={[18, 18]}>
         <Col xs={24}>
           <Card className="knowledge-card knowledge-card-solid" title="知识库">
-            {knowledgeBases.length === 0 ? (
+            {visibleKnowledgeBases.length === 0 ? (
               <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无知识库" />
             ) : (
               <div className="knowledge-base-grid">
-                {knowledgeBases.map((item) => (
-                  <div className="knowledge-base-card" key={item.id}>
+                {visibleKnowledgeBases.map((item) => (
+                  <div
+                    className={`knowledge-base-card ${item.id === knowledgeBaseFilter ? 'is-active' : ''}`}
+                    key={item.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => selectKnowledgeBase(item.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        selectKnowledgeBase(item.id);
+                      }
+                    }}
+                  >
                     <div className="knowledge-base-card-head">
                       <div>
                         <Typography.Text strong>{item.name}</Typography.Text>
@@ -561,37 +592,42 @@ export default function KnowledgeManagePage() {
                           {item.description || '未填写描述'}
                         </Typography.Paragraph>
                       </div>
-                      <Dropdown
-                        trigger={['click']}
-                        menu={{
-                          items: [
-                            { key: 'edit', icon: <EditOutlined />, label: '编辑' },
-                            { key: 'versions', icon: <HistoryOutlined />, label: '版本管理' },
-                            !isOverallAgent ? { key: 'sync', label: '同步整体' } : null,
-                            !isOverallAgent ? { key: 'promote', label: '推送到整体' } : null,
-                            item.status === 'archived'
-                              ? { key: 'publish', label: '上线' }
-                              : { key: 'archive', label: '下线' },
-                            {
-                              key: 'delete',
-                              icon: <DeleteOutlined />,
-                              label: isOverallAgent ? '删除' : '从当前智能体移除',
-                              danger: true,
-                            },
-                          ].filter(Boolean),
-                          onClick: ({ key }) => {
-                            if (key === 'edit') openEditKnowledgeBase(item);
-                            if (key === 'versions') void openKnowledgeBaseVersions(item);
-                            if (key === 'sync') void syncKnowledgeBaseFromOverall(item);
-                            if (key === 'promote') void promoteKnowledgeBaseToOverall(item);
-                            if (key === 'publish') void setKnowledgeBaseStatus(item, true);
-                            if (key === 'archive') void setKnowledgeBaseStatus(item, false);
-                            if (key === 'delete') deleteKnowledgeBase(item);
-                          },
-                        }}
+                      <span
+                        onClick={(event) => event.stopPropagation()}
+                        onKeyDown={(event) => event.stopPropagation()}
                       >
-                        <Button type="text" size="small" icon={<MoreOutlined />} />
-                      </Dropdown>
+                        <Dropdown
+                          trigger={['click']}
+                          menu={{
+                            items: [
+                              { key: 'edit', icon: <EditOutlined />, label: '编辑' },
+                              { key: 'versions', icon: <HistoryOutlined />, label: '版本管理' },
+                              !isOverallAgent ? { key: 'sync', label: '同步整体' } : null,
+                              !isOverallAgent ? { key: 'promote', label: '推送到整体' } : null,
+                              item.status === 'archived'
+                                ? { key: 'publish', label: '上线' }
+                                : { key: 'archive', label: '下线' },
+                              {
+                                key: 'delete',
+                                icon: <DeleteOutlined />,
+                                label: isOverallAgent ? '删除' : '从当前智能体移除',
+                                danger: true,
+                              },
+                            ].filter(Boolean),
+                            onClick: ({ key }) => {
+                              if (key === 'edit') openEditKnowledgeBase(item);
+                              if (key === 'versions') void openKnowledgeBaseVersions(item);
+                              if (key === 'sync') void syncKnowledgeBaseFromOverall(item);
+                              if (key === 'promote') void promoteKnowledgeBaseToOverall(item);
+                              if (key === 'publish') void setKnowledgeBaseStatus(item, true);
+                              if (key === 'archive') void setKnowledgeBaseStatus(item, false);
+                              if (key === 'delete') deleteKnowledgeBase(item);
+                            },
+                          }}
+                        >
+                          <Button type="text" size="small" icon={<MoreOutlined />} />
+                        </Dropdown>
+                      </span>
                     </div>
                     <Space size={6} wrap>
                       {statusTag(item.status)}
@@ -620,22 +656,10 @@ export default function KnowledgeManagePage() {
               />
               <Select
                 value={knowledgeBaseFilter}
-                onChange={(value) => {
-                  setKnowledgeBaseFilter(value);
-                  const next =
-                    value === '__all__'
-                      ? documents[0] || null
-                      : documents.find((item) => item.knowledge_base_id === value) || null;
-                  if (next) {
-                    void loadBuckets(next);
-                  } else {
-                    setSelectedDocument(null);
-                    setBuckets([]);
-                  }
-                }}
+                onChange={selectKnowledgeBase}
                 options={[
                   { value: '__all__', label: '全部知识库' },
-                  ...knowledgeBases.map((item) => ({ value: item.id, label: item.name })),
+                  ...visibleKnowledgeBases.map((item) => ({ value: item.id, label: item.name })),
                 ]}
               />
             </div>
@@ -926,13 +950,15 @@ export default function KnowledgeManagePage() {
 export function KnowledgeAddPage() {
   const navigate = useNavigate();
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBaseRead[]>([]);
-  const [selectedKnowledgeBaseId, setSelectedKnowledgeBaseId] = useState('');
-  const [newKnowledgeBaseName, setNewKnowledgeBaseName] = useState('');
   const [jobs, setJobs] = useState<Record<string, KnowledgeIngestJobRead>>({});
   const [agentId, setAgentId] = useState(() => window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '');
   const activeJobs = useMemo(
     () => Object.values(jobs).filter((job) => ['queued', 'running'].includes(job.status)),
     [jobs],
+  );
+  const visibleKnowledgeBases = useMemo(
+    () => knowledgeBases.filter((item) => !isEmptyDefaultKnowledgeBase(item)),
+    [knowledgeBases],
   );
 
   useEffect(() => {
@@ -965,64 +991,24 @@ export function KnowledgeAddPage() {
       const suffix = agentId ? `&agent_id=${encodeURIComponent(agentId)}` : '';
       const rows = await api.get<KnowledgeBaseRead[]>(`/api/enterprise/knowledge-bases?tenant_id=${TENANT_ID}${suffix}`);
       setKnowledgeBases(rows);
-      setSelectedKnowledgeBaseId((current) =>
-        rows.some((item) => item.id === current)
-          ? current
-          : rows.find((item) => item.status === 'active')?.id || rows[0]?.id || '',
-      );
     } catch (error) {
       message.error(error instanceof Error ? error.message : '加载知识库失败');
     }
   }
 
-  async function createKnowledgeBaseWithName(name: string, description = '') {
-    if (!name) {
-      message.warning('请先输入知识库名称');
-      return null;
-    }
-    try {
-      const query = agentId ? `?agent_id=${encodeURIComponent(agentId)}` : '';
-      const row = await api.post<KnowledgeBaseRead>(`/api/enterprise/knowledge-bases${query}`, {
-        tenant_id: TENANT_ID,
-        name,
-        description,
-      });
-      setKnowledgeBases((prev) => [row, ...prev.filter((item) => item.id !== row.id)]);
-      setSelectedKnowledgeBaseId(row.id);
-      return row;
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : '创建知识库失败');
-      return null;
-    }
-  }
-
-  async function createKnowledgeBase() {
-    const name = newKnowledgeBaseName.trim();
-    const row = await createKnowledgeBaseWithName(name);
-    if (row) {
-      setNewKnowledgeBaseName('');
-      message.success('已创建知识库');
-    }
-  }
-
-  async function uploadFile(file: File, explicitKnowledgeBaseId?: string) {
-    const targetKnowledgeBaseId = explicitKnowledgeBaseId || selectedKnowledgeBaseId;
-    if (!targetKnowledgeBaseId) {
-      message.warning('请先选择或创建知识库');
-      return;
-    }
+  async function uploadFile(file: File) {
     try {
       const contentBase64 = await fileToBase64(file);
       const suffix = agentId ? `?agent_id=${encodeURIComponent(agentId)}` : '';
       const job = await api.post<KnowledgeIngestJobRead>(`/api/enterprise/knowledge/documents${suffix}`, {
         tenant_id: TENANT_ID,
-        knowledge_base_id: targetKnowledgeBaseId,
         filename: file.name,
         title: file.name.replace(/\.[^.]+$/, ''),
         content_base64: contentBase64,
       });
       setJobs((prev) => ({ ...prev, [job.id]: job }));
-      message.success('已创建知识入库任务');
+      await refreshKnowledgeBases();
+      message.success('已创建知识库和入库任务');
     } catch (error) {
       message.error(error instanceof Error ? error.message : '上传失败');
     }
@@ -1041,41 +1027,23 @@ export function KnowledgeAddPage() {
       <Card className="knowledge-card knowledge-upload-card">
         <div className="knowledge-upload-controls">
           <div>
-            <Typography.Text strong>归属知识库</Typography.Text>
-            <Typography.Text type="secondary">每个上传文档、知识桶和切片都会归属到这里。</Typography.Text>
+            <Typography.Text strong>上传文档即创建知识库</Typography.Text>
+            <Typography.Text type="secondary">一个文件对应一个独立知识库；进入知识管理后可查看该库下的文档、桶和导航结构。</Typography.Text>
           </div>
-          <Space wrap>
-            <Select
-              className="knowledge-base-select"
-              placeholder="选择知识库"
-              value={selectedKnowledgeBaseId || undefined}
-              onChange={setSelectedKnowledgeBaseId}
-              options={knowledgeBases.map((item) => ({ value: item.id, label: item.name }))}
-            />
-            <Input
-              className="knowledge-base-create-input"
-              placeholder="新建知识库名称"
-              value={newKnowledgeBaseName}
-              onChange={(event) => setNewKnowledgeBaseName(event.target.value)}
-              onPressEnter={() => void createKnowledgeBase()}
-            />
-            <Button onClick={() => void createKnowledgeBase()}>新建知识库</Button>
-          </Space>
+          <Button onClick={() => navigate('/enterprise/knowledge')}>管理已有知识库</Button>
         </div>
-        {knowledgeBases.length > 0 && (
+        {visibleKnowledgeBases.length > 0 && (
           <div className="knowledge-base-target-strip">
-            {knowledgeBases.map((item) => (
-              <button
-                type="button"
+            {visibleKnowledgeBases.map((item) => (
+              <div
                 key={item.id}
-                className={`knowledge-base-target ${item.id === selectedKnowledgeBaseId ? 'is-active' : ''}`}
-                onClick={() => setSelectedKnowledgeBaseId(item.id)}
+                className="knowledge-base-target"
               >
                 <span>{item.name}</span>
                 <small>
                   {item.document_count} 文档 / {item.bucket_count} 桶 / {item.chunk_count} 片段
                 </small>
-              </button>
+              </div>
             ))}
           </div>
         )}
@@ -1415,6 +1383,15 @@ function routePhaseLabel(phase: string) {
     no_buckets: '没有知识桶',
   };
   return map[phase] || phase || '检索阶段';
+}
+
+function isEmptyDefaultKnowledgeBase(item: KnowledgeBaseRead) {
+  return (
+    item.name === '默认知识库' &&
+    item.document_count === 0 &&
+    item.bucket_count === 0 &&
+    item.chunk_count === 0
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

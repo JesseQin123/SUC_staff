@@ -48,7 +48,7 @@ class KnowledgeBaseRead(BaseModel):
 
 class KnowledgeDocumentUploadRequest(BaseModel):
     tenant_id: str
-    knowledge_base_id: str
+    knowledge_base_id: Optional[str] = None
     filename: str
     content_base64: str
     title: Optional[str] = None

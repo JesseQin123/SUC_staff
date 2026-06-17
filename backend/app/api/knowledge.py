@@ -1,13 +1,21 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 from sqlmodel import Session, select
 
-from app.agents.branching import get_agent, knowledge_version_for_upload, visible_knowledge_base_version_ids
+from app.agents.branching import (
+    get_agent,
+    knowledge_version_for_upload,
+    sync_knowledge_branch_from_overall,
+    visible_knowledge_base_version_ids,
+)
 from app.async_jobs import enqueue_async_job
 from app.db import get_session
 from app.db.models import (
+    AgentResourceBinding,
     KnowledgeBucket,
     KnowledgeChunk,
     KnowledgeDiscoverySuggestion,
@@ -45,16 +53,14 @@ def upload_document(
     db: Session = Depends(get_session),
 ) -> KnowledgeIngestJobRead:
     ensure_tenant(db, request.tenant_id)
-    knowledge_base = db.get(KnowledgeBase, request.knowledge_base_id)
-    if not knowledge_base or knowledge_base.tenant_id != request.tenant_id or knowledge_base.status == "archived":
-        raise HTTPException(status_code=404, detail="Knowledge base not found")
-    version = knowledge_version_for_upload(db, request.tenant_id, request.knowledge_base_id, agent_id)
+    knowledge_base = _resolve_upload_knowledge_base(db, request, agent_id)
+    version = knowledge_version_for_upload(db, request.tenant_id, knowledge_base.id, agent_id)
     db.commit()
     service = KnowledgeService(db)
     job = service.create_ingest_job(
         IngestPayload(
             tenant_id=request.tenant_id,
-            knowledge_base_id=request.knowledge_base_id,
+            knowledge_base_id=knowledge_base.id,
             knowledge_base_version_id=version.id,
             filename=request.filename,
             content_base64=request.content_base64,
@@ -69,6 +75,83 @@ def upload_document(
         metadata={"tenant_id": request.tenant_id, "filename": request.filename},
     )
     return job_read(job)
+
+
+def _resolve_upload_knowledge_base(
+    db: Session,
+    request: KnowledgeDocumentUploadRequest,
+    agent_id: str | None,
+) -> KnowledgeBase:
+    if request.knowledge_base_id:
+        knowledge_base = db.get(KnowledgeBase, request.knowledge_base_id)
+        if (
+            not knowledge_base
+            or knowledge_base.tenant_id != request.tenant_id
+            or knowledge_base.status == "archived"
+        ):
+            raise HTTPException(status_code=404, detail="Knowledge base not found")
+        return knowledge_base
+
+    base_name = _knowledge_base_name_from_upload(request)
+    name = _unique_knowledge_base_name(db, request.tenant_id, base_name)
+    knowledge_base = KnowledgeBase(
+        tenant_id=request.tenant_id,
+        name=name,
+        description=f"由文档 {request.filename} 创建",
+        status="active",
+        metadata_json={
+            **(request.metadata or {}),
+            "created_from_document_upload": True,
+            "source_filename": request.filename,
+        },
+    )
+    db.add(knowledge_base)
+    db.flush()
+
+    agent = get_agent(db, request.tenant_id, agent_id)
+    if agent and not agent.is_overall:
+        existing_binding = db.exec(
+            select(AgentResourceBinding).where(
+                AgentResourceBinding.tenant_id == request.tenant_id,
+                AgentResourceBinding.agent_id == agent.id,
+                AgentResourceBinding.resource_type == "knowledge_base",
+                AgentResourceBinding.resource_id == knowledge_base.id,
+            )
+        ).first()
+        if not existing_binding:
+            db.add(
+                AgentResourceBinding(
+                    tenant_id=request.tenant_id,
+                    agent_id=agent.id,
+                    resource_type="knowledge_base",
+                    resource_id=knowledge_base.id,
+                    status="active",
+                    metadata_json={"created_from_agent": True, "created_from_upload": True},
+                )
+            )
+        sync_knowledge_branch_from_overall(db, request.tenant_id, agent.id, knowledge_base.id)
+    return knowledge_base
+
+
+def _knowledge_base_name_from_upload(request: KnowledgeDocumentUploadRequest) -> str:
+    title = (request.title or "").strip()
+    if title:
+        return title
+    stem = Path(request.filename).stem.strip()
+    return stem or request.filename.strip() or "未命名知识库"
+
+
+def _unique_knowledge_base_name(db: Session, tenant_id: str, base_name: str) -> str:
+    normalized_base = base_name.strip() or "未命名知识库"
+    existing_names = set(db.exec(select(KnowledgeBase.name).where(KnowledgeBase.tenant_id == tenant_id)).all())
+    if normalized_base not in existing_names:
+        return normalized_base
+    index = 2
+    while True:
+        candidate = f"{normalized_base} {index}"
+        if candidate not in existing_names:
+            return candidate
+        index += 1
 
 
 @router.get("/jobs/{job_id}", response_model=KnowledgeIngestJobRead)
