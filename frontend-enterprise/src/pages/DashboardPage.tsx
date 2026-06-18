@@ -190,14 +190,14 @@ export default function DashboardPage({
     return (
       <div className="page dashboard-page">
         <div className="page-title">
-          <Typography.Title level={3}>开放广场</Typography.Title>
+          <Typography.Title level={3}>开放平台广场</Typography.Title>
         </div>
         <section className="employee-hero org-hero">
           <div>
-            <span className="section-kicker">开放广场平台</span>
-            <Typography.Title level={2}>业务能力开放广场</Typography.Title>
+            <span className="section-kicker">开放平台广场</span>
+            <Typography.Title level={2}>开放平台广场</Typography.Title>
             <Typography.Paragraph>
-              统一管理可开放复用的业务知识、通用技能、SOP 和工具箱，让员工账号从广场学习并形成自己的服务能力。
+              统一管理可开放复用的业务资料、已掌握技能、SOP 和工具箱，让员工账号从开放平台广场学习并形成自己的服务能力。
             </Typography.Paragraph>
           </div>
           <div className="employee-hero-metrics">
@@ -207,10 +207,10 @@ export default function DashboardPage({
           </div>
         </section>
         <div className="org-dashboard-grid">
-          <DashboardStat title="SOP广场" value={skills.length} icon={<ProfileOutlined />} />
-          <DashboardStat title="通用技能广场" value={generalSkills.length} icon={<ApiOutlined />} />
-          <DashboardStat title="业务知识广场" value={knowledgeBases.length} icon={<BookOutlined />} />
-          <DashboardStat title="工具箱广场" value={tools.filter((item) => item.enabled).length} icon={<ToolOutlined />} />
+          <DashboardStat title="SOP" value={skills.length} icon={<ProfileOutlined />} />
+          <DashboardStat title="已掌握技能" value={generalSkills.length} icon={<ApiOutlined />} />
+          <DashboardStat title="业务资料" value={knowledgeBases.length} icon={<BookOutlined />} />
+          <DashboardStat title="可用工具" value={tools.filter((item) => item.enabled).length} icon={<ToolOutlined />} />
           <DashboardStat title="SOP 调用" value={totalCalls} icon={<MessageOutlined />} />
           <DashboardStat title="好评" value={positiveFeedback || feedbackSummary?.up_count || 0} icon={<DashboardOutlined />} />
           <DashboardStat title="差评" value={negativeFeedback || feedbackSummary?.down_count || 0} icon={<DashboardOutlined />} />

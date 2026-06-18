@@ -95,7 +95,7 @@ export default function AgentsPage({
   function deleteEmployee(row: AgentProfileRead) {
     Modal.confirm({
       title: `删除员工「${employeeDisplayName(row)}」？`,
-      content: '删除后会移除该员工的资料、SOP 和技能绑定；开放广场平台不受影响。',
+      content: '删除后会移除该员工的资料、SOP 和技能绑定；开放平台广场不受影响。',
       okText: '删除',
       okButtonProps: { danger: true },
       cancelText: '取消',
