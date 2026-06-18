@@ -99,6 +99,7 @@ function Shell({
   const [accountForm, setAccountForm] = useState<AccountCreateFormState>(EMPTY_ACCOUNT_FORM);
   const [accountSaving, setAccountSaving] = useState(false);
   const isAdmin = isEnterpriseAdmin(auth.user);
+  const accountRoleLabel = isAdmin ? '管理员' : '员工账号';
   const selected = location.pathname === '/enterprise'
     ? '/enterprise/dashboard'
     : location.pathname.startsWith('/enterprise/knowledge')
@@ -310,7 +311,7 @@ function Shell({
                     </Button>
                     {isAdmin && (
                       <Button type="text" block icon={<UserAddOutlined />} onClick={openCreateAccountModal}>
-                        新增账号
+                        新增员工账号
                       </Button>
                     )}
                   </div>
@@ -331,10 +332,10 @@ function Shell({
           <div className="topbar-actions">
             {isAdmin && (
               <Button icon={<UserAddOutlined />} onClick={openCreateAccountModal}>
-                新增账号
+                新增员工账号
               </Button>
             )}
-            <span className="account-chip">{auth.user.display_name || auth.user.username}</span>
+            <span className="account-chip">{accountRoleLabel}</span>
             <ThemeToggleButton />
             <Button icon={<LogoutOutlined />} onClick={onLogout} aria-label="退出登录" />
           </div>
@@ -438,7 +439,7 @@ function Shell({
         </div>
       </Modal>
       <Modal
-        title="新增账号"
+        title="新增员工账号"
         open={accountCreateOpen}
         onCancel={() => setAccountCreateOpen(false)}
         onOk={saveAccountCreateModal}
@@ -470,7 +471,7 @@ function Shell({
               onChange={(event) => setAccountForm((prev) => ({ ...prev, password: event.target.value }))}
             />
           </label>
-          <div className="agent-definition-note">管理员创建账号后，用户可在员工名册中管理并发布自己的员工。</div>
+          <div className="agent-definition-note">管理员创建员工账号后，员工账号可在员工名册中管理并发布自己的员工。</div>
         </div>
       </Modal>
     </Layout>
@@ -516,7 +517,7 @@ function EnterpriseLogin({
         <div>
           <Typography.Title level={2}>UltraRAG4 数字员工运营台</Typography.Title>
           <Typography.Paragraph type="secondary">
-            使用管理员账号进入组织资源库和账号管理，普通账号进入自己的员工工作域。
+            使用管理员账号进入组织资源库和账号管理，员工账号进入自己的员工工作域。
           </Typography.Paragraph>
         </div>
         <div className="enterprise-login-form">

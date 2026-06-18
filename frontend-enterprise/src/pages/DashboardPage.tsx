@@ -164,7 +164,7 @@ export default function DashboardPage({
         <Card className="empty-workspace-card">
           <Typography.Title level={3}>个人员工工作域</Typography.Title>
           <Typography.Paragraph type="secondary">
-            当前账号还没有可用员工。请联系管理员创建员工，或在员工广场开放员工后再派发任务。
+            当前员工账号还没有可用员工。请联系管理员创建员工，或在员工广场开放员工后再派发任务。
           </Typography.Paragraph>
           <Space>
             <Button type="primary" onClick={() => navigate('/enterprise/agents')}>查看员工名册</Button>
