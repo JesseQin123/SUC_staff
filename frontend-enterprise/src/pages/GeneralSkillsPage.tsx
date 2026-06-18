@@ -509,7 +509,7 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
     Modal.confirm({
       title: branchMode ? `从当前员工移除技能：${row.name}` : `删除技能：${row.name}`,
       content: branchMode
-        ? '这只会在当前员工中隐藏该技能；组织资源库和其他员工仍然保留。'
+        ? '这只会在当前员工中隐藏该技能；通用技能广场和其他员工仍然保留。'
         : '删除后该技能不会再出现在组织技能库中，此操作不可撤销。',
       okText: branchMode ? '移除' : '删除',
       okButtonProps: { danger: true },
@@ -947,8 +947,12 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
     <>
       {!embedded && (
         <div className="page-title">
-          <Typography.Title level={3}>已掌握技能</Typography.Title>
-          <Typography.Text type="secondary">维护员工可直接调用的通用能力，验证模型选择、代码生成与运行链路。</Typography.Text>
+          <Typography.Title level={3}>{isOverallAgent ? '通用技能广场' : '已掌握技能'}</Typography.Title>
+          <Typography.Text type="secondary">
+            {isOverallAgent
+              ? '维护可开放给员工学习的通用技能，验证模型选择、代码生成与运行链路。'
+              : '维护员工可直接调用的通用能力，验证模型选择、代码生成与运行链路。'}
+          </Typography.Text>
         </div>
       )}
       <div className="general-skill-workbench">

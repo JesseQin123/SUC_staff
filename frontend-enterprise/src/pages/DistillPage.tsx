@@ -1664,7 +1664,8 @@ export default function DistillPage({ active = true, searchParamsOverride }: Dis
   return (
     <div className="skill-distill-page">
       <div className="page-title">
-        <Typography.Title level={3}>SOP 学习</Typography.Title>
+        <Typography.Title level={3}>SOP管理子页面</Typography.Title>
+        <Typography.Text type="secondary">新建、编辑和启用员工 SOP 学习结果。</Typography.Text>
       </div>
       <div className="skill-workbench">
         <Card

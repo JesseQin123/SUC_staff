@@ -49,9 +49,11 @@ type GrowthEvent = {
 export default function DashboardPage({
   currentUser,
   isAdmin = false,
+  forceOverall = false,
 }: {
   currentUser?: EnterpriseAuthUser;
   isAdmin?: boolean;
+  forceOverall?: boolean;
 }) {
   const navigate = useNavigate();
   const [agents, setAgents] = useState<AgentProfileRead[]>([]);
@@ -96,6 +98,15 @@ export default function DashboardPage({
         setTools(toolRows);
         setSessions(sessionRows);
         setFeedbackSummary(feedbackRows);
+        if (forceOverall) {
+          const overallAgent = visibleAgents.find((item) => item.is_overall);
+          if (overallAgent && overallAgent.id !== agentId) {
+            window.localStorage.setItem(ENTERPRISE_AGENT_STORAGE_KEY, overallAgent.id);
+            window.dispatchEvent(new CustomEvent('ultrarag-enterprise-agent-scope-change', { detail: { agentId: overallAgent.id } }));
+            setAgentId(overallAgent.id);
+          }
+          return;
+        }
         if (!agentId || !visibleAgents.some((item) => item.id === agentId)) {
           const next = isAdmin
             ? visibleAgents.find((item) => item.is_overall)?.id || visibleAgents[0]?.id || ''
@@ -109,10 +120,10 @@ export default function DashboardPage({
           }
         }
       })
-      .catch((error) => message.error(error instanceof Error ? error.message : '加载看板失败'));
-  }, [agentId, currentUser, isAdmin]);
+      .catch((error) => message.error(error instanceof Error ? error.message : '加载员工信息失败'));
+  }, [agentId, currentUser, forceOverall, isAdmin]);
 
-  const selectedAgent = agents.find((item) => item.id === agentId)
+  const selectedAgent = (forceOverall ? agents.find((item) => item.is_overall) : agents.find((item) => item.id === agentId))
     || (isAdmin ? agents.find((item) => item.is_overall) || null : agents.find((item) => !item.is_overall) || null);
   const employeeSessions = selectedAgent?.is_overall
     ? sessions
@@ -179,14 +190,14 @@ export default function DashboardPage({
     return (
       <div className="page dashboard-page">
         <div className="page-title">
-          <Typography.Title level={3}>看板</Typography.Title>
+          <Typography.Title level={3}>开放广场</Typography.Title>
         </div>
         <section className="employee-hero org-hero">
           <div>
-            <span className="section-kicker">组织资源库</span>
-            <Typography.Title level={2}>UltraRAG4 数字员工运营台</Typography.Title>
+            <span className="section-kicker">开放广场平台</span>
+            <Typography.Title level={2}>业务能力开放广场</Typography.Title>
             <Typography.Paragraph>
-              统一管理员工、业务资料、SOP、已掌握技能、工具和对话质检，让企业服务能力持续沉淀。
+              统一管理可开放复用的业务知识、通用技能、SOP 和工具箱，让员工账号从广场学习并形成自己的服务能力。
             </Typography.Paragraph>
           </div>
           <div className="employee-hero-metrics">
@@ -196,10 +207,10 @@ export default function DashboardPage({
           </div>
         </section>
         <div className="org-dashboard-grid">
-          <DashboardStat title="SOP" value={skills.length} icon={<ProfileOutlined />} />
-          <DashboardStat title="已掌握技能" value={generalSkills.length} icon={<ApiOutlined />} />
-          <DashboardStat title="业务资料" value={knowledgeBases.length} icon={<BookOutlined />} />
-          <DashboardStat title="可用工具" value={tools.filter((item) => item.enabled).length} icon={<ToolOutlined />} />
+          <DashboardStat title="SOP广场" value={skills.length} icon={<ProfileOutlined />} />
+          <DashboardStat title="通用技能广场" value={generalSkills.length} icon={<ApiOutlined />} />
+          <DashboardStat title="业务知识广场" value={knowledgeBases.length} icon={<BookOutlined />} />
+          <DashboardStat title="工具箱广场" value={tools.filter((item) => item.enabled).length} icon={<ToolOutlined />} />
           <DashboardStat title="SOP 调用" value={totalCalls} icon={<MessageOutlined />} />
           <DashboardStat title="好评" value={positiveFeedback || feedbackSummary?.up_count || 0} icon={<DashboardOutlined />} />
           <DashboardStat title="差评" value={negativeFeedback || feedbackSummary?.down_count || 0} icon={<DashboardOutlined />} />
@@ -324,7 +335,7 @@ export default function DashboardPage({
         <div className="employee-section-head">
           <div>
             <Typography.Title level={4}>
-              <span className="employee-memory-heading"><DatabaseOutlined /> Memory / 员工记忆</span>
+              <span className="employee-memory-heading"><DatabaseOutlined /> 员工记忆</span>
             </Typography.Title>
             <Typography.Text type="secondary">员工学习 SOP、掌握技能、升级流程和学会工具的时间线。</Typography.Text>
           </div>

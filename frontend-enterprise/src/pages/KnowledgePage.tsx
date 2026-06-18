@@ -354,8 +354,8 @@ export default function KnowledgeManagePage() {
     Modal.confirm({
       title: branchMode ? `从当前员工移除业务资料：${row.name}` : `删除业务资料：${row.name}`,
       content: branchMode
-        ? '这只会在当前员工中隐藏该业务资料；组织资源库和其他员工仍然保留。'
-        : '组织资源库会永久删除该业务资料及其文档、桶、片段和版本记录。',
+        ? '这只会在当前员工中隐藏该业务资料；业务知识广场和其他员工仍然保留。'
+        : '业务知识广场会永久删除该业务资料及其文档、桶、片段和版本记录。',
       okText: branchMode ? '移除' : '删除',
       okButtonProps: { danger: true },
       cancelText: '取消',
@@ -500,14 +500,18 @@ export default function KnowledgeManagePage() {
     <div className="knowledge-page knowledge-manage-page">
       <div className="knowledge-hero">
         <div>
-          <Typography.Title level={3}>业务资料库</Typography.Title>
-          <Typography.Text type="secondary">管理员工可引用的业务资料，查看文档卡片、知识结构、知识桶和证据片段。</Typography.Text>
+          <Typography.Title level={3}>{isOverallAgent ? '业务知识广场' : '业务资料库'}</Typography.Title>
+          <Typography.Text type="secondary">
+            {isOverallAgent
+              ? '管理开放给员工学习和引用的业务知识，查看文档卡片、知识结构、知识桶和证据片段。'
+              : '管理员工可引用的业务资料，查看文档卡片、知识结构、知识桶和证据片段。'}
+          </Typography.Text>
         </div>
         <Space>
           <Button icon={<ReloadOutlined />} onClick={() => refresh()} loading={loading}>刷新</Button>
-          <Button onClick={() => void openImportKnowledgeBases()}>向其他员工学习资料</Button>
+          <Button onClick={() => void openImportKnowledgeBases()}>{isOverallAgent ? '从知识库广场新增' : '向其他员工学习资料'}</Button>
           <Button type="primary" icon={<FileAddOutlined />} onClick={() => navigate('/enterprise/knowledge/new')}>
-            新增业务资料
+            {isOverallAgent ? '新增业务知识' : '新增业务资料'}
           </Button>
         </Space>
       </div>
@@ -516,7 +520,7 @@ export default function KnowledgeManagePage() {
         <Col xs={24} xl={8}>
           <Card
             className="knowledge-card knowledge-card-solid knowledge-library-card"
-            title="业务资料"
+            title={isOverallAgent ? '业务知识' : '业务资料'}
             extra={<DatabaseOutlined />}
           >
             <div className="knowledge-management-toolbar">
@@ -958,11 +962,11 @@ export function KnowledgeAddPage() {
       <div className="knowledge-floating-shell">
         <div className="knowledge-floating-head">
           <div>
-            <Typography.Text className="section-kicker">业务资料库 / 悬浮新增</Typography.Text>
+            <Typography.Text className="section-kicker">业务知识广场 / 悬浮新增</Typography.Text>
             <Typography.Title level={3}>新增业务资料</Typography.Title>
             <Typography.Text type="secondary">上传业务文档后，系统会自动解析、分桶、切片，并生成证据片段与自发现建议。</Typography.Text>
           </div>
-          <Button icon={<RightOutlined />} onClick={() => navigate('/enterprise/knowledge')}>返回资料库</Button>
+          <Button icon={<RightOutlined />} onClick={() => navigate('/enterprise/knowledge')}>返回业务知识广场</Button>
         </div>
 
         <Card className="knowledge-card knowledge-upload-card">
@@ -971,7 +975,7 @@ export function KnowledgeAddPage() {
               <Typography.Text strong>上传文档即创建业务资料</Typography.Text>
               <Typography.Text type="secondary">一个文件对应一份独立业务资料；回到资料库后可查看文档卡片、知识结构、知识桶和证据片段。</Typography.Text>
             </div>
-            <Button onClick={() => navigate('/enterprise/knowledge')}>管理已有业务资料</Button>
+            <Button onClick={() => navigate('/enterprise/knowledge')}>管理已有业务知识</Button>
           </div>
         {visibleKnowledgeBases.length > 0 && (
           <div className="knowledge-base-target-strip">

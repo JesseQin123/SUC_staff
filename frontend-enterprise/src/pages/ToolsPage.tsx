@@ -219,7 +219,10 @@ export default function ToolsPage() {
   return (
     <>
       <div className="page-title">
-        <Typography.Title level={3}>工具配置</Typography.Title>
+        <Typography.Title level={3}>{isOverallAgent ? '工具箱广场' : '工具箱'}</Typography.Title>
+        <Typography.Text type="secondary">
+          {isOverallAgent ? '管理可开放给员工学习和调用的工具能力。' : '维护当前员工可调用的工具能力。'}
+        </Typography.Text>
       </div>
       <div className="grid-2">
         <Card

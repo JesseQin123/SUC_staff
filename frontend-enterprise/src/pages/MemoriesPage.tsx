@@ -64,7 +64,7 @@ export default function MemoriesPage() {
         </Space>
       ),
     },
-    { title: 'Memory 数', width: 110, render: (_, row) => row.memories.length },
+    { title: '记忆数', width: 110, render: (_, row) => row.memories.length },
     {
       title: '摘要',
       dataIndex: 'preview',
@@ -87,9 +87,9 @@ export default function MemoriesPage() {
   return (
     <>
       <div className="page-title">
-        <Typography.Title level={3}>Memory 查询</Typography.Title>
+        <Typography.Title level={3}>员工记忆</Typography.Title>
       </div>
-      <Card className="data-card" title={<><DatabaseOutlined /> 用户记忆</>}>
+      <Card className="data-card" title={<><DatabaseOutlined /> 员工记忆查询</>}>
         <Form form={form} layout="inline" className="toolbar-form" onFinish={load}>
           <Form.Item name="username" label="用户名">
             <Input allowClear placeholder="如 user_demo" />
@@ -111,12 +111,12 @@ export default function MemoriesPage() {
           dataSource={groups}
           loading={loading}
           pagination={{ pageSize: 10 }}
-          locale={{ emptyText: <Empty description="暂无 Memory" /> }}
+          locale={{ emptyText: <Empty description="暂无员工记忆" /> }}
           scroll={{ x: 1080 }}
         />
       </Card>
       <Drawer
-        title="Memory 详情"
+        title="员工记忆详情"
         open={Boolean(detail)}
         width={780}
         onClose={() => setDetail(null)}
@@ -127,7 +127,7 @@ export default function MemoriesPage() {
             <Descriptions bordered size="small" column={1}>
               <Descriptions.Item label="用户名">{detail.username || '-'}</Descriptions.Item>
               <Descriptions.Item label="用户 ID">{detail.user_id}</Descriptions.Item>
-              <Descriptions.Item label="Memory 数">{detail.memories.length}</Descriptions.Item>
+              <Descriptions.Item label="记忆数">{detail.memories.length}</Descriptions.Item>
               <Descriptions.Item label="类型">
                 <Space size={[4, 4]} wrap>
                   {detail.kinds.map((kind) => <Tag key={kind} color={memoryColor(kind)}>{kind}</Tag>)}

@@ -95,7 +95,7 @@ export default function AgentsPage({
   function deleteEmployee(row: AgentProfileRead) {
     Modal.confirm({
       title: `删除员工「${employeeDisplayName(row)}」？`,
-      content: '删除后会移除该员工的资料、SOP 和技能绑定；组织资源库不受影响。',
+      content: '删除后会移除该员工的资料、SOP 和技能绑定；开放广场平台不受影响。',
       okText: '删除',
       okButtonProps: { danger: true },
       cancelText: '取消',
@@ -120,8 +120,12 @@ export default function AgentsPage({
     <div className="page agents-page">
       <div className="page-title">
         <div>
-          <Typography.Title level={2}>员工名册</Typography.Title>
-          <Typography.Paragraph type="secondary">查看每位数字员工的岗位、掌握能力和可用资源，点击员工进入个人看板。</Typography.Paragraph>
+          <Typography.Title level={2}>{isAdmin ? '员工广场' : '员工名册'}</Typography.Title>
+          <Typography.Paragraph type="secondary">
+            {isAdmin
+              ? '管理可开放给任务派发台的数字员工，控制员工上线、下线和广场发布状态。'
+              : '查看个人员工和员工广场开放员工，点击员工进入员工信息页。'}
+          </Typography.Paragraph>
         </div>
         <Button icon={<ReloadOutlined />} onClick={() => void load()} loading={loading}>
           刷新
@@ -129,13 +133,6 @@ export default function AgentsPage({
       </div>
 
       <div className="agents-summary-grid">
-        {isAdmin && (
-          <Card className="agent-summary-card">
-            <span>组织资源库</span>
-            <strong>{overallAgent ? '组织资源库' : '-'}</strong>
-            <small>资料、SOP、技能和工具的组织级底座</small>
-          </Card>
-        )}
         <Card className="agent-summary-card">
           <span>员工总数</span>
           <strong>{employees.length}</strong>

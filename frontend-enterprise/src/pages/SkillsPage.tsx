@@ -382,7 +382,7 @@ export default function SkillsPage() {
     Modal.confirm({
       title: branchMode ? `从当前员工移除 SOP「${row.name}」？` : `删除 SOP「${row.name}」？`,
       content: branchMode
-        ? '这只会在当前员工的工作域中隐藏该 SOP；组织资源库和其他员工仍然保留。'
+        ? '这只会在当前员工的工作域中隐藏该 SOP；SOP 广场和其他员工仍然保留。'
         : '删除后不会移除历史对话记录，但组织 SOP 列表中将不再显示该流程。',
       okText: branchMode ? '移除' : '删除',
       okButtonProps: { danger: true },
@@ -434,14 +434,21 @@ export default function SkillsPage() {
   return (
     <>
       <div className="page-title">
-        <Typography.Title level={3}>SOP管理</Typography.Title>
+        <div>
+          <Typography.Title level={3}>{isOverallAgent ? 'SOP广场' : 'SOP管理'}</Typography.Title>
+          <Typography.Text type="secondary">
+            {isOverallAgent
+              ? '管理可开放给员工学习和复用的业务 SOP。'
+              : '管理员工已学习的业务 SOP，新建和编辑会进入 SOP 管理子页面。'}
+          </Typography.Text>
+        </div>
       </div>
       <Card
         className="data-card"
-        title="员工已学习的业务 SOP"
+        title={isOverallAgent ? '广场业务 SOP' : '员工已学习的业务 SOP'}
         extra={(
           <Space>
-            <Button onClick={() => void openImport()}>向其他员工学习 SOP</Button>
+            <Button onClick={() => void openImport()}>{isOverallAgent ? '从 SOP 广场新增' : '向其他员工学习 SOP'}</Button>
             <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
               新建 SOP
             </Button>
