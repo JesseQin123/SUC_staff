@@ -38,7 +38,7 @@ import KnowledgeManagePage, { KnowledgeAddPage } from './pages/KnowledgePage';
 import MemoriesPage from './pages/MemoriesPage';
 import ModelsPage from './pages/ModelsPage';
 import SkillsPage from './pages/SkillsPage';
-import ToolsPage from './pages/ToolsPage';
+import ToolsPage, { ToolEditPage, ToolNewPage, ToolTestPage } from './pages/ToolsPage';
 import { ThemeToggleButton, useThemeController, type EffectiveTheme } from './theme';
 import type { AgentProfileRead } from './types';
 
@@ -92,9 +92,11 @@ function Shell({
       ? '/enterprise/platform'
       : location.pathname.startsWith('/enterprise/knowledge')
         ? '/enterprise/knowledge'
-        : isDistillRoute
-          ? '/enterprise/skills'
-          : location.pathname;
+        : location.pathname.startsWith('/enterprise/tools')
+          ? '/enterprise/tools'
+          : isDistillRoute
+            ? '/enterprise/skills'
+            : location.pathname;
   const [lastDistillSearch, setLastDistillSearch] = useState(() => (isDistillRoute ? location.search : ''));
   const distillSearch = isDistillRoute ? location.search : lastDistillSearch;
   const distillSearchParams = useMemo(() => new URLSearchParams(distillSearch), [distillSearch]);
@@ -342,6 +344,9 @@ function Shell({
               <Route path="/enterprise/accounts" element={<AccountsPage />} />
               <Route path="/enterprise/models" element={<ModelsPage />} />
               <Route path="/enterprise/tools" element={<ToolsPage />} />
+              <Route path="/enterprise/tools/new" element={<ToolNewPage />} />
+              <Route path="/enterprise/tools/:toolId/edit" element={<ToolEditPage />} />
+              <Route path="/enterprise/tools/:toolId/test" element={<ToolTestPage />} />
               <Route path="/enterprise/persona" element={<Navigate to="/enterprise/dashboard" replace />} />
               <Route path="*" element={<Navigate to="/enterprise/dashboard" replace />} />
             </Routes>
