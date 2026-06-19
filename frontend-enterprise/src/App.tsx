@@ -4,7 +4,6 @@ import {
   DashboardOutlined,
   DatabaseOutlined,
   FileSearchOutlined,
-  GlobalOutlined,
   IdcardOutlined,
   LogoutOutlined,
   PlusOutlined,
@@ -173,16 +172,16 @@ function Shell({
   const sourceAgents = isAdmin ? scopeAgents : scopeAgents.filter((item) => !item.is_overall);
   const isOverallScope = Boolean(selectedAgent?.is_overall);
   const navItems = [
-    { key: '/enterprise/agents', icon: <TeamOutlined />, label: isOverallScope ? '员工广场' : '员工名册' },
+    ...(!isOverallScope ? [{ key: '/enterprise/agents', icon: <TeamOutlined />, label: '员工名册' }] : []),
     {
       key: 'employees',
       type: 'group' as const,
       label: '数字员工平台',
       children: [
         {
-          key: '/enterprise/dashboard',
-          icon: isOverallScope ? <GlobalOutlined /> : <DashboardOutlined />,
-          label: isOverallScope ? '开放广场平台' : '员工信息',
+          key: isOverallScope ? '/enterprise/agents' : '/enterprise/dashboard',
+          icon: isOverallScope ? <TeamOutlined /> : <DashboardOutlined />,
+          label: isOverallScope ? '员工广场' : '员工信息',
         },
         { key: '/enterprise/memories', icon: <DatabaseOutlined />, label: '员工记忆' },
         { key: '/enterprise/feedback', icon: <CommentOutlined />, label: '对话日志' },
