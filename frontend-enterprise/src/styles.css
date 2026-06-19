@@ -2041,6 +2041,10 @@ body.skill-distill-fixed .content {
   align-items: start;
 }
 
+.general-skill-workbench.general-skill-editor-page {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .general-skill-main,
 .general-skill-side {
   min-width: 0;
@@ -2479,6 +2483,41 @@ body.skill-distill-fixed .content {
 
 .general-skill-list-card .ant-card-body {
   padding: 10px;
+}
+
+.general-skill-list-page {
+  display: grid;
+  gap: 16px;
+}
+
+.general-skill-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.general-skill-stat-card .ant-card-body {
+  min-height: 106px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+}
+
+.general-skill-stat-card .ant-typography {
+  margin: 0;
+}
+
+.general-skill-list-table-card .ant-card-body {
+  display: grid;
+  gap: 14px;
+}
+
+.general-skill-table-toolbar {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) 160px auto;
+  gap: 12px;
+  align-items: center;
 }
 
 .general-skill-list-toolbar {
@@ -5253,6 +5292,14 @@ pre {
   }
 
   .general-skill-workbench {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .general-skill-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .general-skill-table-toolbar {
     grid-template-columns: minmax(0, 1fr);
   }
 

@@ -33,7 +33,7 @@ import AgentsPage from './pages/AgentsPage';
 import DashboardPage from './pages/DashboardPage';
 import DistillPage from './pages/DistillPage';
 import FeedbackPage from './pages/FeedbackPage';
-import GeneralSkillsPage from './pages/GeneralSkillsPage';
+import GeneralSkillsPage, { GeneralSkillEditPage, GeneralSkillNewPage } from './pages/GeneralSkillsPage';
 import KnowledgeManagePage, { KnowledgeAddPage } from './pages/KnowledgePage';
 import MemoriesPage from './pages/MemoriesPage';
 import ModelsPage from './pages/ModelsPage';
@@ -92,11 +92,13 @@ function Shell({
       ? '/enterprise/platform'
       : location.pathname.startsWith('/enterprise/knowledge')
         ? '/enterprise/knowledge'
-        : location.pathname.startsWith('/enterprise/tools')
-          ? '/enterprise/tools'
-          : isDistillRoute
-            ? '/enterprise/skills'
-            : location.pathname;
+        : location.pathname.startsWith('/enterprise/general-skills')
+          ? '/enterprise/general-skills'
+          : location.pathname.startsWith('/enterprise/tools')
+            ? '/enterprise/tools'
+            : isDistillRoute
+              ? '/enterprise/skills'
+              : location.pathname;
   const [lastDistillSearch, setLastDistillSearch] = useState(() => (isDistillRoute ? location.search : ''));
   const distillSearch = isDistillRoute ? location.search : lastDistillSearch;
   const distillSearchParams = useMemo(() => new URLSearchParams(distillSearch), [distillSearch]);
@@ -341,6 +343,8 @@ function Shell({
               <Route path="/enterprise/feedback" element={<FeedbackPage />} />
               <Route path="/enterprise/skills" element={<SkillsPage />} />
               <Route path="/enterprise/general-skills" element={<GeneralSkillsPage />} />
+              <Route path="/enterprise/general-skills/new" element={<GeneralSkillNewPage />} />
+              <Route path="/enterprise/general-skills/:slug/edit" element={<GeneralSkillEditPage />} />
               <Route path="/enterprise/accounts" element={<AccountsPage />} />
               <Route path="/enterprise/models" element={<ModelsPage />} />
               <Route path="/enterprise/tools" element={<ToolsPage />} />
