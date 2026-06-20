@@ -4,6 +4,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 from app.db.models import ChatSession, ModelConfig, Skill
+from app.knowledge.citations import knowledge_citations_from_results
 from app.llm import LLMClient, LLMError
 from app.session.session_schema import RouterDecision, StepAgentResult
 from app.tools.tool_schema import ToolResult
@@ -114,6 +115,7 @@ class ResponseGenerator:
         memory_context: list[dict[str, object]] | None = None,
         conversation_context: dict[str, object] | None = None,
     ) -> dict[str, object]:
+        knowledge_context = self._current_knowledge_context(message, session, step_result)
         return {
             "user_message": message,
             "conversation_context": conversation_context or {},
@@ -123,6 +125,7 @@ class ResponseGenerator:
                 "slots": session.slots_json or {},
                 "awaiting_input": session.awaiting_input_json,
                 "pending_tasks": session.pending_tasks_json or [],
+                "knowledge_context": knowledge_context,
             },
             "active_skill": skill.content_json if skill else None,
             "progress": self._progress_payload(session, skill, step_result, tool_result),
@@ -130,8 +133,22 @@ class ResponseGenerator:
             "step_result": step_result.model_dump(),
             "tool_result": tool_result.model_dump() if tool_result else None,
             "memory_context": memory_context or [],
+            "knowledge_citation_hints": knowledge_citations_from_results(knowledge_context),
             "response_rules": skill.content_json.get("response_rules", []) if skill else [],
         }
+
+    def _current_knowledge_context(
+        self,
+        message: str,
+        session: ChatSession,
+        step_result: StepAgentResult,
+    ) -> list[dict[str, object]]:
+        if step_result.knowledge_results:
+            return list(step_result.knowledge_results)
+        for item in reversed(session.knowledge_context_json or []):
+            if isinstance(item, dict) and item.get("source_message") == message:
+                return [item]
+        return []
 
     def _is_user_safe(self, text: str) -> bool:
         internal_terms = (
@@ -161,6 +178,7 @@ class ResponseGenerator:
     ) -> str:
         completion_ready = self._skill_completion_ready(session, skill, step_result, tool_result)
         completion_fallback = self._completion_fallback() if completion_ready else ""
+        prefer_step_reply = self._prefer_step_reply_for_knowledge(step_result)
         candidates = self._reply_candidates(
             reply,
             step_result.reply or "",
@@ -168,6 +186,7 @@ class ResponseGenerator:
             self._minimal_fallback_for_session(session),
             tool_result,
             completion_ready,
+            prefer_step_reply,
         )
         for candidate in candidates:
             stripped = candidate.strip()
@@ -186,7 +205,16 @@ class ResponseGenerator:
         session_fallback: str,
         tool_result: ToolResult | None,
         completion_ready: bool,
+        prefer_step_reply: bool,
     ) -> tuple[str, ...]:
+        if prefer_step_reply:
+            return (
+                step_reply,
+                model_reply,
+                completion_fallback,
+                session_fallback,
+                FALLBACK_REPLY,
+            )
         if completion_ready:
             return (
                 model_reply,
@@ -209,6 +237,18 @@ class ResponseGenerator:
             completion_fallback,
             session_fallback,
             FALLBACK_REPLY,
+        )
+
+    def _prefer_step_reply_for_knowledge(self, step_result: StepAgentResult) -> bool:
+        step_reply = (step_result.reply or "").strip()
+        if not step_reply:
+            return False
+        if step_result.knowledge_results:
+            return True
+        return (
+            "[1]" in step_reply
+            or "根据业务资料" in step_reply
+            or ("业务资料" in step_reply and "引用" in step_reply)
         )
 
     def _progress_payload(

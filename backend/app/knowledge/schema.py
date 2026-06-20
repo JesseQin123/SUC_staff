@@ -148,6 +148,43 @@ class KnowledgeChunkUpdateRequest(BaseModel):
     metadata: Optional[dict[str, Any]] = None
 
 
+class KnowledgeConceptRead(BaseModel):
+    id: str
+    tenant_id: str
+    knowledge_base_id: str
+    knowledge_base_version_id: Optional[str] = None
+    document_id: Optional[str] = None
+    concept_id: str
+    concept_type: str
+    title: str
+    description: Optional[str] = None
+    content_md: str
+    frontmatter: dict[str, Any] = Field(default_factory=dict)
+    links: list[dict[str, Any]] = Field(default_factory=list)
+    citations: list[dict[str, Any]] = Field(default_factory=list)
+    source_refs: list[dict[str, Any]] = Field(default_factory=list)
+    status: str
+    created_at: str
+    updated_at: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class KnowledgeConceptUpdateRequest(BaseModel):
+    tenant_id: str
+    content_md: str
+    document_id: Optional[str] = None
+    status: Literal["active", "archived"] = "active"
+
+
+class KnowledgeOkfImportRequest(BaseModel):
+    tenant_id: str
+    knowledge_base_id: Optional[str] = None
+    filename: str
+    content_base64: str
+    agent_id: Optional[str] = None
+
+
 class KnowledgeSearchRequest(BaseModel):
     tenant_id: str
     agent_id: Optional[str] = None
@@ -170,7 +207,9 @@ class KnowledgeSearchResponse(BaseModel):
     trace: list[dict[str, Any]] = Field(default_factory=list)
     route_trace: list[dict[str, Any]] = Field(default_factory=list)
     selected_documents: list[dict[str, Any]] = Field(default_factory=list)
+    selected_concepts: list[dict[str, Any]] = Field(default_factory=list)
     expanded_sections: list[dict[str, Any]] = Field(default_factory=list)
+    okf_citations: list[dict[str, Any]] = Field(default_factory=list)
     evidence_pack: list[dict[str, Any]] = Field(default_factory=list)
 
 

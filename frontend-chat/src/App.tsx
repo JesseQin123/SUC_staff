@@ -36,12 +36,12 @@ export default function App() {
         },
       }}
     >
-      <BrowserRouter>
+      <BrowserRouter basename="/chat">
         <Routes>
           <Route path="/login" element={<LoginPage />} />
-          <Route path="/chat" element={<RequireAuth><SessionListPage /></RequireAuth>} />
-          <Route path="/chat/:sessionId" element={<RequireAuth><ChatWindowPage /></RequireAuth>} />
-          <Route path="*" element={<Navigate to="/chat" replace />} />
+          <Route path="/" element={<RequireAuth><SessionListPage /></RequireAuth>} />
+          <Route path="/:sessionId" element={<RequireAuth><ChatWindowPage /></RequireAuth>} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>
     </ConfigProvider>

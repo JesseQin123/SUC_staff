@@ -16,6 +16,7 @@ from app.db.models import (
     KnowledgeBaseVersion,
     KnowledgeBucket,
     KnowledgeChunk,
+    KnowledgeConcept,
     KnowledgeDiscoverySuggestion,
     KnowledgeDocument,
     ModelConfig,
@@ -696,7 +697,7 @@ def _retag_knowledge_version(
     source_version_id: str,
     target_version_id: str,
 ) -> None:
-    tables = (KnowledgeDocument, KnowledgeBucket, KnowledgeChunk, KnowledgeDiscoverySuggestion)
+    tables = (KnowledgeDocument, KnowledgeBucket, KnowledgeChunk, KnowledgeConcept, KnowledgeDiscoverySuggestion)
     for model in tables:
         rows = db.exec(
             select(model).where(

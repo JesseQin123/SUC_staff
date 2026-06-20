@@ -1,11 +1,14 @@
 import {
+  AuditOutlined,
   CheckOutlined,
   CloseOutlined,
   DatabaseOutlined,
   DeleteOutlined,
+  DownloadOutlined,
   DownOutlined,
   EditOutlined,
   FileAddOutlined,
+  FileMarkdownOutlined,
   HistoryOutlined,
   InboxOutlined,
   MoreOutlined,
@@ -23,6 +26,7 @@ import type {
   KnowledgeBaseRead,
   KnowledgeBucketRead,
   KnowledgeChunkRead,
+  KnowledgeConceptRead,
   KnowledgeDiscoveryRead,
   KnowledgeDocumentRead,
   KnowledgeIngestJobRead,
@@ -52,17 +56,26 @@ type IngestStepView = {
   status: 'pending' | 'running' | 'done';
 };
 
+type OkfLintIssue = {
+  issue_type?: string;
+  title?: string;
+  message?: string;
+  concept_id?: string;
+  concept_type?: string;
+  document_id?: string;
+};
+
 const DEFAULT_INGEST_STEPS: IngestStepView[] = [
   { key: 'queued', label: '排队中', progress: 0, status: 'pending' },
-  { key: 'parsing', label: '解析', progress: 0.08, status: 'pending' },
-  { key: 'normalizing', label: '整理', progress: 0.16, status: 'pending' },
-  { key: 'documenting', label: '写入', progress: 0.24, status: 'pending' },
-  { key: 'bucketing', label: '分桶', progress: 0.36, status: 'pending' },
-  { key: 'bucket_writing', label: '桶摘要', progress: 0.48, status: 'pending' },
-  { key: 'chunking', label: '切片', progress: 0.62, status: 'pending' },
-  { key: 'summarizing', label: '整理', progress: 0.74, status: 'pending' },
-  { key: 'discovering', label: '发现', progress: 0.88, status: 'pending' },
-  { key: 'done', label: '完成', progress: 1, status: 'pending' },
+  { key: 'parsing', label: '解析原始资料', progress: 0.08, status: 'pending' },
+  { key: 'normalizing', label: '规范化 Source', progress: 0.16, status: 'pending' },
+  { key: 'documenting', label: '写入 Source Document', progress: 0.24, status: 'pending' },
+  { key: 'bucketing', label: '规划 Wiki 概念', progress: 0.36, status: 'pending' },
+  { key: 'bucket_writing', label: '写入 OKF Wiki', progress: 0.48, status: 'pending' },
+  { key: 'chunking', label: '生成证据层', progress: 0.62, status: 'pending' },
+  { key: 'summarizing', label: '刷新知识桶', progress: 0.74, status: 'pending' },
+  { key: 'discovering', label: '发现 SOP/工具', progress: 0.88, status: 'pending' },
+  { key: 'done', label: '完成入库', progress: 1, status: 'pending' },
 ];
 
 export default function KnowledgeManagePage() {
@@ -96,6 +109,24 @@ export default function KnowledgeManagePage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchResult, setSearchResult] = useState<KnowledgeSearchResponse | null>(null);
+  const [okfConcepts, setOkfConcepts] = useState<KnowledgeConceptRead[]>([]);
+  const [okfLoading, setOkfLoading] = useState(false);
+  const [okfImportOpen, setOkfImportOpen] = useState(false);
+  const [okfImporting, setOkfImporting] = useState(false);
+  const [okfLintIssues, setOkfLintIssues] = useState<OkfLintIssue[]>([]);
+  const [okfLintReportOpen, setOkfLintReportOpen] = useState(false);
+  const [okfLintKnowledgeBase, setOkfLintKnowledgeBase] = useState<KnowledgeBaseRead | null>(null);
+  const [editingConcept, setEditingConcept] = useState<KnowledgeConceptRead | null>(null);
+  const [conceptDraft, setConceptDraft] = useState('');
+  const conceptEditorType = editingConcept
+    ? okfFrontmatterValue(conceptDraft, 'type', editingConcept.concept_type || 'Topic')
+    : 'Topic';
+  const conceptEditorTitle = editingConcept
+    ? okfFrontmatterValue(conceptDraft, 'title', editingConcept.title || editingConcept.concept_id)
+    : '';
+  const conceptEditorDescription = editingConcept
+    ? okfFrontmatterValue(conceptDraft, 'description', editingConcept.description || '')
+    : '';
 
   const currentAgent = useMemo(() => agents.find((item) => item.id === agentId), [agents, agentId]);
   const isOverallAgent = !currentAgent || currentAgent.is_overall;
@@ -174,6 +205,10 @@ export default function KnowledgeManagePage() {
         await loadBuckets(current, false);
       } else {
         setBuckets([]);
+        const visibleKbRows = kbRows.filter((item) => !isEmptyDefaultKnowledgeBase(item));
+        const fallbackKnowledgeBaseId =
+          knowledgeBaseFilter !== '__all__' ? knowledgeBaseFilter : visibleKbRows[0]?.id || '';
+        await loadOkfConcepts(fallbackKnowledgeBaseId, false);
       }
     } catch (error) {
       message.error(error instanceof Error ? error.message : '刷新知识库失败');
@@ -186,12 +221,35 @@ export default function KnowledgeManagePage() {
     if (select) setSelectedDocument(document);
     setSearchResult(null);
     try {
-      const rows = await api.get<KnowledgeBucketRead[]>(
-        `/api/enterprise/knowledge/documents/${document.id}/buckets?tenant_id=${TENANT_ID}`,
-      );
+      const [rows] = await Promise.all([
+        api.get<KnowledgeBucketRead[]>(`/api/enterprise/knowledge/documents/${document.id}/buckets?tenant_id=${TENANT_ID}`),
+        loadOkfConcepts(document.knowledge_base_id, false),
+      ]);
       setBuckets(rows);
     } catch (error) {
       message.error(error instanceof Error ? error.message : '加载知识桶失败');
+    }
+  }
+
+  async function loadOkfConcepts(knowledgeBaseId?: string, showLoading = true) {
+    if (!knowledgeBaseId) {
+      setOkfConcepts([]);
+      setOkfLintIssues([]);
+      return;
+    }
+    if (showLoading) setOkfLoading(true);
+    const suffix = agentId ? `&agent_id=${encodeURIComponent(agentId)}` : '';
+    try {
+      const rows = await api.get<KnowledgeConceptRead[]>(
+        `/api/enterprise/knowledge-bases/${knowledgeBaseId}/okf/concepts?tenant_id=${TENANT_ID}${suffix}`,
+      );
+      setOkfConcepts(rows);
+      setOkfLintIssues([]);
+    } catch (error) {
+      setOkfConcepts([]);
+      message.error(error instanceof Error ? error.message : '加载 Wiki 概念失败');
+    } finally {
+      if (showLoading) setOkfLoading(false);
     }
   }
 
@@ -208,6 +266,7 @@ export default function KnowledgeManagePage() {
     setSelectedDocument(null);
     setBuckets([]);
     setSearchResult(null);
+    void loadOkfConcepts(knowledgeBaseId === '__all__' ? undefined : knowledgeBaseId);
   }
 
   async function runKnowledgeSearch() {
@@ -316,12 +375,176 @@ export default function KnowledgeManagePage() {
       navigate('/enterprise/knowledge/new');
       return;
     }
+    if (key === 'okf') {
+      setOkfImportOpen(true);
+      return;
+    }
     if (key === 'plaza') {
       void openImportKnowledgeBases('plaza');
       return;
     }
     if (key === 'employee') {
       void openImportKnowledgeBases('employee');
+    }
+  }
+
+  async function importOkfFile(file: File) {
+    setOkfImporting(true);
+    try {
+      const contentBase64 = await fileToBase64(file);
+      await api.post('/api/enterprise/knowledge/okf/import', {
+        tenant_id: TENANT_ID,
+        agent_id: agentId || undefined,
+        knowledge_base_id: selectedKnowledgeBase?.id,
+        filename: file.name,
+        content_base64: contentBase64,
+      });
+      message.success('已导入 OKF Bundle');
+      setOkfImportOpen(false);
+      await refresh();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '导入 OKF Bundle 失败');
+    } finally {
+      setOkfImporting(false);
+    }
+  }
+
+  async function exportOkfBundle(targetKnowledgeBase = selectedKnowledgeBase) {
+    if (!targetKnowledgeBase) {
+      message.warning('请先选择业务资料');
+      return;
+    }
+    const suffix = agentId ? `&agent_id=${encodeURIComponent(agentId)}` : '';
+    try {
+      const blob = await api.blob(
+        `/api/enterprise/knowledge-bases/${targetKnowledgeBase.id}/okf/export?tenant_id=${TENANT_ID}${suffix}`,
+      );
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${targetKnowledgeBase.name || targetKnowledgeBase.id}-okf.zip`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      message.success('已导出 OKF Bundle');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '导出 OKF Bundle 失败');
+    }
+  }
+
+  async function lintOkfBundle(targetKnowledgeBase = selectedKnowledgeBase) {
+    if (!targetKnowledgeBase) {
+      message.warning('请先选择业务资料');
+      return;
+    }
+    if (targetKnowledgeBase.id !== selectedKnowledgeBase?.id) {
+      selectKnowledgeBase(targetKnowledgeBase.id);
+    }
+    const suffix = agentId ? `&agent_id=${encodeURIComponent(agentId)}` : '';
+    setOkfLoading(true);
+    try {
+      const result = await api.post<{ status: string; issue_count: number; issues: OkfLintIssue[] }>(
+        `/api/enterprise/knowledge-bases/${targetKnowledgeBase.id}/okf/lint?tenant_id=${TENANT_ID}${suffix}`,
+      );
+      setOkfLintIssues(result.issues || []);
+      setOkfLintKnowledgeBase(targetKnowledgeBase);
+      setOkfLintReportOpen(true);
+      message.success(result.issue_count ? `发现 ${result.issue_count} 个待处理建议` : 'Wiki 健康检查通过');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : 'Wiki 健康检查失败');
+    } finally {
+      setOkfLoading(false);
+    }
+  }
+
+  function openConceptEditor(row: KnowledgeConceptRead) {
+    setEditingConcept(row);
+    setConceptDraft(row.content_md || '');
+  }
+
+  function openNewConceptEditor() {
+    if (!selectedKnowledgeBase) {
+      message.warning('请先选择业务资料');
+      return;
+    }
+    const conceptId = `topics/new-topic-${Date.now()}`;
+    const now = new Date().toISOString();
+    setEditingConcept({
+      id: `new-${Date.now()}`,
+      tenant_id: TENANT_ID,
+      knowledge_base_id: selectedKnowledgeBase.id,
+      knowledge_base_version_id: selectedKnowledgeBase.version,
+      document_id: selectedDocument?.id,
+      concept_id: conceptId,
+      concept_type: 'Topic',
+      title: '新 Wiki 页面',
+      description: '从员工高价值问题或资料整理沉淀出的主题页。',
+      content_md: [
+        '---',
+        'type: Topic',
+        'title: 新 Wiki 页面',
+        'description: 从员工高价值问题或资料整理沉淀出的主题页。',
+        '---',
+        '',
+        '# Summary',
+        '',
+        '在这里补充这个主题的稳定知识、适用边界和关键判断口径。',
+        '',
+        '# Citations',
+        '',
+        selectedDocument ? `[1] [Source document](ultrarag://knowledge/documents/${selectedDocument.id})` : '',
+      ]
+        .filter((line) => line !== '')
+        .join('\n'),
+      frontmatter: { type: 'Topic', title: '新 Wiki 页面' },
+      links: [],
+      citations: [],
+      source_refs: selectedDocument ? [{ document_id: selectedDocument.id }] : [],
+      status: 'active',
+      created_at: now,
+      updated_at: now,
+    });
+    setConceptDraft(
+      [
+        '---',
+        'type: Topic',
+        'title: 新 Wiki 页面',
+        'description: 从员工高价值问题或资料整理沉淀出的主题页。',
+        '---',
+        '',
+        '# Summary',
+        '',
+        '在这里补充这个主题的稳定知识、适用边界和关键判断口径。',
+        '',
+        '# Citations',
+        '',
+        selectedDocument ? `[1] [Source document](ultrarag://knowledge/documents/${selectedDocument.id})` : '',
+      ]
+        .filter((line) => line !== '')
+        .join('\n'),
+    );
+  }
+
+  async function saveConcept() {
+    if (!editingConcept || !selectedKnowledgeBase) return;
+    const suffix = agentId ? `?agent_id=${encodeURIComponent(agentId)}` : '';
+    try {
+      const next = await api.put<KnowledgeConceptRead>(
+        `/api/enterprise/knowledge-bases/${selectedKnowledgeBase.id}/okf/concepts/${conceptPath(editingConcept.concept_id)}${suffix}`,
+        {
+          tenant_id: TENANT_ID,
+          document_id: editingConcept.document_id,
+          content_md: conceptDraft,
+          status: editingConcept.status,
+        },
+      );
+      setOkfConcepts((current) => current.map((item) => (item.id === next.id ? next : item)));
+      setEditingConcept(null);
+      message.success('已保存 Wiki 页面');
+      await loadOkfConcepts(selectedKnowledgeBase.id, false);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '保存 Wiki 页面失败');
     }
   }
 
@@ -522,8 +745,8 @@ export default function KnowledgeManagePage() {
           <Typography.Title level={3}>{isOverallAgent ? '业务知识广场' : '业务资料库'}</Typography.Title>
           <Typography.Text type="secondary">
             {isOverallAgent
-              ? '管理开放给员工学习和引用的业务资料，查看文档卡片、知识结构、知识桶和证据片段。'
-              : '管理员工可引用的业务资料，查看文档卡片、知识结构、知识桶和证据片段。'}
+              ? '管理开放给员工学习和引用的业务资料，查看文档卡片、LLM Wiki、知识桶和证据片段。'
+              : '管理员工可引用的业务资料，查看文档卡片、LLM Wiki、知识桶和证据片段。'}
           </Typography.Text>
         </div>
         <Space className="page-actions">
@@ -533,6 +756,7 @@ export default function KnowledgeManagePage() {
             menu={{
               items: [
                 { key: 'blank', icon: <FileAddOutlined />, label: '新建空白业务资料' },
+                { key: 'okf', icon: <FileMarkdownOutlined />, label: '导入 OKF Bundle' },
                 { key: 'plaza', label: '从业务知识广场新增', disabled: isOverallAgent },
                 { key: 'employee', label: '向其他员工学习资料' },
               ],
@@ -598,6 +822,8 @@ export default function KnowledgeManagePage() {
                             items: [
                               { key: 'edit', icon: <EditOutlined />, label: '详情' },
                               { key: 'versions', icon: <HistoryOutlined />, label: '版本管理' },
+                              { key: 'okf-export', icon: <DownloadOutlined />, label: '导出 OKF Bundle' },
+                              { key: 'okf-lint', icon: <AuditOutlined />, label: 'Wiki 健康检查', disabled: okfLoading },
                               !isOverallAgent ? { key: 'sync', label: '从开放广场平台同步' } : null,
                               !isOverallAgent ? { key: 'promote', label: '分享到开放广场平台' } : null,
                               item.status === 'archived'
@@ -613,6 +839,8 @@ export default function KnowledgeManagePage() {
                             onClick: ({ key }) => {
                               if (key === 'edit') openEditKnowledgeBase(item);
                               if (key === 'versions') void openKnowledgeBaseVersions(item);
+                              if (key === 'okf-export') void exportOkfBundle(item);
+                              if (key === 'okf-lint') void lintOkfBundle(item);
                               if (key === 'sync') void syncKnowledgeBaseFromOverall(item);
                               if (key === 'promote') void promoteKnowledgeBaseToOverall(item);
                               if (key === 'publish') void setKnowledgeBaseStatus(item, true);
@@ -643,16 +871,19 @@ export default function KnowledgeManagePage() {
         </Col>
         <Col xs={24} xl={16}>
           <div className="knowledge-structure-card-frame">
-            <Card className="knowledge-card knowledge-card-solid knowledge-structure-card" title="知识结构">
+            <Card className="knowledge-card knowledge-card-solid knowledge-structure-card" title="LLM Wiki">
               {!selectedDocument ? (
-                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="选择业务资料后查看文档卡片、章节、知识桶和证据片段" />
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="选择业务资料后查看文档卡片、LLM Wiki、知识桶和证据片段" />
               ) : (
                 <PageIndexOverview
                   document={selectedDocument}
                   knowledgeBase={selectedKnowledgeBase}
                   buckets={buckets}
+                  okfConcepts={okfConcepts}
                   onEditDocument={openEditDocument}
                   onEditBucket={openBucketEditor}
+                  onEditConcept={openConceptEditor}
+                  onCreateConcept={openNewConceptEditor}
                 />
               )}
             </Card>
@@ -717,6 +948,142 @@ export default function KnowledgeManagePage() {
             仅可学习开放广场平台或来源员工中已启用的业务资料；分享到开放广场平台后，其他员工可继续复用。
           </Typography.Text>
         </Space>
+      </Modal>
+      <Modal
+        open={okfImportOpen}
+        title="导入 OKF Bundle"
+        footer={null}
+        onCancel={() => setOkfImportOpen(false)}
+      >
+        <Dragger
+          accept=".zip,.md,.markdown"
+          multiple={false}
+          showUploadList={false}
+          disabled={okfImporting}
+          beforeUpload={(file) => {
+            void importOkfFile(file);
+            return false;
+          }}
+        >
+          <p className="ant-upload-drag-icon">
+            <FileMarkdownOutlined />
+          </p>
+          <p className="ant-upload-text">选择或拖入 OKF bundle</p>
+          <p className="ant-upload-hint">支持 .zip、.md、.markdown；导入后会生成 Wiki 概念、知识桶和证据片段。</p>
+        </Dragger>
+      </Modal>
+      <Modal
+        open={okfLintReportOpen}
+        title={okfLintKnowledgeBase ? `Wiki 健康检查：${okfLintKnowledgeBase.name}` : 'Wiki 健康检查'}
+        footer={<Button onClick={() => setOkfLintReportOpen(false)}>关闭</Button>}
+        width={820}
+        onCancel={() => setOkfLintReportOpen(false)}
+      >
+        <div className="knowledge-lint-report">
+          <Typography.Paragraph type="secondary">
+            健康检查用于审计当前业务资料的 OKF Wiki 概念层，检查缺 citation、断链、孤立页、重复主题、潜在矛盾和过期 claim。检查结果只作为待处理建议，不属于更新日志。
+          </Typography.Paragraph>
+          {okfLintIssues.length === 0 ? (
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Wiki 健康检查通过" />
+          ) : (
+            <div className="knowledge-lint-grid">
+              {okfLintIssues.map((issue, index) => (
+                <div className="knowledge-lint-item" key={`${issue.issue_type || 'issue'}-${issue.concept_id || index}`}>
+                  <Tag color="gold">{issue.issue_type || 'warning'}</Tag>
+                  <strong>{issue.title || issue.concept_id || 'Wiki 健康检查'}</strong>
+                  <span>{issue.message || '待处理'}</span>
+                  {issue.concept_id ? <small>{issue.concept_id}</small> : null}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </Modal>
+      <Modal
+        open={Boolean(editingConcept)}
+        title={
+          editingConcept ? (
+            <div className="okf-editor-modal-title">
+              <span>编辑 Wiki 页面</span>
+              <strong>{conceptEditorTitle || editingConcept.concept_id}</strong>
+            </div>
+          ) : (
+            '编辑 Wiki 页面'
+          )
+        }
+        width="min(1120px, calc(100vw - 48px))"
+        className="okf-editor-modal"
+        okText="保存"
+        cancelText="取消"
+        onOk={() => void saveConcept()}
+        onCancel={() => setEditingConcept(null)}
+      >
+        {editingConcept && (
+          <div className="okf-editor-shell">
+            <aside className="okf-editor-meta">
+              <div className="okf-editor-type-mark">
+                <FileMarkdownOutlined />
+                <span>{conceptTypeLabel(conceptEditorType)}</span>
+              </div>
+              <div className="okf-editor-meta-list">
+                <span>页面路径</span>
+                <strong>{editingConcept.concept_id}</strong>
+                <span>链接</span>
+                <strong>{editingConcept.links.length} 个</strong>
+                <span>引用</span>
+                <strong>{editingConcept.citations.length} 个</strong>
+                <span>更新时间</span>
+                <strong>{formatDateTime(editingConcept.updated_at)}</strong>
+              </div>
+              <div className="okf-editor-note">
+                OKF 页面使用 Markdown + YAML frontmatter 保存，标题和摘要会同步写入源码。
+              </div>
+            </aside>
+            <section className="okf-editor-main">
+              <div className="okf-editor-fields">
+                <label>
+                  <span>页面标题</span>
+                  <Input
+                    value={conceptEditorTitle}
+                    onChange={(event) =>
+                      setConceptDraft((prev) => updateOkfFrontmatterValue(prev, 'title', event.target.value))
+                    }
+                    placeholder="Wiki 页面标题"
+                  />
+                </label>
+                <label>
+                  <span>页面类型</span>
+                  <Select
+                    value={conceptEditorType}
+                    onChange={(value) => setConceptDraft((prev) => updateOkfFrontmatterValue(prev, 'type', value))}
+                    options={Array.from(CONCEPT_TYPE_LABELS.entries()).map(([value, label]) => ({ value, label }))}
+                  />
+                </label>
+                <label className="okf-editor-field-wide">
+                  <span>页面摘要</span>
+                  <Input.TextArea
+                    value={conceptEditorDescription}
+                    rows={3}
+                    onChange={(event) =>
+                      setConceptDraft((prev) => updateOkfFrontmatterValue(prev, 'description', event.target.value))
+                    }
+                    placeholder="说明这个 Wiki 页面沉淀了什么知识"
+                  />
+                </label>
+              </div>
+              <label className="okf-editor-source">
+                <span>OKF Markdown 源码</span>
+                <Input.TextArea
+                  className="okf-markdown-editor"
+                  value={conceptDraft}
+                  rows={18}
+                  onChange={(event) => setConceptDraft(event.target.value)}
+                  spellCheck={false}
+                />
+              </label>
+            </section>
+          </div>
+        )}
       </Modal>
       <Modal
         open={Boolean(editingKnowledgeBase)}
@@ -995,7 +1362,7 @@ export function KnowledgeAddPage() {
           <div>
             <Typography.Text className="section-kicker">业务资料库 / 新建空白</Typography.Text>
             <Typography.Title level={3}>新建空白业务资料</Typography.Title>
-            <Typography.Text type="secondary">上传业务文档后，系统会自动解析、分桶、切片，并生成证据片段与自发现建议。</Typography.Text>
+            <Typography.Text type="secondary">上传业务文档后，系统会先生成 OKF Wiki 概念层，再刷新知识桶、证据片段与自发现建议。</Typography.Text>
           </div>
           <Button icon={<RightOutlined />} onClick={() => navigate('/enterprise/knowledge')}>返回资料库</Button>
         </div>
@@ -1004,7 +1371,7 @@ export function KnowledgeAddPage() {
           <div className="knowledge-upload-controls">
             <div>
               <Typography.Text strong>上传文档即创建业务资料</Typography.Text>
-              <Typography.Text type="secondary">一个文件对应一份独立业务资料；回到资料库后可查看文档卡片、知识结构、知识桶和证据片段。</Typography.Text>
+              <Typography.Text type="secondary">一个文件对应一份独立业务资料；回到资料库后可查看文档卡片、Wiki 概念、知识桶和证据片段。</Typography.Text>
             </div>
             <Button onClick={() => navigate('/enterprise/knowledge')}>管理已有业务资料</Button>
           </div>
@@ -1044,7 +1411,7 @@ export function KnowledgeAddPage() {
 
         <Card className="knowledge-card knowledge-card-solid" title="入库任务">
           {Object.values(jobs).length === 0 ? (
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="上传后这里会显示解析和分桶进度" />
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="上传后这里会显示原始资料、OKF Wiki 和证据层入库进度" />
           ) : (
             <div className="knowledge-jobs">
               {Object.values(jobs).map((job) => (
@@ -1162,43 +1529,89 @@ function stringFromMetadata(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
-type KnowledgeDetailView = 'document' | 'sections' | 'buckets' | 'evidence';
+type KnowledgeDetailView = 'document' | 'sections' | 'wiki' | 'buckets' | 'evidence' | 'log';
 type KnowledgeContentView = Exclude<KnowledgeDetailView, 'document'>;
-const STRUCTURE_PREVIEW_LIMIT = 18;
-const BUCKET_PREVIEW_LIMIT = 18;
-const EVIDENCE_PREVIEW_LIMIT = 30;
+const STRUCTURE_PREVIEW_LIMIT = 8;
+const BUCKET_PREVIEW_LIMIT = 8;
+const EVIDENCE_PREVIEW_LIMIT = 8;
+const OKF_PREVIEW_LIMIT = 8;
+const OKF_LOG_LIMIT = 8;
 
 function PageIndexOverview({
   document,
   knowledgeBase,
   buckets,
+  okfConcepts,
   onEditDocument,
   onEditBucket,
+  onEditConcept,
+  onCreateConcept,
 }: {
   document: KnowledgeDocumentRead;
   knowledgeBase: KnowledgeBaseRead | null;
   buckets: KnowledgeBucketRead[];
+  okfConcepts: KnowledgeConceptRead[];
   onEditDocument: (document: KnowledgeDocumentRead) => void;
   onEditBucket: (bucket: KnowledgeBucketRead) => void | Promise<void>;
+  onEditConcept: (concept: KnowledgeConceptRead) => void;
+  onCreateConcept: () => void;
 }) {
   const [detailView, setDetailView] = useState<KnowledgeDetailView | null>(null);
+  const [detailFocusKey, setDetailFocusKey] = useState<string | null>(null);
   const [activeContentView, setActiveContentView] = useState<KnowledgeContentView>('sections');
   const metadata = document.metadata || {};
   const documentCard = isRecord(metadata.document_card) ? metadata.document_card : {};
-  const sectionTreeAll = Array.isArray(metadata.section_tree) ? metadata.section_tree.filter(isRecord) : [];
   const chunkStats = isRecord(metadata.chunk_stats) ? metadata.chunk_stats : {};
   const bucketQuality = Array.isArray(metadata.bucket_quality) ? metadata.bucket_quality.filter(isRecord) : [];
   const qualityByBucketId = new Map(
     bucketQuality.map((quality) => [String(quality.bucket_id || quality.bucket_key || quality.title || ''), quality]),
   );
-  const sectionCount = Number(documentCard.section_count || sectionTreeAll.length || 0);
   const chunkCount = Number(chunkStats.total_chunks || document.chunk_count || 0);
-  const previewSections = sectionTreeAll.slice(0, STRUCTURE_PREVIEW_LIMIT);
+  const wikiStructureConcepts = useMemo(() => sortWikiConcepts(okfConcepts), [okfConcepts]);
+  const previewWikiStructure = wikiStructureConcepts.slice(0, STRUCTURE_PREVIEW_LIMIT);
   const previewBuckets = buckets.slice(0, BUCKET_PREVIEW_LIMIT);
   const evidenceBuckets = buckets.filter((bucket) => bucket.chunk_count > 0);
   const previewEvidence = previewEvidenceItems(buckets, chunkCount, EVIDENCE_PREVIEW_LIMIT);
+  const previewConcepts = okfConcepts.slice(0, OKF_PREVIEW_LIMIT);
+  const recentConcepts = [...okfConcepts]
+    .sort((left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime())
+    .slice(0, OKF_LOG_LIMIT);
+  const logItems = recentConcepts.map((concept) => ({
+    key: concept.id,
+    title: concept.title,
+    summary: `${conceptTypeLabel(concept.concept_type)} · ${formatDateTime(concept.updated_at)} · ${concept.concept_id}`,
+  }));
   const documentTitle = String(documentCard.title || document.title || knowledgeBase?.name || document.filename);
   const documentSummary = String(documentCard.summary || '暂无文档摘要');
+  const openDetail = (view: KnowledgeDetailView, focusKey?: string) => {
+    setDetailFocusKey(focusKey || null);
+    setDetailView(view);
+  };
+  const openContentDetail = (view: KnowledgeContentView, focusKey?: string) => {
+    if ((view === 'sections' || view === 'log') && focusKey) {
+      openDetail('wiki', focusKey);
+      return;
+    }
+    if (view === 'sections') {
+      openDetail('wiki');
+      return;
+    }
+    openDetail(view, focusKey);
+  };
+
+  useEffect(() => {
+    if (!detailView || !detailFocusKey) return;
+    const timer = window.setTimeout(() => {
+      const targets = Array.from(window.document.querySelectorAll<HTMLElement>('.knowledge-detail-modal .knowledge-detail-target'));
+      const target = targets.find((item) => item.dataset.detailKey === detailFocusKey);
+      if (!target) return;
+      target.scrollIntoView({ block: 'start', behavior: 'auto' });
+      target.classList.add('is-focused');
+      window.setTimeout(() => target.classList.remove('is-focused'), 1500);
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [detailView, detailFocusKey]);
+
   const overviewContent: Record<
     KnowledgeContentView,
     {
@@ -1206,18 +1619,19 @@ function PageIndexOverview({
       description: string;
       count: number;
       emptyText: string;
-      items: Array<{ key: string; title: string; summary: string }>;
+      items: Array<{ key: string; title: string; summary: string; concept?: KnowledgeConceptRead }>;
     }
   > = {
     sections: {
-      title: '知识结构',
-      description: '按章节和自然段建立的可展开导航。',
-      count: sectionCount,
-      emptyText: '暂无章节结构',
-      items: previewSections.map((section, index) => ({
-        key: sectionKey(section, index),
-        title: sectionTitle(section, index),
-        summary: sectionSummary(section) || '暂无摘要',
+      title: 'LLM Wiki 结构',
+      description: '按 OKF 概念页组织的长期知识层，用于沉淀、链接和引用。',
+      count: okfConcepts.length,
+      emptyText: '暂无 LLM Wiki 页面',
+      items: previewWikiStructure.map((concept) => ({
+        key: concept.id,
+        title: concept.title || concept.concept_id,
+        summary: `${conceptTypeLabel(concept.concept_type)} · ${concept.description || concept.concept_id}`,
+        concept,
       })),
     },
     evidence: {
@@ -1227,9 +1641,21 @@ function PageIndexOverview({
       emptyText: '暂无证据片段',
       items: previewEvidence,
     },
+    wiki: {
+      title: 'Wiki 概念',
+      description: 'OKF 概念层，用于长期沉淀、跨文档综合和员工学习。',
+      count: okfConcepts.length,
+      emptyText: '暂无 Wiki 概念',
+      items: previewConcepts.map((concept) => ({
+        key: concept.id,
+        title: concept.title || concept.concept_id,
+        summary: `${conceptTypeLabel(concept.concept_type)} · ${concept.description || concept.concept_id}`,
+        concept,
+      })),
+    },
     buckets: {
       title: '知识桶',
-      description: '跨章节聚合出的主题索引，用于快速定位知识区域。',
+      description: '从 OKF 页面和证据层聚合出的主题索引，用于快速定位知识区域。',
       count: buckets.length,
       emptyText: '暂无知识桶',
       items: previewBuckets.map((bucket) => ({
@@ -1237,6 +1663,13 @@ function PageIndexOverview({
         title: bucket.title || bucket.bucket_key || '未命名知识桶',
         summary: bucket.summary || '暂无摘要',
       })),
+    },
+    log: {
+      title: '更新日志',
+      description: 'OKF Wiki 页面的维护记录。',
+      count: okfConcepts.length,
+      emptyText: '暂无更新记录',
+      items: logItems,
     },
   };
   const activeContent = overviewContent[activeContentView];
@@ -1250,12 +1683,12 @@ function PageIndexOverview({
           <Typography.Paragraph ellipsis={{ rows: 3 }}>{documentSummary}</Typography.Paragraph>
         </div>
         <div className="knowledge-pageindex-actions">
-          <Button size="small" icon={<EditOutlined />} onClick={() => setDetailView('document')}>
+          <Button size="small" icon={<EditOutlined />} onClick={() => openDetail('document')}>
             详情
           </Button>
         </div>
         <div className="knowledge-document-meta">
-          <button type="button" className="knowledge-stat-pill" onClick={() => setDetailView('document')}>
+          <button type="button" className="knowledge-stat-pill" onClick={() => openDetail('document')}>
             <span>格式</span>
             <strong>{document.file_type || 'unknown'}</strong>
           </button>
@@ -1265,8 +1698,17 @@ function PageIndexOverview({
             aria-pressed={activeContentView === 'sections'}
             onClick={() => setActiveContentView('sections')}
           >
-            <span>章节</span>
-            <strong>{sectionCount}</strong>
+            <span>LLM Wiki</span>
+            <strong>{okfConcepts.length}</strong>
+          </button>
+          <button
+            type="button"
+            className={`knowledge-stat-pill ${activeContentView === 'buckets' ? 'is-active' : ''}`}
+            aria-pressed={activeContentView === 'buckets'}
+            onClick={() => setActiveContentView('buckets')}
+          >
+            <span>知识桶</span>
+            <strong>{buckets.length}</strong>
           </button>
           <button
             type="button"
@@ -1279,12 +1721,12 @@ function PageIndexOverview({
           </button>
           <button
             type="button"
-            className={`knowledge-stat-pill ${activeContentView === 'buckets' ? 'is-active' : ''}`}
-            aria-pressed={activeContentView === 'buckets'}
-            onClick={() => setActiveContentView('buckets')}
+            className={`knowledge-stat-pill ${activeContentView === 'log' ? 'is-active' : ''}`}
+            aria-pressed={activeContentView === 'log'}
+            onClick={() => setActiveContentView('log')}
           >
-            <span>知识桶</span>
-            <strong>{buckets.length}</strong>
+            <span>更新日志</span>
+            <strong>{okfConcepts.length}</strong>
           </button>
         </div>
       </div>
@@ -1297,7 +1739,12 @@ function PageIndexOverview({
           </span>
           <Space size={8}>
             <Tag>{activeContent.count}</Tag>
-            <Button size="small" type="link" onClick={() => setDetailView(activeContentView)}>
+            {activeContentView === 'sections' && (
+              <Button size="small" onClick={onCreateConcept}>
+                沉淀为 Wiki 页面
+              </Button>
+            )}
+            <Button size="small" type="link" onClick={() => openContentDetail(activeContentView)}>
               查看全部
             </Button>
           </Space>
@@ -1307,10 +1754,22 @@ function PageIndexOverview({
             <span className="knowledge-empty-note">{activeContent.emptyText}</span>
           ) : (
             activeContent.items.map((entry) => (
-              <span className="knowledge-mini-item" key={`${activeContentView}-${entry.key}`}>
+              <button
+                type="button"
+                className="knowledge-mini-item"
+                key={`${activeContentView}-${entry.key}`}
+                onClick={() => {
+                  if ((activeContentView === 'sections' || activeContentView === 'wiki') && entry.concept) {
+                    onEditConcept(entry.concept);
+                    return;
+                  }
+                  openContentDetail(activeContentView, entry.key);
+                }}
+                title={(activeContentView === 'sections' || activeContentView === 'wiki') && entry.concept ? '编辑 Wiki 页面' : '查看详情'}
+              >
                 <strong>{entry.title}</strong>
                 <small>{entry.summary}</small>
-              </span>
+              </button>
             ))
           )}
         </div>
@@ -1320,8 +1779,8 @@ function PageIndexOverview({
         open={Boolean(detailView)}
         title={knowledgeDetailTitle(detailView)}
         footer={null}
-        width={920}
-        className="knowledge-detail-modal"
+        width={detailView === 'sections' ? 'min(1240px, calc(100vw - 56px))' : 920}
+        className={`knowledge-detail-modal${detailView === 'sections' ? ' knowledge-detail-modal-sections' : ''}`}
         onCancel={() => setDetailView(null)}
       >
         {detailView === 'document' && (
@@ -1341,48 +1800,106 @@ function PageIndexOverview({
               <span>文件格式</span>
             </div>
             <div className="knowledge-document-meta">
-              <button type="button" className="knowledge-stat-pill" onClick={() => setDetailView('sections')}>
-                <span>章节</span>
-                <strong>{sectionCount}</strong>
+              <button type="button" className="knowledge-stat-pill" onClick={() => openDetail('sections')}>
+                <span>LLM Wiki</span>
+                <strong>{okfConcepts.length}</strong>
               </button>
-              <button type="button" className="knowledge-stat-pill" onClick={() => setDetailView('buckets')}>
+              <button type="button" className="knowledge-stat-pill" onClick={() => openDetail('buckets')}>
                 <span>知识桶</span>
                 <strong>{buckets.length}</strong>
               </button>
-              <button type="button" className="knowledge-stat-pill" onClick={() => setDetailView('evidence')}>
+              <button type="button" className="knowledge-stat-pill" onClick={() => openDetail('wiki')}>
+                <span>Wiki 概念</span>
+                <strong>{okfConcepts.length}</strong>
+              </button>
+              <button type="button" className="knowledge-stat-pill" onClick={() => openDetail('evidence')}>
                 <span>证据片段</span>
                 <strong>{chunkCount}</strong>
+              </button>
+              <button type="button" className="knowledge-stat-pill" onClick={() => openDetail('log')}>
+                <span>更新日志</span>
+                <strong>{okfConcepts.length}</strong>
               </button>
             </div>
           </div>
         )}
 
         {detailView === 'sections' && (
-          <div className="knowledge-section-tree">
-            {sectionTreeAll.length === 0 ? (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无章节结构" />
+          <div className="knowledge-wiki-map">
+            {wikiStructureConcepts.length === 0 ? (
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无 LLM Wiki 页面" />
             ) : (
-              <Collapse
-                className="knowledge-section-collapse"
-                ghost
-                items={sectionTreeAll.map((section, index) => ({
-                  key: sectionKey(section, index),
-                  label: (
-                    <span className="knowledge-section-label" style={{ paddingLeft: Math.max(0, sectionLevel(section) - 1) * 14 }}>
-                      {sectionTitle(section, index)}
-                    </span>
-                  ),
-                  children: (
-                    <div className="knowledge-section-detail">
-                      <Typography.Paragraph>{sectionSummary(section) || '暂无摘要'}</Typography.Paragraph>
-                      <Space size={6} wrap>
-                        <Tag>层级 {sectionLevel(section)}</Tag>
-                        {section.path ? <Tag>{String(section.path)}</Tag> : null}
+              wikiStructureConcepts.map((concept) => (
+                <button
+                  type="button"
+                  className="knowledge-wiki-map-card knowledge-detail-target"
+                  key={concept.id}
+                  data-detail-key={concept.id}
+                  onClick={() => onEditConcept(concept)}
+                >
+                  <div>
+                    <Space size={6} wrap>
+                      <Tag color={conceptTypeColor(concept.concept_type)}>{conceptTypeLabel(concept.concept_type)}</Tag>
+                      {statusTag(concept.status)}
+                    </Space>
+                    <strong>{concept.title || concept.concept_id}</strong>
+                    <small>{concept.description || conceptSummary(concept)}</small>
+                  </div>
+                  <span>{concept.concept_id}</span>
+                </button>
+              ))
+            )}
+          </div>
+        )}
+
+        {detailView === 'wiki' && (
+          <div className="knowledge-concept-list">
+            {okfConcepts.length === 0 ? (
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无 Wiki 概念" />
+            ) : (
+              okfConcepts.map((concept) => (
+                <div
+                  className="knowledge-concept-card knowledge-detail-target"
+                  key={concept.id}
+                  data-detail-key={concept.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => onEditConcept(concept)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      onEditConcept(concept);
+                    }
+                  }}
+                >
+                  <div className="knowledge-concept-card-head">
+                    <div>
+                      <Space size={8} wrap>
+                        <Tag color={conceptTypeColor(concept.concept_type)}>{conceptTypeLabel(concept.concept_type)}</Tag>
+                        {statusTag(concept.status)}
                       </Space>
+                      <Typography.Title level={5}>{concept.title || concept.concept_id}</Typography.Title>
                     </div>
-                  ),
-                }))}
-              />
+                    <Button
+                      size="small"
+                      icon={<EditOutlined />}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onEditConcept(concept);
+                      }}
+                    >
+                      编辑
+                    </Button>
+                  </div>
+                  <Typography.Paragraph type="secondary">{concept.description || conceptSummary(concept)}</Typography.Paragraph>
+                  <Space size={6} wrap>
+                    <Tag>{concept.concept_id}</Tag>
+                    <Tag>{concept.links.length} 个链接</Tag>
+                    <Tag>{concept.citations.length} 个引用</Tag>
+                    {concept.document_id ? <Tag>来源文档 {concept.document_id}</Tag> : null}
+                  </Space>
+                </div>
+              ))
             )}
           </div>
         )}
@@ -1401,7 +1918,7 @@ function PageIndexOverview({
                 const qualityInfo = isRecord(quality.quality) ? quality.quality : {};
                 const warnings = Array.isArray(qualityInfo.warnings) ? qualityInfo.warnings : [];
                 return (
-                  <div className="knowledge-detail-bucket" key={bucket.id}>
+                  <div className="knowledge-detail-bucket knowledge-detail-target" key={bucket.id} data-detail-key={bucket.id}>
                     <div className="knowledge-quality-item-head">
                       <div>
                         <strong>{bucket.title || `知识桶 ${index + 1}`}</strong>
@@ -1419,7 +1936,7 @@ function PageIndexOverview({
                       <Tag color={qualityInfo.status === 'warning' ? 'gold' : 'green'}>
                         {qualityInfo.status === 'warning' ? '待补充' : '达标'}
                       </Tag>
-                      <Tag>{bucketSourceSections(bucket).length} 章节</Tag>
+                      <Tag>{bucketSourceSections(bucket).length} 来源</Tag>
                       <Tag>{bucket.chunk_count} 证据片段</Tag>
                       {warnings.slice(0, 2).map((warning) => (
                         <Tag color="gold" key={String(warning)}>
@@ -1437,7 +1954,7 @@ function PageIndexOverview({
 
         {detailView === 'evidence' && (
           <div className="knowledge-evidence-summary">
-            <div className="knowledge-evidence-stat">
+            <div className="knowledge-evidence-stat knowledge-detail-target" data-detail-key="chunk-total">
               <strong>{chunkCount}</strong>
               <span>证据片段</span>
               <small>按完整段落和句子边界切分，只有可读内容才在详情中展示。</small>
@@ -1445,7 +1962,7 @@ function PageIndexOverview({
             <div className="knowledge-evidence-bucket-map">
               {evidenceBuckets.length === 0 ? (
                 chunkCount > 0 ? (
-                  <div className="knowledge-evidence-map-item">
+                  <div className="knowledge-evidence-map-item knowledge-detail-target" data-detail-key="chunk-total">
                     <Typography.Text strong>已入库证据片段</Typography.Text>
                     <Typography.Text type="secondary">
                       共 {chunkCount} 个证据片段，当前暂无可展示的桶级代表片段。
@@ -1457,7 +1974,7 @@ function PageIndexOverview({
               ) : (
                 evidenceBuckets.map((bucket) => {
                   return (
-                    <div className="knowledge-evidence-map-item" key={bucket.id}>
+                    <div className="knowledge-evidence-map-item knowledge-detail-target" key={bucket.id} data-detail-key={bucket.id}>
                       <Typography.Text strong>{bucket.title}</Typography.Text>
                       <KnowledgeBucketLinks bucket={bucket} evidenceOnly />
                     </div>
@@ -1465,6 +1982,35 @@ function PageIndexOverview({
                 })
               )}
             </div>
+          </div>
+        )}
+
+        {detailView === 'log' && (
+          <div className="knowledge-log-list">
+            <div className="knowledge-detail-header">
+              <div>
+                <Typography.Text type="secondary">OKF Bundle</Typography.Text>
+                <Typography.Title level={4}>更新日志</Typography.Title>
+                <Typography.Paragraph>更新日志来自 OKF Wiki 页面维护时间，记录概念层的新增和更新。</Typography.Paragraph>
+              </div>
+            </div>
+            {recentConcepts.length === 0 ? (
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无更新记录" />
+            ) : (
+              <div className="knowledge-log-timeline">
+                {recentConcepts.map((concept) => (
+                  <div className="knowledge-log-item knowledge-detail-target" key={concept.id} data-detail-key={concept.id}>
+                    <time>{formatDateTime(concept.updated_at)}</time>
+                    <div>
+                      <strong>{concept.title}</strong>
+                      <span>
+                        维护 {conceptTypeLabel(concept.concept_type)} / {concept.concept_id}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </Modal>
@@ -1479,10 +2025,10 @@ function KnowledgeBucketLinks({ bucket, evidenceOnly = false }: { bucket: Knowle
     <div className="knowledge-bucket-link-grid">
       {!evidenceOnly && (
         <>
-          <Typography.Text type="secondary">覆盖章节</Typography.Text>
+          <Typography.Text type="secondary">覆盖来源</Typography.Text>
           <div>
             {sourceSections.length === 0 ? (
-              <Tag>暂无来源章节</Tag>
+              <Tag>暂无来源路径</Tag>
             ) : (
               sourceSections.map((section) => <Tag key={String(section)}>{String(section)}</Tag>)
             )}
@@ -1503,26 +2049,12 @@ function KnowledgeBucketLinks({ bucket, evidenceOnly = false }: { bucket: Knowle
 
 function knowledgeDetailTitle(view: KnowledgeDetailView | null) {
   if (view === 'document') return '文档详情';
-  if (view === 'sections') return '知识结构';
+  if (view === 'sections') return 'LLM Wiki 结构';
+  if (view === 'wiki') return 'Wiki 概念';
   if (view === 'buckets') return '知识桶';
   if (view === 'evidence') return '证据片段';
+  if (view === 'log') return '更新日志';
   return '知识详情';
-}
-
-function sectionKey(section: Record<string, unknown>, index: number) {
-  return String(section.section_id || section.path || section.title || `section-${index}`);
-}
-
-function sectionTitle(section: Record<string, unknown>, index: number) {
-  return String(section.path || section.title || `章节 ${index + 1}`);
-}
-
-function sectionSummary(section: Record<string, unknown>) {
-  return String(section.summary || section.preview || '');
-}
-
-function sectionLevel(section: Record<string, unknown>) {
-  return Math.max(1, Number(section.level || section.depth || 1));
 }
 
 function bucketSourceSections(bucket: KnowledgeBucketRead) {
@@ -1601,11 +2133,13 @@ function KnowledgeSearchDebug({
   compact?: boolean;
 }) {
   if (loading) {
-    return <Typography.Text type="secondary">正在按文档、知识桶、章节和证据片段逐级检索...</Typography.Text>;
+    return <Typography.Text type="secondary">正在按文档、LLM Wiki、知识桶和证据片段逐级检索...</Typography.Text>;
   }
   if (!result) {
     return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚未运行检索" />;
   }
+  const selectedConcepts = result.selected_concepts || [];
+  const okfCitations = result.okf_citations || [];
   return (
     <div className={`knowledge-search-debug${compact ? ' is-compact' : ''}`}>
       <div className="knowledge-route-trace">
@@ -1623,13 +2157,23 @@ function KnowledgeSearchDebug({
         size="small"
         items={[
           {
+            key: 'concepts',
+            label: `Wiki 概念 ${selectedConcepts.length}`,
+            children: <pre className="knowledge-json">{JSON.stringify(selectedConcepts, null, 2)}</pre>,
+          },
+          {
+            key: 'okf-citations',
+            label: `OKF 引用 ${okfCitations.length}`,
+            children: <pre className="knowledge-json">{JSON.stringify(okfCitations, null, 2)}</pre>,
+          },
+          {
             key: 'documents',
             label: `文档 ${result.selected_documents.length}`,
             children: <pre className="knowledge-json">{JSON.stringify(result.selected_documents, null, 2)}</pre>,
           },
           {
             key: 'sections',
-            label: `展开章节 ${result.expanded_sections.length}`,
+            label: `展开来源 ${result.expanded_sections.length}`,
             children: <pre className="knowledge-json">{JSON.stringify(result.expanded_sections, null, 2)}</pre>,
           },
           {
@@ -1719,9 +2263,11 @@ function routePhaseLabel(phase: string) {
   const map: Record<string, string> = {
     document_route: '选择知识库文档',
     document_route_fallback: '文档路由兜底',
+    okf_concept_route: '选择 Wiki 概念',
+    okf_only: '仅命中 Wiki 概念',
     bucket_route: '展开知识桶',
     bucket_route_fallback: '知识桶路由兜底',
-    section_expand: '读取章节',
+    section_expand: '读取来源',
     read_chunks: '读取片段',
     evidence_pack: '整理证据包',
     no_documents: '没有文档',
@@ -1764,6 +2310,104 @@ function statusTag(status: string) {
 function bucketStatusTag(bucket: KnowledgeBucketRead) {
   if (bucket.status === 'ready') return <Tag color="green">达标</Tag>;
   return <Tag color="gold">待补足</Tag>;
+}
+
+function conceptPath(conceptId: string) {
+  return conceptId
+    .split('/')
+    .filter(Boolean)
+    .map((part) => encodeURIComponent(part))
+    .join('/');
+}
+
+const CONCEPT_TYPE_LABELS = new Map<string, string>([
+  ['Source Document', '原始资料'],
+  ['Source Section', '资料页'],
+  ['Topic', '主题'],
+  ['Playbook', '流程知识'],
+  ['Business Rule', '业务规则'],
+  ['Query Analysis', '查询分析'],
+]);
+
+function conceptTypeLabel(type: string) {
+  return CONCEPT_TYPE_LABELS.get(type) || type || '概念';
+}
+
+function conceptTypeColor(type: string) {
+  const map: Record<string, string> = {
+    'Source Document': 'blue',
+    'Source Section': 'cyan',
+    Topic: 'green',
+    Playbook: 'purple',
+    'Business Rule': 'gold',
+    'Query Analysis': 'magenta',
+  };
+  return map[type] || 'default';
+}
+
+function sortWikiConcepts(concepts: KnowledgeConceptRead[]) {
+  const rank: Record<string, number> = {
+    'Source Document': 0,
+    'Source Section': 1,
+    Topic: 2,
+    Playbook: 3,
+    'Business Rule': 4,
+    'Query Analysis': 5,
+  };
+  return [...concepts].sort((left, right) => {
+    const leftRank = rank[left.concept_type] ?? 99;
+    const rightRank = rank[right.concept_type] ?? 99;
+    if (leftRank !== rightRank) return leftRank - rightRank;
+    return (left.title || left.concept_id).localeCompare(right.title || right.concept_id, 'zh-CN');
+  });
+}
+
+function conceptSummary(concept: KnowledgeConceptRead) {
+  const body = concept.content_md.replace(/^---[\s\S]*?---\s*/m, '').replace(/[#>*_\-[\]()`]/g, ' ').trim();
+  return body.length > 160 ? `${body.slice(0, 160)}...` : body || '暂无摘要';
+}
+
+function okfFrontmatterValue(markdown: string, key: string, fallback = '') {
+  const frontmatter = markdown.match(/^---\n([\s\S]*?)\n---/);
+  if (!frontmatter) return fallback;
+  const line = frontmatter[1].split('\n').find((item) => item.trim().startsWith(`${key}:`));
+  if (!line) return fallback;
+  const raw = line.slice(line.indexOf(':') + 1).trim();
+  if (!raw) return '';
+  try {
+    const parsed = JSON.parse(raw);
+    return typeof parsed === 'string' ? parsed : String(parsed);
+  } catch {
+    return raw.replace(/^['"]|['"]$/g, '');
+  }
+}
+
+function updateOkfFrontmatterValue(markdown: string, key: string, value: string) {
+  const normalizedValue = JSON.stringify(value);
+  const frontmatter = markdown.match(/^---\n([\s\S]*?)\n---/);
+  if (!frontmatter) {
+    return `---\n${key}: ${normalizedValue}\n---\n\n${markdown}`;
+  }
+  const lines = frontmatter[1].split('\n');
+  const index = lines.findIndex((line) => line.trim().startsWith(`${key}:`));
+  if (index >= 0) {
+    lines[index] = `${key}: ${normalizedValue}`;
+  } else {
+    lines.push(`${key}: ${normalizedValue}`);
+  }
+  return markdown.replace(/^---\n[\s\S]*?\n---/, `---\n${lines.join('\n')}\n---`);
+}
+
+function formatDateTime(value: string) {
+  if (!value) return '未知时间';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 function typeLabel(type: string) {

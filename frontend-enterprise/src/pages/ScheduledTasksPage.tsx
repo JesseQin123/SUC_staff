@@ -168,10 +168,6 @@ export default function ScheduledTasksPage() {
   function handleCreateAction(key: string) {
     if (key === 'blank') {
       navigate('/enterprise/scheduled-tasks/new');
-      return;
-    }
-    if (key === 'dialog') {
-      message.info('也可以在任务派发台直接用自然语言让员工创建自动任务。');
     }
   }
 
@@ -230,8 +226,7 @@ export default function ScheduledTasksPage() {
             disabled={!agentId || Boolean(selectedAgent?.is_overall)}
             menu={{
               items: [
-                { key: 'blank', icon: <PlusOutlined />, label: '新建空白自动任务' },
-                { key: 'dialog', label: '从对话需求新增' },
+                { key: 'blank', icon: <PlusOutlined />, label: '新建空白' },
               ],
               onClick: ({ key }) => handleCreateAction(key),
             }}

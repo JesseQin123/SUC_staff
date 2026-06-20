@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -36,10 +37,12 @@ from app.knowledge.schema import (
     KnowledgeDocumentUpdateRequest,
     KnowledgeDocumentUploadRequest,
     KnowledgeBucketUpdateRequest,
+    KnowledgeOkfImportRequest,
     KnowledgeIngestJobRead,
     KnowledgeSearchRequest,
     KnowledgeSearchResponse,
 )
+from app.knowledge.okf import create_concept_evidence_rows, parse_okf_bundle, upsert_concepts
 from app.knowledge.service import IngestPayload, KnowledgeService, bucket_read, chunk_read
 from app.security.tenant import ensure_tenant
 
@@ -75,6 +78,90 @@ def upload_document(
         metadata={"tenant_id": request.tenant_id, "filename": request.filename},
     )
     return job_read(job)
+
+
+@router.post("/okf/import")
+def import_okf_bundle(
+    request: KnowledgeOkfImportRequest,
+    db: Session = Depends(get_session),
+) -> dict[str, object]:
+    ensure_tenant(db, request.tenant_id)
+    try:
+        content = base64.b64decode(request.content_base64)
+        parsed_docs = parse_okf_bundle(request.filename, content)
+    except Exception as exc:  # noqa: BLE001 - surface stable import failures.
+        raise HTTPException(status_code=400, detail=f"OKF import failed: {exc}") from exc
+    if not parsed_docs:
+        raise HTTPException(status_code=400, detail="OKF bundle does not contain concept markdown files")
+
+    upload_request = KnowledgeDocumentUploadRequest(
+        tenant_id=request.tenant_id,
+        knowledge_base_id=request.knowledge_base_id,
+        filename=request.filename,
+        title=Path(request.filename).stem or "OKF Bundle",
+        content_base64="",
+        metadata={"okf_import": True, "source_filename": request.filename},
+    )
+    knowledge_base = _resolve_upload_knowledge_base(db, upload_request, request.agent_id)
+    version = knowledge_version_for_upload(db, request.tenant_id, knowledge_base.id, request.agent_id)
+    document = KnowledgeDocument(
+        tenant_id=request.tenant_id,
+        knowledge_base_id=knowledge_base.id,
+        knowledge_base_version_id=version.id,
+        filename=request.filename,
+        file_type="okf",
+        title=Path(request.filename).stem or request.filename,
+        status="processing",
+        metadata_json={
+            "okf_import": True,
+            "document_card": {
+                "title": Path(request.filename).stem or request.filename,
+                "filename": request.filename,
+                "file_type": "okf",
+                "summary": f"从 OKF bundle 导入 {len(parsed_docs)} 个概念页。",
+                "outline": [
+                    {
+                        "section_id": item.concept_id,
+                        "title": item.frontmatter.get("title") or item.concept_id,
+                        "path": item.concept_id,
+                        "level": 1,
+                        "summary": item.frontmatter.get("description") or "",
+                    }
+                    for item in parsed_docs[:80]
+                ],
+                "applicable_scenarios": ["OKF Wiki", "业务知识检索"],
+                "key_entities": sorted({str(item.frontmatter.get("type") or "Topic") for item in parsed_docs}),
+                "section_count": len(parsed_docs),
+            },
+            "okf": {"version": "0.1", "concept_count": len(parsed_docs)},
+        },
+    )
+    db.add(document)
+    db.flush()
+    concept_rows = upsert_concepts(
+        db,
+        request.tenant_id,
+        knowledge_base.id,
+        version.id,
+        [
+            {
+                "concept_id": item.concept_id,
+                "content_md": item.content_md,
+                "document_id": document.id,
+                "source_refs": [{"document_id": document.id, "okf_file": f"{item.concept_id}.md"}],
+            }
+            for item in parsed_docs
+        ],
+    )
+    create_concept_evidence_rows(db, request.tenant_id, knowledge_base.id, version.id, document, concept_rows)
+    return {
+        "status": "imported",
+        "knowledge_base_id": knowledge_base.id,
+        "knowledge_base_version_id": version.id,
+        "version": version.version,
+        "document_id": document.id,
+        "concept_count": len(concept_rows),
+    }
 
 
 def _resolve_upload_knowledge_base(

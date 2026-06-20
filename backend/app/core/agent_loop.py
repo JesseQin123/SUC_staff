@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import queue
+import re
 import threading
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
@@ -35,13 +36,21 @@ from app.db.models import (
 from app.general_skills import GeneralSkillRunner, GeneralSkillSelector
 from app.general_skills.schema import GeneralSkillRunResponse, GeneralSkillSelection
 from app.knowledge import KnowledgeService
+from app.knowledge.citations import knowledge_citations_from_results
 from app.knowledge.schema import KnowledgeSearchRequest, KnowledgeSearchResponse
 from app.llm import LLMError
 from app.memory.jobs import enqueue_memory_capture
 from app.memory.service import MemoryService, memory_read
 from app.observability import EventLog
 from app.session.helpers import public_session
-from app.session.session_schema import ChatTurnRequest, ChatTurnResponse, PendingTask, RouterDecision, StepAgentResult
+from app.session.session_schema import (
+    ChatTurnRequest,
+    ChatTurnResponse,
+    KnowledgeQuery,
+    PendingTask,
+    RouterDecision,
+    StepAgentResult,
+)
 from app.tools import ToolExecutor
 from app.tools.tool_schema import ToolCall, ToolError, ToolResult
 
@@ -213,7 +222,7 @@ class AgentLoop:
         if not chat_session:
             chat_session = self._get_or_create_session(request)
         memory_recent_messages = self._recent_messages(chat_session) if memory_model_config else []
-        self._finalize_turn(chat_session, request.tenant_id, reply)
+        self._finalize_turn(chat_session, request.tenant_id, reply, step_result, request.message)
         self.db.commit()
         self.db.refresh(chat_session)
         if memory_model_config:
@@ -290,7 +299,7 @@ class AgentLoop:
             memory_context or [],
             conversation_context or self._conversation_context(chat_session),
         )
-        self._finalize_turn(chat_session, request.tenant_id, reply)
+        self._finalize_turn(chat_session, request.tenant_id, reply, step_result, request.message)
         self.db.commit()
         self.db.refresh(chat_session)
         self._enqueue_memory_capture(
@@ -521,7 +530,7 @@ class AgentLoop:
                 yield self._stream_event("stream_delta", chat_session, {"content": chunk})
                 self._pace_stream()
         yield self._stream_event("stream_end", chat_session, {})
-        self._finalize_turn(chat_session, request.tenant_id, reply)
+        self._finalize_turn(chat_session, request.tenant_id, reply, step_result, request.message)
         self.db.commit()
         self.db.refresh(chat_session)
         self._enqueue_memory_capture(
@@ -810,6 +819,16 @@ class AgentLoop:
                     decision="answer_only",
                     reason="No published scene skills are available; answer as chat.",
                 )
+                knowledge_stream_events: list[tuple[str, dict[str, object]]] = []
+                step_result = self._auto_knowledge_step_result(
+                    request,
+                    chat_session,
+                    model_config,
+                    router_decision,
+                    stream_events=knowledge_stream_events,
+                )
+                for event_name, payload in knowledge_stream_events:
+                    yield self._stream_event(event_name, chat_session, payload)
                 yield self._stream_status(chat_session, "responding", "正在生成回复")
                 reply = ""
                 for chunk in self._generate_reply_stream_segment(
@@ -817,7 +836,7 @@ class AgentLoop:
                     chat_session,
                     None,
                     router_decision,
-                    StepAgentResult(),
+                    step_result,
                     None,
                     model_config,
                     persona_prompt,
@@ -828,14 +847,14 @@ class AgentLoop:
                     yield self._stream_event("stream_delta", chat_session, {"content": chunk})
                     self._pace_stream()
                 yield self._stream_event("stream_end", chat_session, {})
-                self._finalize_turn(chat_session, request.tenant_id, reply)
+                self._finalize_turn(chat_session, request.tenant_id, reply, step_result, request.message)
                 self.db.commit()
                 self.db.refresh(chat_session)
                 result = ChatTurnResponse(
                     reply=reply,
                     session_id=chat_session.id,
                     router_decision=router_decision,
-                    step_result=StepAgentResult(),
+                    step_result=step_result,
                     session_state=public_session(chat_session),
                 )
                 yield self._stream_event("complete", chat_session, result.model_dump(mode="json"))
@@ -946,7 +965,7 @@ class AgentLoop:
                             self._pace_stream()
                 yield self._stream_event("stream_end", chat_session, {})
                 memory_recent_messages = self._recent_messages(chat_session) if memory_model_config else []
-                self._finalize_turn(chat_session, request.tenant_id, reply)
+                self._finalize_turn(chat_session, request.tenant_id, reply, step_result, request.message)
                 self.db.commit()
                 self.db.refresh(chat_session)
                 if memory_model_config:
@@ -979,6 +998,18 @@ class AgentLoop:
 
             active_skill = self._get_active_skill(request.tenant_id, chat_session.active_skill_id, chat_session.agent_id)
             if not self._should_run_step_agent(router_decision, active_skill):
+                knowledge_stream_events = []
+                auto_step_result = self._auto_knowledge_step_result(
+                    request,
+                    chat_session,
+                    model_config,
+                    router_decision,
+                    stream_events=knowledge_stream_events,
+                )
+                if auto_step_result.knowledge_results:
+                    step_result = auto_step_result
+                for event_name, payload in knowledge_stream_events:
+                    yield self._stream_event(event_name, chat_session, payload)
                 yield self._stream_status(chat_session, "responding", "正在生成回复")
                 for chunk in self._generate_reply_stream_segment(
                     request.message,
@@ -996,7 +1027,7 @@ class AgentLoop:
                     yield self._stream_event("stream_delta", chat_session, {"content": chunk})
                     self._pace_stream()
                 yield self._stream_event("stream_end", chat_session, {})
-                self._finalize_turn(chat_session, request.tenant_id, reply)
+                self._finalize_turn(chat_session, request.tenant_id, reply, step_result, request.message)
                 self.db.commit()
                 self.db.refresh(chat_session)
                 result = ChatTurnResponse(
@@ -1054,6 +1085,22 @@ class AgentLoop:
                     conversation_context,
                     knowledge_stream_events,
                 )
+                self.db.commit()
+                self.db.refresh(chat_session)
+                for event_name, payload in knowledge_stream_events:
+                    yield self._stream_event(event_name, chat_session, payload)
+            elif not step_result.knowledge_results and self._should_auto_query_knowledge(request.message, router_decision):
+                knowledge_stream_events = []
+                auto_step_result = self._auto_knowledge_step_result(
+                    request,
+                    chat_session,
+                    model_config,
+                    router_decision,
+                    stream_events=knowledge_stream_events,
+                )
+                if auto_step_result.knowledge_results:
+                    step_result.knowledge_query = auto_step_result.knowledge_query
+                    step_result.knowledge_results = auto_step_result.knowledge_results
                 self.db.commit()
                 self.db.refresh(chat_session)
                 for event_name, payload in knowledge_stream_events:
@@ -1190,7 +1237,7 @@ class AgentLoop:
         if not chat_session:
             chat_session = self._get_or_create_session(request)
         memory_recent_messages = self._recent_messages(chat_session) if memory_model_config else []
-        self._finalize_turn(chat_session, request.tenant_id, reply)
+        self._finalize_turn(chat_session, request.tenant_id, reply, step_result, request.message)
         self.db.commit()
         self.db.refresh(chat_session)
         if memory_model_config:
@@ -1295,15 +1342,19 @@ class AgentLoop:
                     conversation_context=self._conversation_context(chat_session),
                     general_response=general_response,
                 )
+            step_result = self._auto_knowledge_step_result(
+                request,
+                chat_session,
+                model_config,
+                router_decision,
+                status_callback=status,
+            )
             return PreparedTurn(
                 chat_session=chat_session,
                 model_config=model_config,
                 active_skill=None,
-                router_decision=RouterDecision(
-                    decision="answer_only",
-                    reason="No published scene skills are available; answer as chat.",
-                ),
-                step_result=StepAgentResult(),
+                router_decision=router_decision,
+                step_result=step_result,
                 tool_result=None,
                 memory_context=[],
                 conversation_context=self._conversation_context(chat_session),
@@ -1420,12 +1471,19 @@ class AgentLoop:
 
         active_skill = self._get_active_skill(request.tenant_id, chat_session.active_skill_id, chat_session.agent_id)
         if not self._should_run_step_agent(router_decision, active_skill):
+            step_result = self._auto_knowledge_step_result(
+                request,
+                chat_session,
+                model_config,
+                router_decision,
+                status_callback=status,
+            )
             return PreparedTurn(
                 chat_session=chat_session,
                 model_config=model_config,
                 active_skill=active_skill,
                 router_decision=router_decision,
-                step_result=StepAgentResult(),
+                step_result=step_result,
                 tool_result=None,
                 memory_context=memory_context,
                 conversation_context=conversation_context,
@@ -1460,6 +1518,19 @@ class AgentLoop:
                 conversation_context,
                 status_callback=status,
             )
+            self.db.commit()
+            self.db.refresh(chat_session)
+        elif not step_result.knowledge_results and self._should_auto_query_knowledge(request.message, router_decision):
+            auto_step_result = self._auto_knowledge_step_result(
+                request,
+                chat_session,
+                model_config,
+                router_decision,
+                status_callback=status,
+            )
+            if auto_step_result.knowledge_results:
+                step_result.knowledge_query = auto_step_result.knowledge_query
+                step_result.knowledge_results = auto_step_result.knowledge_results
             self.db.commit()
             self.db.refresh(chat_session)
         if step_result.tool_call:
@@ -2429,11 +2500,18 @@ class AgentLoop:
                 evidence_pack=[],
             )
         else:
+            search_query = query.query.strip()
+            original_message = request.message.strip()
+            if original_message and original_message not in search_query:
+                search_query = f"{search_query}\n{original_message}"
+            expanded_query = self._expanded_knowledge_query(original_message)
+            if expanded_query and expanded_query not in search_query:
+                search_query = f"{search_query}\n{expanded_query}"
             search_response = KnowledgeService(self.db).search(
                 KnowledgeSearchRequest(
                     tenant_id=request.tenant_id,
                     agent_id=chat_session.agent_id,
-                    query=query.query,
+                    query=search_query,
                     mode="chat",
                     knowledge_base_ids=knowledge_base_ids,
                     max_chunks=max(1, min(query.max_chunks, 12)),
@@ -2441,15 +2519,18 @@ class AgentLoop:
                     max_depth=max(1, min(query.max_depth, 4)),
                     need_evidence_pack=True,
                 ),
-                model_config,
+                None,
             )
         knowledge_items = {
             "query": query.model_dump(mode="json"),
+            "source_message": request.message,
             "selected_buckets": [item.model_dump(mode="json") for item in search_response.selected_buckets],
             "chunks": [item.model_dump(mode="json") for item in search_response.chunks],
             "trace": search_response.route_trace or search_response.trace,
             "selected_documents": search_response.selected_documents,
+            "selected_concepts": search_response.selected_concepts,
             "expanded_sections": search_response.expanded_sections,
+            "okf_citations": search_response.okf_citations,
             "evidence_pack": search_response.evidence_pack,
         }
         self._record_knowledge_results(chat_session, knowledge_items)
@@ -2482,6 +2563,188 @@ class AgentLoop:
         continuation_result.knowledge_results = [knowledge_items]
         self._apply_step_result(request.tenant_id, chat_session, continuation_result, active_skill)
         return continuation_result
+
+    def _auto_knowledge_step_result(
+        self,
+        request: ChatTurnRequest,
+        chat_session: ChatSession,
+        model_config: ModelConfig,
+        router_decision: RouterDecision,
+        stream_events: list[tuple[str, dict[str, object]]] | None = None,
+        status_callback: StatusCallback | None = None,
+    ) -> StepAgentResult:
+        if not self._should_auto_query_knowledge(request.message, router_decision):
+            return StepAgentResult()
+
+        query = KnowledgeQuery(
+            query=request.message,
+            reason="用户要求基于业务资料或规则回答",
+            max_chunks=8,
+            max_depth=3,
+        )
+        payload = {
+            "phase": "knowledge",
+            "text": "正在检索业务资料",
+            "query": query.model_dump(mode="json"),
+            "auto": True,
+        }
+        self.events.record(request.tenant_id, chat_session.id, "knowledge_query_started", payload)
+        if stream_events is not None:
+            stream_events.append(("status", payload))
+        if status_callback is not None:
+            status_callback("knowledge", payload)
+
+        knowledge_items = self._knowledge_items_for_message(
+            request.tenant_id,
+            chat_session.agent_id,
+            request.message,
+            query,
+        )
+        if not knowledge_items:
+            return StepAgentResult()
+        self._record_knowledge_results(chat_session, knowledge_items)
+        self.events.record(
+            request.tenant_id,
+            chat_session.id,
+            "knowledge_query_finished",
+            {**knowledge_items, "auto": True},
+        )
+        if stream_events is not None:
+            for trace in knowledge_items.get("trace") or []:
+                stream_events.append(("status", {"phase": "knowledge", **trace}))
+            stream_events.append(("knowledge_result", knowledge_items))
+        return StepAgentResult(knowledge_query=query, knowledge_results=[knowledge_items])
+
+    def _knowledge_items_for_message(
+        self,
+        tenant_id: str,
+        agent_id: str,
+        message: str,
+        query: KnowledgeQuery | None = None,
+    ) -> dict[str, Any] | None:
+        knowledge_base_ids = self._agent_visible_knowledge_base_ids(tenant_id, agent_id)
+        if self._agent_requires_resource_filter(tenant_id, agent_id) and not knowledge_base_ids:
+            return None
+        knowledge_query = query or KnowledgeQuery(
+            query=message,
+            reason="用户要求基于业务资料或规则回答",
+            max_chunks=8,
+            max_depth=3,
+        )
+        search_response = KnowledgeService(self.db).search(
+            KnowledgeSearchRequest(
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                query=self._expanded_knowledge_query(message),
+                mode="chat",
+                knowledge_base_ids=knowledge_base_ids,
+                max_chunks=8,
+                max_buckets=4,
+                max_depth=3,
+                need_evidence_pack=True,
+            ),
+            None,
+        )
+        if not (
+            search_response.selected_concepts
+            or search_response.okf_citations
+            or search_response.evidence_pack
+            or search_response.chunks
+        ):
+            return None
+        return {
+            "query": knowledge_query.model_dump(mode="json"),
+            "source_message": message,
+            "selected_buckets": [item.model_dump(mode="json") for item in search_response.selected_buckets],
+            "chunks": [item.model_dump(mode="json") for item in search_response.chunks],
+            "trace": search_response.route_trace or search_response.trace,
+            "selected_documents": search_response.selected_documents,
+            "selected_concepts": search_response.selected_concepts,
+            "expanded_sections": search_response.expanded_sections,
+            "okf_citations": search_response.okf_citations,
+            "evidence_pack": search_response.evidence_pack,
+        }
+
+    def _expanded_knowledge_query(self, message: str) -> str:
+        text = (message or "").strip()
+        if not text:
+            return text
+        lowered = text.lower()
+        expansions: list[str] = [text]
+        if any(term in lowered for term in ("不想要", "不要了", "取消", "退", "退款", "撤销")):
+            expansions.append("订单取消 刚创建订单取消 取消刚创建的订单 售后退款 订单处理")
+        if any(term in lowered for term in ("刚买", "刚下单", "下单", "订单", "支付")):
+            expansions.append("订单创建 支付确认 取消处理 客服处理边界")
+        if any(term in lowered for term in ("会员", "账号", "地址", "称呼", "隐私")):
+            expansions.append("用户身份 称呼 隐私保护 会员账号 历史地址 处理原则")
+        if any(term in lowered for term in ("客服", "客户", "用户", "服务人员")):
+            expansions.append("服务人员 应先确认真实诉求 当前已知事实 可执行动作 需要补充的信息")
+        unique: list[str] = []
+        for item in expansions:
+            if item not in unique:
+                unique.append(item)
+        return "\n".join(unique)
+
+    def _should_auto_query_knowledge(self, message: str, router_decision: RouterDecision | None = None) -> bool:
+        text = (message or "").strip().lower()
+        if not text:
+            return False
+        explicit_terms = (
+            "业务资料",
+            "知识库",
+            "知识",
+            "引用",
+            "基于",
+            "根据",
+            "规则",
+            "政策",
+            "资料",
+            "文档",
+            "怎么处理",
+            "如何处理",
+            "应该怎么",
+            "怎么办",
+            "怎么回",
+            "怎么回复",
+            "该怎么",
+            "如何回复",
+        )
+        if any(term in text for term in explicit_terms):
+            return True
+        question_terms = (
+            "怎么",
+            "如何",
+            "应该",
+            "应当",
+            "能否",
+            "能不能",
+            "可以吗",
+            "行不行",
+            "要不要",
+            "问什么",
+            "回复",
+        )
+        business_terms = (
+            "客户",
+            "用户",
+            "客服",
+            "订单",
+            "下单",
+            "支付",
+            "取消",
+            "退款",
+            "换货",
+            "售后",
+            "会员",
+            "地址",
+            "隐私",
+            "称呼",
+            "账号",
+        )
+        if any(term in text for term in question_terms) and any(term in text for term in business_terms):
+            return True
+        intent = (router_decision.user_intent or "").lower() if router_decision else ""
+        return any(term in intent for term in ("知识", "资料", "规则", "政策"))
 
     def _record_knowledge_results(self, chat_session: ChatSession, item: dict[str, Any]) -> None:
         history = list(chat_session.knowledge_context_json or [])
@@ -3685,8 +3948,56 @@ class AgentLoop:
             rows = rows[-max_messages:]
         return build_conversation_context([{"role": row.role, "content": row.content} for row in rows])
 
-    def _append_message(self, tenant_id: str, session_id: str, role: str, content: str) -> None:
-        self.db.add(Message(tenant_id=tenant_id, session_id=session_id, role=role, content=content))
+    def _assistant_message_metadata(
+        self,
+        step_result: StepAgentResult | None,
+        chat_session: ChatSession,
+        source_message: str | None = None,
+    ) -> dict[str, Any]:
+        knowledge_results = list(step_result.knowledge_results or []) if step_result else []
+        if not knowledge_results and source_message:
+            for item in reversed(chat_session.knowledge_context_json or []):
+                if item.get("source_message") == source_message:
+                    knowledge_results = [item]
+                    break
+        if not knowledge_results and source_message and self._should_auto_query_knowledge(source_message):
+            knowledge_item = self._knowledge_items_for_message(
+                chat_session.tenant_id,
+                chat_session.agent_id,
+                source_message,
+            )
+            if knowledge_item:
+                self._record_knowledge_results(chat_session, knowledge_item)
+                knowledge_results = [knowledge_item]
+        citations = knowledge_citations_from_results(knowledge_results)
+        if not citations:
+            return {}
+        first_query = next(
+            (item.get("query") for item in knowledge_results if isinstance(item.get("query"), dict)),
+            None,
+        )
+        return {
+            "knowledge_citations": citations,
+            "knowledge_query": first_query or {},
+        }
+
+    def _append_message(
+        self,
+        tenant_id: str,
+        session_id: str,
+        role: str,
+        content: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        self.db.add(
+            Message(
+                tenant_id=tenant_id,
+                session_id=session_id,
+                role=role,
+                content=content,
+                metadata_json=metadata or {},
+            )
+        )
 
     def _record_runtime_event(
         self,
@@ -3908,15 +4219,27 @@ class AgentLoop:
             session_state=public_session(chat_session),
         )
 
-    def _finalize_turn(self, chat_session: ChatSession, tenant_id: str, reply: str) -> None:
+    def _finalize_turn(
+        self,
+        chat_session: ChatSession,
+        tenant_id: str,
+        reply: str,
+        step_result: StepAgentResult | None = None,
+        source_message: str | None = None,
+    ) -> None:
         chat_session.updated_at = utc_now()
+        metadata = self._assistant_message_metadata(step_result, chat_session, source_message)
+        reply = self._normalize_reply_citation_labels(reply, metadata.get("knowledge_citations"))
         chat_session.summary = f"最近回复：{reply[:120]}"
-        self._append_message(tenant_id, chat_session.id, "assistant", reply)
+        self._append_message(tenant_id, chat_session.id, "assistant", reply, metadata=metadata)
+        event_payload: dict[str, Any] = {"reply": reply}
+        if metadata.get("knowledge_citations"):
+            event_payload["knowledge_citations"] = metadata["knowledge_citations"]
         self.events.record(
             tenant_id,
             chat_session.id,
             "assistant_message_created",
-            {"reply": reply},
+            event_payload,
         )
         self.events.record(
             tenant_id,
@@ -3924,3 +4247,19 @@ class AgentLoop:
             "session_state_changed",
             public_session(chat_session).model_dump(),
         )
+
+    def _normalize_reply_citation_labels(self, reply: str, citations: object) -> str:
+        if not isinstance(citations, list) or not citations:
+            return reply
+        max_label = len(citations)
+
+        def replace(match: re.Match[str]) -> str:
+            try:
+                value = int(match.group(1))
+            except ValueError:
+                return match.group(0)
+            if 1 <= value <= max_label:
+                return match.group(0)
+            return f"[{max_label if max_label > 1 else 1}]"
+
+        return re.sub(r"\[(\d+)\]", replace, reply)

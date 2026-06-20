@@ -62,6 +62,7 @@ def message_read(row: Message, feedback_rating: str | None = None) -> MessageRea
         session_id=row.session_id,
         role=row.role,
         content=row.content,
+        metadata=row.metadata_json or {},
         created_at=row.created_at.isoformat(),
         feedback_rating=feedback_rating,
     )
@@ -744,6 +745,9 @@ def _build_turn_traces(
     events: list[AgentEvent],
     skill_names: dict[str, str],
 ) -> list[dict]:
+    if not events:
+        return _fallback_knowledge_citation_traces(messages)
+
     user_messages = [message for message in messages if message.role == "user"]
     traces: list[dict] = []
     current: dict | None = None
@@ -796,6 +800,75 @@ def _build_turn_traces(
     if current:
         _finish_trace_if_needed(current, events[-1].created_at if events else None)
         traces.append(current)
+
+    return traces
+
+
+def _fallback_knowledge_citation_traces(messages: list[Message]) -> list[dict]:
+    traces: list[dict] = []
+    current_user: Message | None = None
+
+    for message in messages:
+        if message.role == "user":
+            current_user = message
+            continue
+        if message.role != "assistant":
+            continue
+        metadata = message.metadata_json if isinstance(message.metadata_json, dict) else {}
+        citations = metadata.get("knowledge_citations") if isinstance(metadata, dict) else None
+        if not isinstance(citations, list) or not citations:
+            continue
+
+        citation_titles = [
+            str(item.get("title") or item.get("source_title") or item.get("concept_id") or "").strip()
+            for item in citations
+            if isinstance(item, dict)
+        ]
+        citation_titles = [title for title in citation_titles if title]
+        citation_summary = "、".join(citation_titles[:3])
+        if len(citation_titles) > 3:
+            citation_summary = f"{citation_summary} 等"
+
+        traces.append(
+            {
+                "turn_id": current_user.id if current_user else message.id,
+                "user_message_id": current_user.id if current_user else None,
+                "started_at": (current_user.created_at if current_user else message.created_at).isoformat(),
+                "completed_at": message.created_at.isoformat(),
+                "lines": [
+                    {
+                        "id": "thinking",
+                        "kind": "thinking",
+                        "text": "执行记录",
+                        "state": "completed",
+                    },
+                    {
+                        "id": "knowledge_intent",
+                        "kind": "decision",
+                        "text": "识别为业务资料问答",
+                        "detail": "回答需要引用业务资料库，进入知识检索链路。",
+                        "state": "completed",
+                    },
+                    {
+                        "id": "knowledge_retrieval",
+                        "kind": "tool",
+                        "text": "检索业务资料库",
+                        "detail": (
+                            f"命中 {len(citations)} 条知识引用"
+                            + (f"：{citation_summary}" if citation_summary else "")
+                        ),
+                        "state": "completed",
+                    },
+                    {
+                        "id": "knowledge_answer",
+                        "kind": "decision",
+                        "text": "生成带引用回答",
+                        "detail": "已将知识引用附加到回复下方，可点击查看来源、章节和证据片段。",
+                        "state": "completed",
+                    },
+                ],
+            }
+        )
 
     return traces
 
@@ -984,18 +1057,26 @@ def _event_trace_line(
         return {
             "id": f"knowledge_{event.id}_started",
             "kind": "knowledge",
-            "text": "正在检索知识",
+            "text": "查询业务资料",
             "detail": text or None,
             "state": "running",
         }
     if event.event_type == "knowledge_query_finished":
         chunks = payload.get("chunks") if isinstance(payload.get("chunks"), list) else []
         buckets = payload.get("selected_buckets") if isinstance(payload.get("selected_buckets"), list) else []
+        concepts = payload.get("selected_concepts") if isinstance(payload.get("selected_concepts"), list) else []
+        evidence = payload.get("evidence_pack") if isinstance(payload.get("evidence_pack"), list) else []
+        parts = [
+            f"命中 Wiki {len(concepts)} 个" if concepts else "",
+            f"展开 {len(buckets)} 个知识桶" if buckets else "",
+            f"读取 {len(chunks)} 个片段" if chunks else "",
+            f"生成 {len(evidence)} 条引用候选" if evidence else "",
+        ]
         return {
             "id": f"knowledge_{event.id}_finished",
             "kind": "knowledge",
-            "text": "读取知识片段",
-            "detail": f"展开 {len(buckets)} 个知识桶，读取 {len(chunks)} 个片段",
+            "text": "读取业务资料",
+            "detail": " · ".join(part for part in parts if part),
             "state": "completed",
         }
     if event.event_type == "tool_call_finished":

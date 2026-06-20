@@ -6,6 +6,7 @@ import {
   DislikeOutlined,
   DownOutlined,
   EditOutlined,
+  FileSearchOutlined,
   LikeOutlined,
   LogoutOutlined,
   MenuFoldOutlined,
@@ -29,6 +30,7 @@ import type {
   ChatMessage,
   ChatSession,
   ChatTurnResponse,
+  KnowledgeCitation,
   ScheduledTaskDraftRead,
   ScheduledTaskRead,
   TurnTraceRead,
@@ -68,7 +70,7 @@ type TraceTool = {
 
 type TraceLine = {
   id: string;
-  kind: 'thinking' | 'decision' | 'skill' | 'tool' | 'code';
+  kind: 'thinking' | 'decision' | 'skill' | 'tool' | 'code' | 'knowledge';
   text: string;
   detail?: string;
   code?: string;
@@ -383,7 +385,62 @@ function publicStreamPhase(data: Record<string, unknown>): string {
   const phase = typeof data.phase === 'string' ? data.phase : '';
   const text = typeof data.text === 'string' ? data.text : '';
   if (phase === 'error') return text || '请求失败';
+  if (isKnowledgeTracePhase(phase)) return text || knowledgeTraceText(data);
   return '正在思考';
+}
+
+const KNOWLEDGE_TRACE_PHASES = new Set([
+  'knowledge',
+  'okf_route',
+  'okf_only',
+  'document_route',
+  'document_route_fallback',
+  'bucket_route',
+  'bucket_route_fallback',
+  'section_expand',
+  'read_chunks',
+  'evidence_pack',
+  'no_visible_knowledge',
+  'no_documents',
+  'no_buckets',
+]);
+
+function isKnowledgeTracePhase(phase: string): boolean {
+  return KNOWLEDGE_TRACE_PHASES.has(phase);
+}
+
+function knowledgeTraceText(data: Record<string, unknown>): string {
+  const raw = typeof data.message === 'string'
+    ? data.message
+    : typeof data.text === 'string'
+      ? data.text
+      : '';
+  if (!raw) return '查询业务资料';
+  return raw.replace(/知识/g, '业务资料');
+}
+
+function knowledgeTraceDetail(data: Record<string, unknown>): string | undefined {
+  const query = isPlainRecord(data.query) && typeof data.query.query === 'string' ? data.query.query : '';
+  const parts = [
+    query ? `查询：${query}` : '',
+    typeof data.selected_count === 'number' ? `命中 Wiki ${data.selected_count} 个` : '',
+    typeof data.candidate_count === 'number' ? `候选 ${data.candidate_count} 个` : '',
+    typeof data.chunk_count === 'number' ? `读取 ${data.chunk_count} 个片段` : '',
+    typeof data.evidence_count === 'number' ? `整理 ${data.evidence_count} 条证据` : '',
+  ].filter(Boolean);
+  return parts.length ? parts.join(' · ') : undefined;
+}
+
+function knowledgeResultTraceDetail(data: Record<string, unknown>): string | undefined {
+  const concepts = Array.isArray(data.selected_concepts) ? data.selected_concepts.length : 0;
+  const chunks = Array.isArray(data.chunks) ? data.chunks.length : 0;
+  const evidence = Array.isArray(data.evidence_pack) ? data.evidence_pack.length : 0;
+  const parts = [
+    concepts ? `命中 Wiki ${concepts} 个` : '',
+    chunks ? `读取 ${chunks} 个片段` : '',
+    evidence ? `生成 ${evidence} 条引用候选` : '',
+  ].filter(Boolean);
+  return parts.length ? parts.join(' · ') : undefined;
 }
 
 function normalizeTraceSkill(value: unknown): TraceSkill | null {
@@ -580,6 +637,55 @@ function canRateMessage(item: ChatMessage): boolean {
   );
 }
 
+function knowledgeCitations(item: ChatMessage): KnowledgeCitation[] {
+  const citations = item.metadata?.knowledge_citations;
+  if (!Array.isArray(citations)) return [];
+  const seen = new Set<string>();
+  const result: KnowledgeCitation[] = [];
+  citations.forEach((citation) => {
+    if (!citation || !citation.id) return;
+    const identity = (
+      citation.title || citation.section_path || citation.summary || citation.excerpt || citation.source_path || citation.concept_id || citation.id
+    )
+      .replace(/\/\s*evidence\s*\d+/i, '')
+      .split(/在第\s*\d+\s*章第\s*\d+\s*节/)[0]
+      .split('。')[0];
+    const key = normalizeMessageText(identity).toLowerCase();
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    result.push({ ...citation, label: `[${result.length + 1}]` });
+  });
+  return result.slice(0, 4);
+}
+
+function citationKindLabel(citation: KnowledgeCitation): string {
+  if (citation.kind === 'concept') return 'Wiki 概念';
+  if (citation.kind === 'okf') return 'OKF 引用';
+  return '证据片段';
+}
+
+function citationDisplayTitle(citation: KnowledgeCitation): string {
+  const raw = citation.title || citation.section_path || citation.source_path || citation.concept_id || '知识引用';
+  const title = raw
+    .replace(/\/\s*evidence\s*\d+/i, '')
+    .split('用于统一')[0]
+    .split('。服务人员')[0]
+    .trim();
+  return title || raw;
+}
+
+function citationSourceLabel(citation: KnowledgeCitation): string {
+  const raw = citation.source_path || '';
+  if (!raw) return '';
+  return raw.replace(/\/\s*evidence\s*\d+/i, '').split(' / ')[0].trim() || raw;
+}
+
+function citationSectionLabel(citation: KnowledgeCitation): string {
+  const raw = citation.section_path || citation.title || '';
+  if (!raw) return '';
+  return citationDisplayTitle({ ...citation, title: raw });
+}
+
 export default function ChatWindowPage() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
@@ -600,6 +706,7 @@ export default function ChatWindowPage() {
   const [traceTick, setTraceTick] = useState(0);
   const [expandedTraceIds, setExpandedTraceIds] = useState<string[]>([]);
   const [scheduledDrafts, setScheduledDrafts] = useState<Record<string, ScheduledTaskDraftRead>>({});
+  const [activeCitation, setActiveCitation] = useState<KnowledgeCitation | null>(null);
   const [isComposing, setIsComposing] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => (
     window.localStorage.getItem('skill_agent_sidebar_collapsed') === 'true'
@@ -958,7 +1065,7 @@ export default function ChatWindowPage() {
     setNewSessionOpen(false);
     getSlot(session.id);
     loadSessions();
-    navigate(`/chat/${session.id}`);
+    navigate(`/${session.id}`);
   }
 
   function openRename(event: MouseEvent<HTMLElement>, session: ChatSession) {
@@ -1000,7 +1107,7 @@ export default function ChatWindowPage() {
         await api.delete(`/api/chat/sessions/${target.id}?tenant_id=${tenantId}`);
         setSessions((items) => items.filter((item) => item.id !== target.id));
         if (target.id === sessionId) {
-          navigate('/chat');
+          navigate('/');
         }
         message.success('已删除');
       },
@@ -1235,6 +1342,16 @@ export default function ChatWindowPage() {
           });
           return;
         }
+        if (item.event === 'knowledge_result') {
+          upsertTraceLine(turnId, {
+            id: 'knowledge_lookup',
+            kind: 'knowledge',
+            text: '查询业务资料',
+            detail: knowledgeResultTraceDetail(item.data),
+            state: 'completed',
+          });
+          return;
+        }
         if (item.event === 'tool_result') {
           const tool = normalizeTraceTool(item.data);
           if (tool) {
@@ -1298,6 +1415,14 @@ export default function ChatWindowPage() {
             });
           } else if (phase === 'routing') {
             upsertTraceLine(turnId, { id: 'decision_router', kind: 'decision', text: '判断意图', state: 'running' });
+          } else if (isKnowledgeTracePhase(phase)) {
+            upsertTraceLine(turnId, {
+              id: 'knowledge_lookup',
+              kind: 'knowledge',
+              text: knowledgeTraceText(item.data),
+              detail: knowledgeTraceDetail(item.data),
+              state: phase === 'evidence_pack' || phase.startsWith('no_') || phase === 'okf_only' ? 'completed' : 'running',
+            });
           } else if (phase === 'stepping') {
             const repairReason = typeof item.data.repair_reason === 'string' ? item.data.repair_reason : 'main';
             const iteration = typeof item.data.iteration === 'number' || typeof item.data.iteration === 'string'
@@ -1463,11 +1588,11 @@ export default function ChatWindowPage() {
               role="button"
               tabIndex={0}
               className={`session-card ${session.id === sessionId ? 'active' : ''}`}
-              onClick={() => navigate(`/chat/${session.id}`)}
+              onClick={() => navigate(`/${session.id}`)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' || event.key === ' ') {
                   event.preventDefault();
-                  navigate(`/chat/${session.id}`);
+                  navigate(`/${session.id}`);
                 }
               }}
             >
@@ -1539,6 +1664,7 @@ export default function ChatWindowPage() {
               const summary = trace && visibleTrace.length > 0 ? traceSummary(trace, visibleTrace) : null;
               const details = traceDetails(visibleTrace);
               const expanded = expandedTraceIds.includes(turnId);
+              const citations = knowledgeCitations(item);
               void traceTick;
               return (
                 <div key={item.id} className="message-item">
@@ -1568,6 +1694,8 @@ export default function ChatWindowPage() {
                                       <BranchesOutlined />
                                     ) : line.kind === 'tool' ? (
                                       <ToolOutlined />
+                                    ) : line.kind === 'knowledge' ? (
+                                      <FileSearchOutlined />
                                     ) : line.kind === 'code' ? (
                                       <TerminalTraceIcon />
                                     ) : (
@@ -1605,6 +1733,27 @@ export default function ChatWindowPage() {
                       ) : item.role === 'assistant' && item.isStreaming && !summary ? (
                         <span className="typing-caret" />
                       ) : null}
+                      {item.role === 'assistant' && citations.length > 0 && (
+                        <div className="message-citations" aria-label="知识引用">
+                          <div className="citation-heading">
+                            <FileSearchOutlined />
+                            <span>引用的业务资料</span>
+                          </div>
+                          <div className="citation-list">
+                            {citations.map((citation) => (
+                              <button
+                                key={citation.id}
+                                type="button"
+                                className="citation-chip"
+                                onClick={() => setActiveCitation(citation)}
+                              >
+                                <span className="citation-index">{citation.label || citation.id}</span>
+                                <span className="citation-title">{citationDisplayTitle(citation)}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                       {canRateMessage(item) && (
                         <div className="message-feedback">
                           <Button
@@ -1742,6 +1891,58 @@ export default function ChatWindowPage() {
             </>
           )}
         </div>
+      </Modal>
+      <Modal
+        className="knowledge-citation-modal"
+        title="引用详情"
+        width="min(960px, calc(100vw - 40px))"
+        open={Boolean(activeCitation)}
+        footer={null}
+        onCancel={() => setActiveCitation(null)}
+      >
+        {activeCitation && (
+          <div className="citation-detail">
+            <div className="citation-detail-eyebrow">{citationKindLabel(activeCitation)}</div>
+            <h3>{citationDisplayTitle(activeCitation)}</h3>
+            {(activeCitation.summary || activeCitation.excerpt) && (
+              <div className="citation-detail-section">
+                <span>引用内容</span>
+                <p>{activeCitation.summary || activeCitation.excerpt}</p>
+              </div>
+            )}
+            {activeCitation.summary && activeCitation.excerpt && (
+              <div className="citation-detail-section">
+                <span>证据片段</span>
+                <blockquote>{activeCitation.excerpt}</blockquote>
+              </div>
+            )}
+            {(activeCitation.source_path || activeCitation.section_path || activeCitation.concept_id) && (
+              <div className="citation-detail-grid">
+                {activeCitation.source_path && (
+                  <div>
+                    <span>来源</span>
+                    <strong>{citationSourceLabel(activeCitation)}</strong>
+                  </div>
+                )}
+                {activeCitation.section_path && (
+                  <div>
+                    <span>章节</span>
+                    <strong>{citationSectionLabel(activeCitation)}</strong>
+                  </div>
+                )}
+                {activeCitation.concept_id && (
+                  <div>
+                    <span>Wiki 页面</span>
+                    <strong>{activeCitation.concept_id}</strong>
+                  </div>
+                )}
+              </div>
+            )}
+            {activeCitation.confidence_reason && (
+              <div className="citation-detail-note">{activeCitation.confidence_reason}</div>
+            )}
+          </div>
+        )}
       </Modal>
       <Modal
         title="重命名任务"

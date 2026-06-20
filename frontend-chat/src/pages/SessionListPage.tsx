@@ -98,7 +98,7 @@ export default function SessionListPage() {
     setSelectedAgentId(agentId);
     window.localStorage.setItem('skill_agent_selected_agent', agentId);
     setNewSessionOpen(false);
-    navigate(`/chat/${session.id}`);
+    navigate(`/${session.id}`);
   }
 
   function toggleSidebar() {
@@ -191,11 +191,11 @@ export default function SessionListPage() {
               role="button"
               tabIndex={0}
               className="session-card"
-              onClick={() => navigate(`/chat/${session.id}`)}
+              onClick={() => navigate(`/${session.id}`)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' || event.key === ' ') {
                   event.preventDefault();
-                  navigate(`/chat/${session.id}`);
+                  navigate(`/${session.id}`);
                 }
               }}
             >

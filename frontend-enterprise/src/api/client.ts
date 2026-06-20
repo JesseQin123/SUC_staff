@@ -46,6 +46,18 @@ export const api = {
     request<T>(path, { method: 'POST', body: JSON.stringify(body), signal }),
   put: <T>(path: string, body: unknown) => request<T>(path, { method: 'PUT', body: JSON.stringify(body) }),
   delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
+  blob: async (path: string) => {
+    const response = await fetch(`${API_BASE}${path}`, {
+      headers: {
+        ...authHeader(),
+      },
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(parseErrorMessage(text) || response.statusText);
+    }
+    return response.blob();
+  },
 };
 
 export type StreamEvent = {

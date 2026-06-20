@@ -211,7 +211,7 @@ export default function FeedbackPage() {
         <Typography.Title level={3}>对话日志</Typography.Title>
       </div>
       <Card
-        className="data-card conversation-log-card"
+        className="conversation-log-card"
         title={<><MessageOutlined /> 对话任务与质检复盘</>}
         extra={<Button icon={<ReloadOutlined />} onClick={() => void load()} loading={loading}>刷新</Button>}
       >
@@ -231,12 +231,14 @@ export default function FeedbackPage() {
             </Space>
           </div>
         )}
-        <Segmented
-          className="conversation-log-filter"
-          value={filter}
-          options={FILTER_OPTIONS}
-          onChange={(value) => setFilter(value as LogFilter)}
-        />
+        <div className="conversation-log-filter-wrap">
+          <Segmented
+            className="conversation-log-filter"
+            value={filter}
+            options={FILTER_OPTIONS}
+            onChange={(value) => setFilter(value as LogFilter)}
+          />
+        </div>
         <Table
           rowKey="id"
           columns={columns}

@@ -239,6 +239,36 @@ class KnowledgeChunk(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=utc_now)
 
 
+class KnowledgeConcept(SQLModel, table=True):
+    __tablename__ = "knowledge_concepts"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "knowledge_base_version_id",
+            "concept_id",
+            name="uq_knowledge_concept_version_path",
+        ),
+    )
+
+    id: str = Field(default_factory=lambda: new_id("kconcept"), primary_key=True)
+    tenant_id: str = Field(index=True)
+    knowledge_base_id: str = Field(index=True)
+    knowledge_base_version_id: Optional[str] = Field(default=None, index=True)
+    document_id: Optional[str] = Field(default=None, index=True)
+    concept_id: str = Field(index=True)
+    concept_type: str = Field(index=True)
+    title: str
+    description: Optional[str] = None
+    content_md: str
+    frontmatter_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    links_json: list[dict[str, Any]] = Field(default_factory=list, sa_column=Column(JSON))
+    citations_json: list[dict[str, Any]] = Field(default_factory=list, sa_column=Column(JSON))
+    source_refs_json: list[dict[str, Any]] = Field(default_factory=list, sa_column=Column(JSON))
+    status: str = Field(default="active", index=True)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
 class KnowledgeDiscoverySuggestion(SQLModel, table=True):
     __tablename__ = "knowledge_discovery_suggestions"
 
@@ -495,6 +525,7 @@ class Message(SQLModel, table=True):
     session_id: str = Field(index=True)
     role: str
     content: str
+    metadata_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=utc_now)
 
 

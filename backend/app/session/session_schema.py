@@ -198,6 +198,7 @@ class MessageRead(BaseModel):
     session_id: str
     role: str
     content: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: str
     feedback_rating: Optional[MessageFeedbackValue] = None
 

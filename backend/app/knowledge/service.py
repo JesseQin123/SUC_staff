@@ -15,6 +15,7 @@ from app.db.models import (
     KnowledgeBucket,
     KnowledgeBase,
     KnowledgeChunk,
+    KnowledgeConcept,
     KnowledgeDiscoverySuggestion,
     KnowledgeDocument,
     KnowledgeIngestJob,
@@ -29,6 +30,13 @@ from app.knowledge.schema import (
     KnowledgeChunkRead,
     KnowledgeSearchRequest,
     KnowledgeSearchResponse,
+)
+from app.knowledge.okf import (
+    build_okf_for_document,
+    okf_citations_for_concepts,
+    search_concepts,
+    selected_concept_cards,
+    upsert_concepts,
 )
 from app.llm import LLMClient, LLMError
 from app.skills.skill_schema import SkillCard
@@ -46,17 +54,44 @@ BUCKET_SECTION_CHARS = 6000
 PARAGRAPH_GROUP_CHARS = 4200
 SEARCH_DOCUMENT_LIMIT = 40
 SEARCH_BUCKET_LIMIT = 80
+GENERIC_SEARCH_TERMS = {
+    "请根据",
+    "根据",
+    "业务",
+    "资料",
+    "业务资料",
+    "说明",
+    "用户",
+    "服务",
+    "服务人员",
+    "人员",
+    "应该",
+    "应该怎么",
+    "怎么",
+    "怎么处理",
+    "处理",
+    "回答",
+    "必须",
+    "知识",
+    "引用",
+    "知识引用",
+    "规则",
+    "文档",
+    "信息",
+    "相关",
+    "基于",
+}
 
 INGEST_STAGES: list[dict[str, Any]] = [
     {"key": "queued", "label": "排队中", "progress": 0.0},
-    {"key": "parsing", "label": "解析文档", "progress": 0.08},
-    {"key": "normalizing", "label": "规范化文本", "progress": 0.16},
-    {"key": "documenting", "label": "写入文档", "progress": 0.24},
-    {"key": "bucketing", "label": "规划知识桶", "progress": 0.36},
-    {"key": "bucket_writing", "label": "写入知识桶", "progress": 0.48},
-    {"key": "chunking", "label": "切分知识片段", "progress": 0.62},
-    {"key": "summarizing", "label": "整理片段摘要", "progress": 0.74},
-    {"key": "discovering", "label": "发现技能和工具建议", "progress": 0.88},
+    {"key": "parsing", "label": "解析原始资料", "progress": 0.08},
+    {"key": "normalizing", "label": "规范化 Source", "progress": 0.16},
+    {"key": "documenting", "label": "写入 Source Document", "progress": 0.24},
+    {"key": "bucketing", "label": "规划 Wiki 概念", "progress": 0.36},
+    {"key": "bucket_writing", "label": "写入 OKF Wiki", "progress": 0.48},
+    {"key": "chunking", "label": "生成证据层", "progress": 0.62},
+    {"key": "summarizing", "label": "刷新知识桶", "progress": 0.74},
+    {"key": "discovering", "label": "发现 SOP/工具", "progress": 0.88},
     {"key": "done", "label": "完成入库", "progress": 1.0},
 ]
 
@@ -168,7 +203,7 @@ class KnowledgeService:
             self._update_ingest_stage(
                 job,
                 "bucketing",
-                detail="正在按目录结构和任务用途规划知识桶",
+                detail="正在按目录结构、章节语义和任务用途规划 OKF Wiki 概念",
                 document_id=document.id,
                 stats={"section_count": len(section_nodes)},
             )
@@ -184,16 +219,24 @@ class KnowledgeService:
             self._update_ingest_stage(
                 job,
                 "bucket_writing",
-                detail=f"已生成 {len(buckets)} 个知识桶，正在持久化桶摘要",
+                detail=f"已规划 {len(buckets)} 个知识主题，正在写入 OKF Wiki 与知识桶",
                 stats={"bucket_count": len(buckets), "section_count": len(section_nodes)},
             )
             self._update_ingest_stage(
                 job,
                 "chunking",
-                detail="正在按段落预算切分知识片段",
+                detail="正在从 OKF Wiki 与原始资料回填证据片段",
                 stats={"bucket_count": len(buckets)},
             )
             chunk_count = self._build_chunks(job.tenant_id, job.knowledge_base_id, document, buckets, section_nodes)
+            okf_concepts = build_okf_for_document(document, section_nodes, buckets)
+            concept_rows = upsert_concepts(
+                self.db,
+                job.tenant_id,
+                job.knowledge_base_id,
+                document.knowledge_base_version_id,
+                okf_concepts,
+            )
 
             document.bucket_count = len(buckets)
             document.chunk_count = chunk_count
@@ -214,19 +257,24 @@ class KnowledgeService:
                     }
                     for bucket in buckets
                 ],
+                "okf": {
+                    "version": "0.1",
+                    "concept_count": len(concept_rows),
+                    "concept_types": sorted({row.concept_type for row in concept_rows}),
+                },
             }
             document.updated_at = utc_now()
             self.db.add(document)
             self._update_ingest_stage(
                 job,
                 "summarizing",
-                detail=f"已写入 {chunk_count} 个知识片段，正在整理入库结果",
-                stats={"bucket_count": len(buckets), "chunk_count": chunk_count},
+                detail=f"已生成 {chunk_count} 个证据片段，正在刷新知识桶与片段摘要",
+                stats={"concept_count": len(concept_rows), "bucket_count": len(buckets), "chunk_count": chunk_count},
             )
             self._update_ingest_stage(
                 job,
                 "discovering",
-                detail="正在从知识中发现可确认的技能和工具建议",
+                detail="正在从 OKF Wiki 和证据层发现可确认的 SOP/工具建议",
                 stats={"bucket_count": len(buckets), "chunk_count": chunk_count},
             )
 
@@ -236,8 +284,12 @@ class KnowledgeService:
                 "done",
                 status="succeeded",
                 finished_at=utc_now(),
-                detail=f"完成入库：{len(buckets)} 个知识桶，{chunk_count} 个片段",
-                stats={"bucket_count": len(buckets), "chunk_count": chunk_count},
+                detail=f"完成入库：{len(concept_rows)} 个 Wiki 概念，{len(buckets)} 个知识桶，{chunk_count} 个证据片段",
+                stats={
+                    "concept_count": len(concept_rows),
+                    "bucket_count": len(buckets),
+                    "chunk_count": chunk_count,
+                },
             )
             self._clear_embedded_content(job)
         except Exception as exc:  # noqa: BLE001 - persist stable job failure.
@@ -263,14 +315,36 @@ class KnowledgeService:
         if not query:
             return KnowledgeSearchResponse()
         route_trace: list[dict[str, Any]] = []
-        if request.agent_id and not request.knowledge_base_version_ids:
+        if request.agent_id and not request.knowledge_base_ids and not request.knowledge_base_version_ids:
             route_trace.append({"phase": "no_visible_knowledge", "message": "当前智能体没有可见知识"})
             return KnowledgeSearchResponse(trace=route_trace, route_trace=route_trace)
 
+        concepts = self._load_concepts_for_search(request)
+        selected_concepts = search_concepts(query, concepts, max(request.max_buckets, 4))
+        selected_concept_payload = selected_concept_cards(selected_concepts)
+        okf_citations = okf_citations_for_concepts(selected_concepts)
+        if concepts:
+            route_trace.append(
+                {
+                    "phase": "okf_concept_route",
+                    "message": "正在选择 OKF Wiki 概念",
+                    "candidate_count": len(concepts),
+                    "selected_count": len(selected_concepts),
+                }
+            )
+
         documents = self._load_documents_for_search(request)
-        if not documents:
-            route_trace.append({"phase": "no_documents", "message": "没有可检索的知识文档"})
+        if not documents and not selected_concepts:
+            route_trace.append({"phase": "no_documents", "message": "没有可检索的知识文档或 OKF 概念"})
             return KnowledgeSearchResponse(trace=route_trace, route_trace=route_trace)
+        if not documents:
+            route_trace.append({"phase": "okf_only", "message": "仅命中 OKF Wiki 概念"})
+            return KnowledgeSearchResponse(
+                trace=route_trace,
+                route_trace=route_trace,
+                selected_concepts=selected_concept_payload,
+                okf_citations=okf_citations,
+            )
 
         route_trace.append(
             {
@@ -286,6 +360,13 @@ class KnowledgeService:
         if not selected_document_ids:
             selected_document_ids = [row.id for row in _score_documents(query, documents)[:5]]
             route_trace.append({"phase": "document_route_fallback", "message": "按文档卡相关性选择知识文档"})
+        concept_document_ids = [
+            str(ref.get("document_id"))
+            for concept in selected_concepts
+            for ref in (concept.source_refs_json or [])
+            if isinstance(ref, dict) and ref.get("document_id")
+        ]
+        selected_document_ids = _unique_strings(selected_document_ids + concept_document_ids[:3])
 
         selected_documents = [row for row in documents if row.id in set(selected_document_ids)]
         selected_document_cards = [_document_card_for_search(row) for row in selected_documents]
@@ -297,6 +378,8 @@ class KnowledgeService:
                 trace=route_trace,
                 route_trace=route_trace,
                 selected_documents=selected_document_cards,
+                selected_concepts=selected_concept_payload,
+                okf_citations=okf_citations,
             )
 
         selected_ids: list[str] = []
@@ -338,7 +421,9 @@ class KnowledgeService:
             trace=route_trace,
             route_trace=route_trace,
             selected_documents=selected_document_cards,
+            selected_concepts=selected_concept_payload,
             expanded_sections=expanded_sections,
+            okf_citations=okf_citations,
             evidence_pack=evidence_pack,
         )
 
@@ -580,6 +665,19 @@ class KnowledgeService:
         if request.document_ids:
             stmt = stmt.where(KnowledgeDocument.id.in_(request.document_ids))
         return self.db.exec(stmt.order_by(KnowledgeDocument.updated_at.desc()).limit(SEARCH_DOCUMENT_LIMIT)).all()
+
+    def _load_concepts_for_search(self, request: KnowledgeSearchRequest) -> list[KnowledgeConcept]:
+        stmt = select(KnowledgeConcept).where(
+            KnowledgeConcept.tenant_id == request.tenant_id,
+            KnowledgeConcept.status == "active",
+        )
+        if request.knowledge_base_ids:
+            stmt = stmt.where(KnowledgeConcept.knowledge_base_id.in_(request.knowledge_base_ids))
+        if request.knowledge_base_version_ids:
+            stmt = stmt.where(KnowledgeConcept.knowledge_base_version_id.in_(request.knowledge_base_version_ids))
+        if request.document_ids:
+            stmt = stmt.where(KnowledgeConcept.document_id.in_(request.document_ids))
+        return self.db.exec(stmt.order_by(KnowledgeConcept.updated_at.desc()).limit(120)).all()
 
     def _load_buckets_for_search(self, request: KnowledgeSearchRequest, document_ids: list[str]) -> list[KnowledgeBucket]:
         if not document_ids:
@@ -1247,6 +1345,18 @@ def _unique_bucket_specs(specs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return result
 
 
+def _unique_strings(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in items:
+        value = str(item or "").strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return result
+
+
 def _bucket_quality(spec: dict[str, Any], section_ids: list[str], content: str) -> dict[str, Any]:
     warnings: list[str] = []
     if not section_ids:
@@ -1432,15 +1542,23 @@ def _safe_key(text: str, fallback: str) -> str:
 
 
 def _query_terms(query: str) -> list[str]:
-    terms = re.findall(r"[A-Za-z0-9_.-]{2,}|[\u4e00-\u9fff]{2,}", query or "")
+    terms: list[str] = []
+    for term in re.findall(r"[A-Za-z0-9_.-]{2,}|[\u4e00-\u9fff]{2,}", query or ""):
+        normalized = term.lower()
+        terms.append(normalized)
+        if re.fullmatch(r"[\u4e00-\u9fff]{3,}", normalized):
+            for size in (4, 3, 2):
+                if len(normalized) <= size:
+                    continue
+                terms.extend(normalized[index : index + size] for index in range(0, len(normalized) - size + 1))
     result: list[str] = []
     seen: set[str] = set()
     for term in terms:
-        normalized = term.lower()
+        normalized = term.lower().strip()
         if normalized not in seen:
             seen.add(normalized)
             result.append(normalized)
-    return result
+    return result[:96]
 
 
 def _score_text(query: str, text: str) -> float:
@@ -1448,10 +1566,25 @@ def _score_text(query: str, text: str) -> float:
     score = 0.0
     if query and query.lower() in haystack:
         score += 5.0
+    specific_hit = False
     for term in _query_terms(query):
         count = haystack.count(term)
         if count:
-            score += min(4.0, count * 1.5)
+            is_generic = term in GENERIC_SEARCH_TERMS
+            if is_generic:
+                score += min(0.75, count * 0.2)
+                continue
+            specific_hit = True
+            term_weight = 1.4
+            if re.fullmatch(r"[\u4e00-\u9fff]{3,}", term):
+                term_weight = 2.2
+            if re.fullmatch(r"[\u4e00-\u9fff]{4,}", term):
+                term_weight = 3.0
+            if len(term) >= 5:
+                term_weight = 3.4
+            score += min(8.0, count * term_weight)
+    if not specific_hit and score:
+        return score * 0.12
     return score
 
 

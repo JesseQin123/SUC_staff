@@ -114,6 +114,26 @@ export type KnowledgeDiscoveryRead = {
   updated_at: string;
 };
 
+export type KnowledgeConceptRead = {
+  id: string;
+  tenant_id: string;
+  knowledge_base_id: string;
+  knowledge_base_version_id?: string;
+  document_id?: string;
+  concept_id: string;
+  concept_type: string;
+  title: string;
+  description?: string;
+  content_md: string;
+  frontmatter: Record<string, unknown>;
+  links: Array<Record<string, unknown>>;
+  citations: Array<Record<string, unknown>>;
+  source_refs: Array<Record<string, unknown>>;
+  status: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type KnowledgeSearchEvidence = {
   chunk_id: string;
   document_id: string;
@@ -132,6 +152,8 @@ export type KnowledgeSearchResponse = {
   route_trace: Array<Record<string, unknown>>;
   selected_documents: Array<Record<string, unknown>>;
   expanded_sections: Array<Record<string, unknown>>;
+  selected_concepts: Array<Record<string, unknown>>;
+  okf_citations: Array<Record<string, unknown>>;
   evidence_pack: KnowledgeSearchEvidence[];
 };
 

@@ -22,7 +22,7 @@ export default function LoginPage() {
       const result = await api.post<AuthSession>('/api/auth/login', values);
       setAuthSession(result);
       message.success('登录成功');
-      navigate('/chat', { replace: true });
+      navigate('/', { replace: true });
     } catch (error) {
       message.error(error instanceof Error ? error.message : '登录失败');
     } finally {

@@ -27,11 +27,33 @@ export type ChatMessage = {
   id: string;
   role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;
+  metadata?: {
+    knowledge_citations?: KnowledgeCitation[];
+    knowledge_query?: Record<string, unknown>;
+    [key: string]: unknown;
+  };
   created_at: string;
   feedback_rating?: 'up' | 'down' | null;
   turnId?: string;
   isStreaming?: boolean;
   isError?: boolean;
+};
+
+export type KnowledgeCitation = {
+  id: string;
+  label?: string;
+  kind?: 'evidence' | 'concept' | 'okf' | string;
+  title?: string;
+  source_path?: string;
+  section_path?: string;
+  excerpt?: string;
+  summary?: string;
+  confidence_reason?: string;
+  document_id?: string;
+  bucket_id?: string;
+  chunk_id?: string;
+  concept_id?: string;
+  concept_type?: string;
 };
 
 export type ChatTurnResponse = {
@@ -45,7 +67,7 @@ export type ChatTurnResponse = {
 
 export type TraceLineRead = {
   id: string;
-  kind: 'thinking' | 'decision' | 'skill' | 'tool' | 'code';
+  kind: 'thinking' | 'decision' | 'skill' | 'tool' | 'code' | 'knowledge';
   text: string;
   detail?: string | null;
   code?: string | null;

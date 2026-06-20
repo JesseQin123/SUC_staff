@@ -88,6 +88,12 @@ def _migrate_sqlite_skill_schema() -> None:
                 conn.execute(text("ALTER TABLE sessions ADD COLUMN knowledge_context_json JSON"))
                 conn.execute(text("UPDATE sessions SET knowledge_context_json = '[]'"))
 
+        if "messages" in tables:
+            message_columns = {column["name"] for column in inspector.get_columns("messages")}
+            if "metadata_json" not in message_columns:
+                conn.execute(text("ALTER TABLE messages ADD COLUMN metadata_json JSON"))
+                conn.execute(text("UPDATE messages SET metadata_json = '{}' WHERE metadata_json IS NULL"))
+
         if "tools" in tables:
             tool_columns = {column["name"] for column in inspector.get_columns("tools")}
             if "bucket" not in tool_columns:
@@ -448,6 +454,7 @@ def _migrate_knowledge_base_schema(conn, inspector, tables: set[str]) -> None:
         "knowledge_documents": "knowledge_base_id",
         "knowledge_buckets": "knowledge_base_id",
         "knowledge_chunks": "knowledge_base_id",
+        "knowledge_concepts": "knowledge_base_id",
         "knowledge_discovery_suggestions": "knowledge_base_id",
         "knowledge_ingest_jobs": "knowledge_base_id",
     }
@@ -667,6 +674,7 @@ def _move_document_knowledge_rows(
     document_scoped_tables = (
         "knowledge_buckets",
         "knowledge_chunks",
+        "knowledge_concepts",
         "knowledge_discovery_suggestions",
     )
     if "knowledge_documents" in tables:
