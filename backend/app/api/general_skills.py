@@ -4,6 +4,7 @@ import json
 import queue
 import re
 import threading
+import time
 import zipfile
 from collections.abc import Iterator
 from html import unescape
@@ -36,6 +37,7 @@ router = APIRouter(prefix="/api/enterprise/general-skills", tags=["enterprise:ge
 MAX_CLAWHUB_PACKAGE_BYTES = 24 * 1024 * 1024
 MAX_CLAWHUB_FILE_BYTES = 2 * 1024 * 1024
 MAX_CLAWHUB_FILES = 240
+GENERAL_SKILL_STREAM_IDLE_TIMEOUT_SECONDS = 120
 GITHUB_HOSTS = {"github.com", "www.github.com"}
 RAW_GITHUB_HOST = "raw.githubusercontent.com"
 CLAWHUB_HOSTS = {"clawhub.ai", "www.clawhub.ai"}
@@ -357,10 +359,25 @@ def run_general_skill_stream(
 
         threading.Thread(target=worker, daemon=True).start()
         yield _sse("stream_started", {"skill_slug": skill_snapshot.slug, "max_attempts": request.max_attempts})
+        last_worker_event_at = time.monotonic()
         while True:
-            item = events.get()
+            try:
+                item = events.get(timeout=5)
+            except queue.Empty:
+                if time.monotonic() - last_worker_event_at > GENERAL_SKILL_STREAM_IDLE_TIMEOUT_SECONDS:
+                    yield _sse(
+                        "error",
+                        {
+                            "message": "通用技能运行超时，请检查模型配置或稍后重试。",
+                            "code": "general_skill_stream_timeout",
+                        },
+                    )
+                    return
+                yield _sse("heartbeat", {"phase": "running"})
+                continue
             if item is None:
                 return
+            last_worker_event_at = time.monotonic()
             event, payload = item
             yield _sse(event, payload)
 

@@ -35,6 +35,7 @@ const DEFAULT_GENERAL_META = {
   homepage: 'https://www.weather.com.cn/',
 };
 const ENTERPRISE_AGENT_STORAGE_KEY = 'ultrarag_enterprise_agent_scope';
+const GENERAL_SKILL_RUN_TIMEOUT_MS = 120_000;
 
 type GeneralSkillFile = {
   path: string;
@@ -1218,6 +1219,12 @@ function GeneralSkillEditorPage({ mode }: { mode: 'new' | 'edit' }) {
       structured_result: {},
       reply: '',
     });
+    const controller = new AbortController();
+    let timedOut = false;
+    const timeoutId = window.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, GENERAL_SKILL_RUN_TIMEOUT_MS);
     try {
       let completed = false;
       await streamPost(
@@ -1265,6 +1272,7 @@ function GeneralSkillEditorPage({ mode }: { mode: 'new' | 'edit' }) {
           }
           if (item.event === 'error') {
             const text = typeof item.data.message === 'string' ? item.data.message : '运行失败';
+            completed = true;
             setLiveResult((current) => ({
               ...(current || { skill_slug: slug, execution_trace: [] }),
               stderr: text,
@@ -1274,13 +1282,24 @@ function GeneralSkillEditorPage({ mode }: { mode: 'new' | 'edit' }) {
             message.error(text);
           }
         },
+        controller.signal,
       );
       if (!completed) {
         message.warning('运行流已结束，但未收到最终结果');
       }
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '运行失败');
+      const text = timedOut
+        ? '技能运行超时，请检查模型配置或稍后重试。'
+        : error instanceof Error ? error.message : '运行失败';
+      setLiveResult((current) => ({
+        ...(current || { skill_slug: slug, execution_trace: [] }),
+        stderr: text,
+        structured_result: { success: false, error: text },
+        reply: '运行失败',
+      }));
+      message.error(text);
     } finally {
+      window.clearTimeout(timeoutId);
       setLoading(false);
     }
   }
