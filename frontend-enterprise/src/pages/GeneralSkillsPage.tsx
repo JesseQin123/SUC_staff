@@ -8,10 +8,12 @@ import {
   ExperimentOutlined,
   FileTextOutlined,
   FolderOpenOutlined,
+  GithubOutlined,
   MoreOutlined,
   PlayCircleOutlined,
   PlusOutlined,
   ReloadOutlined,
+  TeamOutlined,
   UploadOutlined,
   DownOutlined,
 } from '@ant-design/icons';
@@ -48,6 +50,8 @@ type DroppedSkillFile = {
   file: File;
   path: string;
 };
+
+type GeneralSkillImportMode = 'plaza' | 'employee';
 
 type SkillFileSystemEntry = {
   name: string;
@@ -151,6 +155,7 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
   const [clawhubSource, setClawhubSource] = useState('');
   const [clawhubLoading, setClawhubLoading] = useState(false);
   const [agentImportOpen, setAgentImportOpen] = useState(false);
+  const [agentImportMode, setAgentImportMode] = useState<GeneralSkillImportMode>('plaza');
   const [agentImportLoading, setAgentImportLoading] = useState(false);
   const [agentImportAgents, setAgentImportAgents] = useState<AgentProfileRead[]>([]);
   const [agentImportSourceAgentId, setAgentImportSourceAgentId] = useState('');
@@ -252,19 +257,26 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
       return;
     }
     if (key === 'plaza') {
+      void requestAgentImport('plaza');
+      return;
+    }
+    if (key === 'opensource') {
       requestClawHubImport();
       return;
     }
     if (key === 'employee') {
-      void requestAgentImport();
+      void requestAgentImport('employee');
     }
   }
 
-  async function requestAgentImport() {
+  async function requestAgentImport(mode: GeneralSkillImportMode) {
     try {
       const agents = await api.get<AgentProfileRead[]>(`/api/enterprise/agents?tenant_id=${TENANT_ID}`);
-      const candidates = agents.filter((item) => item.id !== agentId);
+      const candidates = agents.filter((item) => (
+        item.id !== agentId && (mode === 'plaza' ? item.is_overall : !item.is_overall)
+      ));
       const firstSource = candidates[0]?.id || '';
+      setAgentImportMode(mode);
       setAgentImportAgents(candidates);
       setAgentImportSourceAgentId(firstSource);
       setAgentImportSelectedSkillIds([]);
@@ -300,7 +312,7 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
       return;
     }
     if (!agentImportSourceAgentId) {
-      message.warning('请选择开放广场平台或来源员工');
+      message.warning(agentImportMode === 'plaza' ? '请选择通用技能广场' : '请选择来源员工');
       return;
     }
     if (!agentImportSelectedSkillIds.length) {
@@ -327,13 +339,14 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
 
   async function importClawHubSource() {
     if (!clawhubSource.trim()) {
-      message.warning('请输入通用技能广场、GitHub 或 zip 来源');
+      message.warning('请输入 GitHub、zip 或 SKILL.md 来源');
       return;
     }
     setClawhubLoading(true);
     try {
       const row = await api.post<GeneralSkillRead>('/api/enterprise/general-skills/import-clawhub', {
         tenant_id: TENANT_ID,
+        agent_id: !isOverallAgent && agentId ? agentId : undefined,
         source: clawhubSource.trim(),
         status: 'published',
       });
@@ -342,7 +355,7 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
       setClawhubModalOpen(false);
       navigate(`/enterprise/general-skills/${encodeURIComponent(row.slug)}/edit`);
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '从通用技能广场新增失败');
+      message.error(error instanceof Error ? error.message : '从开源平台导入失败');
     } finally {
       setClawhubLoading(false);
     }
@@ -433,8 +446,9 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
               menu={{
                 items: [
                   { key: 'blank', icon: <PlusOutlined />, label: '新建空白技能' },
-                  { key: 'plaza', icon: <UploadOutlined />, label: '从通用技能广场新增' },
-                  { key: 'employee', label: '向其他员工学习技能' },
+                  ...(!isOverallAgent ? [{ key: 'plaza', icon: <UploadOutlined />, label: '从通用技能广场新增' }] : []),
+                  { key: 'opensource', icon: <GithubOutlined />, label: '从开源平台导入' },
+                  ...(!isOverallAgent ? [{ key: 'employee', icon: <TeamOutlined />, label: '向其他员工学习技能' }] : []),
                 ],
                 onClick: ({ key }) => handleCreateAction(key),
               }}
@@ -486,7 +500,7 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
       </div>
 
       <Modal
-        title="从通用技能广场新增技能"
+        title="从开源平台导入技能"
         open={clawhubModalOpen}
         onOk={importClawHubSource}
         confirmLoading={clawhubLoading}
@@ -496,7 +510,7 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
       >
         <Space direction="vertical" size={10} style={{ width: '100%' }}>
           <Typography.Text type="secondary">
-            支持 GitHub repo/tree/raw SKILL.md、zip 包地址，或 owner/repo 形式。新增后进入编辑子页面继续检查和测试。
+            支持 GitHub repo/tree/raw SKILL.md、zip 包地址，或 owner/repo 形式。开放广场平台会直接新增到通用技能广场；员工页导入后会同步到当前员工的已掌握技能。
           </Typography.Text>
           <Input
             value={clawhubSource}
@@ -507,7 +521,7 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
       </Modal>
 
       <Modal
-        title="向其他员工学习技能"
+        title={agentImportMode === 'plaza' ? '从通用技能广场新增技能' : '向其他员工学习技能'}
         open={agentImportOpen}
         okText="学习"
         cancelText="取消"
@@ -517,18 +531,20 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
       >
         <Space direction="vertical" size={14} style={{ width: '100%' }}>
           <Typography.Text type="secondary">
-            仅可学习来源员工或开放广场平台中已启用的技能。
+            {agentImportMode === 'plaza'
+              ? '仅可从通用技能广场新增已启用技能。'
+              : '仅可向其他员工学习已启用技能。'}
           </Typography.Text>
           <Select
             value={agentImportSourceAgentId || undefined}
-            placeholder="选择开放广场平台或来源员工"
+            placeholder={agentImportMode === 'plaza' ? '选择通用技能广场' : '选择来源员工'}
             onChange={(value) => {
               setAgentImportSourceAgentId(value);
               void loadAgentImportSourceSkills(value);
             }}
             options={agentImportAgents.map((item) => ({
               value: item.id,
-              label: `${item.name}${item.is_overall ? '（开放广场平台）' : ''}`,
+              label: item.is_overall ? '通用技能广场' : item.name,
             }))}
             style={{ width: '100%' }}
           />
@@ -542,7 +558,7 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
               label: `${item.name} · ${item.slug} · ${statusLabel(item.status)}`,
             }))}
             optionFilterProp="label"
-            notFoundContent={agentImportSourceAgentId ? '没有可学习的已启用技能' : '请先选择来源员工'}
+            notFoundContent={agentImportSourceAgentId ? '没有可学习的已启用技能' : '请先选择来源'}
             style={{ width: '100%' }}
           />
         </Space>
@@ -741,6 +757,7 @@ function GeneralSkillEditorPage({ mode }: { mode: 'new' | 'edit' }) {
   const [clawhubSource, setClawhubSource] = useState('');
   const [clawhubLoading, setClawhubLoading] = useState(false);
   const [agentImportOpen, setAgentImportOpen] = useState(false);
+  const [agentImportMode, setAgentImportMode] = useState<GeneralSkillImportMode>('plaza');
   const [agentImportLoading, setAgentImportLoading] = useState(false);
   const [agentImportAgents, setAgentImportAgents] = useState<AgentProfileRead[]>([]);
   const [agentImportSourceAgentId, setAgentImportSourceAgentId] = useState('');
@@ -856,6 +873,7 @@ function GeneralSkillEditorPage({ mode }: { mode: 'new' | 'edit' }) {
     try {
       const row = await api.post<GeneralSkillRead>('/api/enterprise/general-skills/import', {
         tenant_id: TENANT_ID,
+        agent_id: !isOverallAgent && agentId ? agentId : undefined,
         name: skillName.trim() || undefined,
         slug: skillSlug.trim() || undefined,
         description: skillDescription.trim() || undefined,
@@ -1021,12 +1039,15 @@ function GeneralSkillEditorPage({ mode }: { mode: 'new' | 'edit' }) {
     });
   }
 
-  function requestAgentImport() {
+  function requestAgentImport(mode: GeneralSkillImportMode) {
     void withImportPreparation(async () => {
       try {
         const agents = await api.get<AgentProfileRead[]>(`/api/enterprise/agents?tenant_id=${TENANT_ID}`);
-        const candidates = agents.filter((item) => item.id !== agentId);
+        const candidates = agents.filter((item) => (
+          item.id !== agentId && (mode === 'plaza' ? item.is_overall : !item.is_overall)
+        ));
         const firstSource = candidates[0]?.id || '';
+        setAgentImportMode(mode);
         setAgentImportAgents(candidates);
         setAgentImportSourceAgentId(firstSource);
         setAgentImportSelectedSkillIds([]);
@@ -1063,7 +1084,7 @@ function GeneralSkillEditorPage({ mode }: { mode: 'new' | 'edit' }) {
       return;
     }
     if (!agentImportSourceAgentId) {
-      message.warning('请选择开放广场平台或来源员工');
+      message.warning(agentImportMode === 'plaza' ? '请选择通用技能广场' : '请选择来源员工');
       return;
     }
     if (!agentImportSelectedSkillIds.length) {
@@ -1090,13 +1111,14 @@ function GeneralSkillEditorPage({ mode }: { mode: 'new' | 'edit' }) {
 
   async function importClawHubSource() {
     if (!clawhubSource.trim()) {
-      message.warning('请输入通用技能广场、GitHub 或 zip 来源');
+      message.warning('请输入 GitHub、zip 或 SKILL.md 来源');
       return;
     }
     setClawhubLoading(true);
     try {
       const row = await api.post<GeneralSkillRead>('/api/enterprise/general-skills/import-clawhub', {
         tenant_id: TENANT_ID,
+        agent_id: !isOverallAgent && agentId ? agentId : undefined,
         source: clawhubSource.trim(),
         status: 'published',
       });
@@ -1107,7 +1129,7 @@ function GeneralSkillEditorPage({ mode }: { mode: 'new' | 'edit' }) {
       setClawhubModalOpen(false);
       void load();
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '从通用技能广场新增失败');
+      message.error(error instanceof Error ? error.message : '从开源平台导入失败');
     } finally {
       setClawhubLoading(false);
     }
@@ -1437,16 +1459,21 @@ function GeneralSkillEditorPage({ mode }: { mode: 'new' | 'edit' }) {
                     items: [
                       { key: 'file', label: '选择文件' },
                       { key: 'folder', label: '选择文件夹' },
-                      { key: 'clawhub', label: '从通用技能广场新增' },
-                      { key: 'agent', label: '向其他员工学习技能' },
+                      ...(!isOverallAgent ? [{ key: 'plaza', icon: <UploadOutlined />, label: '从通用技能广场新增' }] : []),
+                      { key: 'opensource', icon: <GithubOutlined />, label: '从开源平台导入' },
+                      ...(!isOverallAgent ? [{ key: 'agent', icon: <TeamOutlined />, label: '向其他员工学习技能' }] : []),
                     ],
                     onClick: ({ key }) => {
-                      if (key === 'clawhub') {
+                      if (key === 'opensource') {
                         requestClawHubImport();
                         return;
                       }
+                      if (key === 'plaza') {
+                        requestAgentImport('plaza');
+                        return;
+                      }
                       if (key === 'agent') {
-                        requestAgentImport();
+                        requestAgentImport('employee');
                         return;
                       }
                       requestImport(key === 'folder' ? 'folder' : 'file');
@@ -1698,7 +1725,7 @@ function GeneralSkillEditorPage({ mode }: { mode: 'new' | 'edit' }) {
         </Space>
       </div>
       <Modal
-        title="从通用技能广场新增技能"
+        title="从开源平台导入技能"
         open={clawhubModalOpen}
         onOk={importClawHubSource}
         confirmLoading={clawhubLoading}
@@ -1708,7 +1735,7 @@ function GeneralSkillEditorPage({ mode }: { mode: 'new' | 'edit' }) {
       >
         <Space direction="vertical" size={10} style={{ width: '100%' }}>
           <Typography.Text type="secondary">
-            支持 GitHub repo/tree/raw SKILL.md、zip 包地址，或 owner/repo 形式。新增会进入当前员工的已掌握技能，不覆盖当前内容。
+            支持 GitHub repo/tree/raw SKILL.md、zip 包地址，或 owner/repo 形式。开放广场平台会直接新增到通用技能广场；员工页导入后会同步到当前员工的已掌握技能。
           </Typography.Text>
           <Input
             value={clawhubSource}
@@ -1718,7 +1745,7 @@ function GeneralSkillEditorPage({ mode }: { mode: 'new' | 'edit' }) {
         </Space>
       </Modal>
       <Modal
-        title="向其他员工学习技能"
+        title={agentImportMode === 'plaza' ? '从通用技能广场新增技能' : '向其他员工学习技能'}
         open={agentImportOpen}
         okText="学习"
         cancelText="取消"
@@ -1728,18 +1755,20 @@ function GeneralSkillEditorPage({ mode }: { mode: 'new' | 'edit' }) {
       >
         <Space direction="vertical" size={14} style={{ width: '100%' }}>
           <Typography.Text type="secondary">
-            仅可学习来源员工或开放广场平台中已启用的技能；不会覆盖当前编辑区内容。
+            {agentImportMode === 'plaza'
+              ? '仅可从通用技能广场新增已启用技能；不会覆盖当前编辑区内容。'
+              : '仅可向其他员工学习已启用技能；不会覆盖当前编辑区内容。'}
           </Typography.Text>
           <Select
             value={agentImportSourceAgentId || undefined}
-            placeholder="选择开放广场平台或来源员工"
+            placeholder={agentImportMode === 'plaza' ? '选择通用技能广场' : '选择来源员工'}
             onChange={(value) => {
               setAgentImportSourceAgentId(value);
               void loadAgentImportSourceSkills(value);
             }}
             options={agentImportAgents.map((item) => ({
               value: item.id,
-              label: `${item.name}${item.is_overall ? '（开放广场平台）' : ''}`,
+              label: item.is_overall ? '通用技能广场' : item.name,
             }))}
             style={{ width: '100%' }}
           />
@@ -1753,7 +1782,7 @@ function GeneralSkillEditorPage({ mode }: { mode: 'new' | 'edit' }) {
               label: `${item.name} · ${item.slug} · ${statusLabel(item.status)}`,
             }))}
             optionFilterProp="label"
-            notFoundContent={agentImportSourceAgentId ? '没有可学习的已启用技能' : '请先选择来源员工'}
+            notFoundContent={agentImportSourceAgentId ? '没有可学习的已启用技能' : '请先选择来源'}
             style={{ width: '100%' }}
           />
         </Space>

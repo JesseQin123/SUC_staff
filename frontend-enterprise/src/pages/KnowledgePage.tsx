@@ -17,6 +17,7 @@ import {
   ReloadOutlined,
   RightOutlined,
   SaveOutlined,
+  TeamOutlined,
 } from '@ant-design/icons';
 import { Button, Card, Col, Collapse, Dropdown, Empty, Input, Modal, Progress, Row, Select, Space, Table, Tag, Typography, Upload, message } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
@@ -304,9 +305,10 @@ export default function KnowledgeManagePage() {
       const agentRows = agents.length ? agents : await api.get<AgentProfileRead[]>(`/api/enterprise/agents?tenant_id=${TENANT_ID}`);
       setAgents(agentRows);
       setImportMode(mode);
-      const plazaSource = agentRows.find((item) => item.is_overall && item.id !== agentId)?.id || '';
-      const employeeSource = agentRows.find((item) => !item.is_overall && item.id !== agentId)?.id || '';
-      const firstSource = mode === 'plaza' ? plazaSource || employeeSource : employeeSource || plazaSource;
+      const candidates = agentRows.filter((item) => (
+        item.id !== agentId && (mode === 'plaza' ? item.is_overall : !item.is_overall)
+      ));
+      const firstSource = candidates[0]?.id || '';
       setImportSourceAgentId(firstSource);
       setImportSelectedKnowledgeBaseIds([]);
       setImportOpen(true);
@@ -340,7 +342,7 @@ export default function KnowledgeManagePage() {
       return;
     }
     if (!importSourceAgentId) {
-      message.warning('请选择开放广场平台或来源员工');
+      message.warning(importMode === 'plaza' ? '请选择业务知识广场' : '请选择来源员工');
       return;
     }
     if (importSelectedKnowledgeBaseIds.length === 0) {
@@ -757,8 +759,8 @@ export default function KnowledgeManagePage() {
               items: [
                 { key: 'blank', icon: <FileAddOutlined />, label: '新建空白业务资料' },
                 { key: 'okf', icon: <FileMarkdownOutlined />, label: '导入 OKF Bundle' },
-                { key: 'plaza', label: '从业务知识广场新增', disabled: isOverallAgent },
-                { key: 'employee', label: '向其他员工学习资料' },
+                ...(!isOverallAgent ? [{ key: 'plaza', icon: <DownloadOutlined />, label: '从业务知识广场新增' }] : []),
+                ...(!isOverallAgent ? [{ key: 'employee', icon: <TeamOutlined />, label: '向其他员工学习资料' }] : []),
               ],
               onClick: ({ key }) => handleCreateAction(key),
             }}
@@ -924,10 +926,10 @@ export default function KnowledgeManagePage() {
               void loadImportSourceKnowledgeBases(value);
             }}
             options={agents
-              .filter((item) => item.id !== agentId)
+              .filter((item) => item.id !== agentId && (importMode === 'plaza' ? item.is_overall : !item.is_overall))
               .map((item) => ({
                 value: item.id,
-                label: `${item.name}${item.is_overall ? '（开放广场平台）' : ''}`,
+                label: item.is_overall ? '业务知识广场' : item.name,
               }))}
             style={{ width: '100%' }}
           />
@@ -945,7 +947,9 @@ export default function KnowledgeManagePage() {
             style={{ width: '100%' }}
           />
           <Typography.Text type="secondary">
-            仅可学习开放广场平台或来源员工中已启用的业务资料；分享到开放广场平台后，其他员工可继续复用。
+            {importMode === 'plaza'
+              ? '仅可从业务知识广场新增已启用的业务资料；已停用资料不会出现在可学习列表。'
+              : '仅可向其他员工学习已启用的业务资料；员工不可见资料不会出现在可学习列表。'}
           </Typography.Text>
         </Space>
       </Modal>

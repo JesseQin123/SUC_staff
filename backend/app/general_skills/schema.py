@@ -14,6 +14,7 @@ class GeneralSkillFile(BaseModel):
 
 class GeneralSkillImportRequest(BaseModel):
     tenant_id: str
+    agent_id: Optional[str] = None
     name: Optional[str] = None
     slug: Optional[str] = None
     description: Optional[str] = None
@@ -26,6 +27,7 @@ class GeneralSkillImportRequest(BaseModel):
 
 class GeneralSkillClawHubImportRequest(BaseModel):
     tenant_id: str
+    agent_id: Optional[str] = None
     source: str
     name: Optional[str] = None
     slug: Optional[str] = None

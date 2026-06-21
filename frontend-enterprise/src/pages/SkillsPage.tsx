@@ -10,6 +10,7 @@ import {
   RollbackOutlined,
   StopOutlined,
   SyncOutlined,
+  TeamOutlined,
   UploadOutlined,
 } from '@ant-design/icons';
 import { Button, Card, Col, Descriptions, Dropdown, Input, Modal, Row, Segmented, Select, Space, Table, Tag, Typography, message } from 'antd';
@@ -259,9 +260,10 @@ export default function SkillsPage() {
       const agentRows = agents.length ? agents : await api.get<AgentProfileRead[]>(`/api/enterprise/agents?tenant_id=${TENANT_ID}`);
       setAgents(agentRows);
       setImportMode(mode);
-      const plazaSource = agentRows.find((item) => item.is_overall && item.id !== agentId)?.id || '';
-      const employeeSource = agentRows.find((item) => !item.is_overall && item.id !== agentId)?.id || '';
-      const firstSource = mode === 'plaza' ? plazaSource || employeeSource : employeeSource || plazaSource;
+      const candidates = agentRows.filter((item) => (
+        item.id !== agentId && (mode === 'plaza' ? item.is_overall : !item.is_overall)
+      ));
+      const firstSource = candidates[0]?.id || '';
       setImportSourceAgentId(firstSource);
       setImportSelectedSkillIds([]);
       setImportOpen(true);
@@ -293,7 +295,7 @@ export default function SkillsPage() {
       return;
     }
     if (!importSourceAgentId) {
-      message.warning('请选择学习来源员工');
+      message.warning(importMode === 'plaza' ? '请选择 SOP 广场' : '请选择学习来源员工');
       return;
     }
     if (importSelectedSkillIds.length === 0) {
@@ -471,8 +473,8 @@ export default function SkillsPage() {
             menu={{
               items: [
                 { key: 'blank', icon: <PlusOutlined />, label: '新建空白 SOP' },
-                { key: 'plaza', icon: <UploadOutlined />, label: '从 SOP 广场新增', disabled: isOverallAgent },
-                { key: 'employee', label: '向其他员工学习 SOP' },
+                ...(!isOverallAgent ? [{ key: 'plaza', icon: <UploadOutlined />, label: '从 SOP 广场新增' }] : []),
+                ...(!isOverallAgent ? [{ key: 'employee', icon: <TeamOutlined />, label: '向其他员工学习 SOP' }] : []),
               ],
               onClick: ({ key }) => handleCreateAction(key),
             }}
@@ -579,10 +581,10 @@ export default function SkillsPage() {
               void loadImportSourceSkills(value);
             }}
             options={agents
-              .filter((item) => item.id !== agentId)
+              .filter((item) => item.id !== agentId && (importMode === 'plaza' ? item.is_overall : !item.is_overall))
               .map((item) => ({
                 value: item.id,
-                label: `${item.name}${item.is_overall ? '（开放广场平台）' : ''}`,
+                label: item.is_overall ? 'SOP 广场' : item.name,
               }))}
             style={{ width: '100%' }}
           />
@@ -600,7 +602,9 @@ export default function SkillsPage() {
             style={{ width: '100%' }}
           />
           <Typography.Text type="secondary">
-            仅可学习来源员工或开放广场平台中已启用的 SOP；管理员分享到开放广场平台后，其他员工可继续学习复用。
+            {importMode === 'plaza'
+              ? '仅可从 SOP 广场新增已启用的 SOP；已停用的广场 SOP 不会出现在可学习列表。'
+              : '仅可向其他员工学习已启用的 SOP；员工未启用或不可见的 SOP 不会出现在可学习列表。'}
           </Typography.Text>
         </Space>
       </Modal>

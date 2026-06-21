@@ -138,6 +138,13 @@ def import_general_skill(
             updated_at=now,
         )
     db.add(row)
+    agent_id = _agent_id_or_none(request.agent_id)
+    agent = get_agent(db, request.tenant_id, agent_id)
+    if agent and not agent.is_overall:
+        binding = _ensure_general_skill_binding(db, request.tenant_id, agent.id, row.id)
+        binding.status = "active" if request.status == "published" else "inactive"
+        binding.updated_at = now
+        db.add(binding)
     db.commit()
     db.refresh(row)
     return general_skill_read(row)
@@ -177,6 +184,13 @@ def import_clawhub_skill(
         updated_at=now,
     )
     db.add(row)
+    agent_id = _agent_id_or_none(request.agent_id)
+    agent = get_agent(db, request.tenant_id, agent_id)
+    if agent and not agent.is_overall:
+        binding = _ensure_general_skill_binding(db, request.tenant_id, agent.id, row.id)
+        binding.status = "active" if request.status == "published" else "inactive"
+        binding.updated_at = now
+        db.add(binding)
     db.commit()
     db.refresh(row)
     return general_skill_read(row)

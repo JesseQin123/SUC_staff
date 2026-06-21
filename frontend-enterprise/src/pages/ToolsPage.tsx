@@ -6,6 +6,7 @@ import {
   PlusOutlined,
   ReloadOutlined,
   SaveOutlined,
+  TeamOutlined,
   ToolOutlined,
 } from '@ant-design/icons';
 import { AutoComplete, Button, Card, Dropdown, Form, Input, Modal, Select, Space, Switch, Table, Tag, Typography, message } from 'antd';
@@ -177,8 +178,8 @@ export default function ToolsPage() {
               menu={{
                 items: [
                   { key: 'blank', icon: <PlusOutlined />, label: '新建空白工具' },
-                  { key: 'plaza', label: '从工具广场新增', disabled: isOverallAgent },
-                  { key: 'employee', label: '向其他员工学习工具' },
+                  ...(!isOverallAgent ? [{ key: 'plaza', icon: <ToolOutlined />, label: '从工具广场新增' }] : []),
+                  ...(!isOverallAgent ? [{ key: 'employee', icon: <TeamOutlined />, label: '向其他员工学习工具' }] : []),
                 ],
                 onClick: ({ key }) => handleCreateAction(key),
               }}
