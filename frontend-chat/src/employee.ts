@@ -1,4 +1,4 @@
-import type { AgentProfileRead } from './types';
+import type { AgentProfileRead, AgentResourceType } from './types';
 import type { AuthUser } from './api/client';
 
 export type EmployeeProfile = {
@@ -68,4 +68,12 @@ export function isEmployeeOwnedBy(agent: AgentProfileRead, user?: AuthUser | nul
 
 export function visibleChatEmployees(rows: AgentProfileRead[], user?: AuthUser | null): AgentProfileRead[] {
   return rows.filter((agent) => !agent.is_overall && agent.status === 'active');
+}
+
+export function agentResourceCount(agent: AgentProfileRead, resourceType: AgentResourceType): number {
+  return (agent.resources || []).filter((resource) => (
+    resource.resource_type === resourceType
+    && resource.status !== 'deleted'
+    && resource.status !== 'inactive'
+  )).length;
 }

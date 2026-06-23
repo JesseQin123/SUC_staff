@@ -12,6 +12,22 @@ export type ChatSession = {
   updated_at: string;
 };
 
+export type AgentResourceType = 'skill' | 'general_skill' | 'knowledge_base' | string;
+
+export type AgentResourceBindingRead = {
+  id: string;
+  agent_id: string;
+  resource_type: AgentResourceType;
+  resource_id: string;
+  resource_version_id?: string | null;
+  tenant_id?: string;
+  display_name?: string | null;
+  status: string;
+  metadata?: Record<string, unknown>;
+  created_at?: string;
+  updated_at?: string;
+};
+
 export type AgentProfileRead = {
   id: string;
   tenant_id: string;
@@ -21,6 +37,9 @@ export type AgentProfileRead = {
   is_overall: boolean;
   status: string;
   metadata: Record<string, unknown>;
+  resources?: AgentResourceBindingRead[];
+  created_at?: string;
+  updated_at?: string;
 };
 
 export type ChatMessage = {

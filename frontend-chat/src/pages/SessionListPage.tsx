@@ -5,8 +5,6 @@ import {
   LogoutOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
-  PlusOutlined,
-  ReloadOutlined,
   RightOutlined,
 } from '@ant-design/icons';
 import { Button, Empty, Input, Modal, Typography, message } from 'antd';
@@ -14,10 +12,8 @@ import type { MouseEvent } from 'react';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, clearAuthSession, getAuthSession, isAuthError } from '../api/client';
-import EmployeeAvatarMark from '../components/EmployeeAvatarMark';
-import { employeeDisplayName, employeeProfile, isEmployeeOwnedBy, isGalleryEmployee, visibleChatEmployees } from '../employee';
 import { ThemeToggleButton } from '../theme';
-import type { AgentProfileRead, ChatSession } from '../types';
+import type { ChatSession } from '../types';
 
 function SessionChatIcon() {
   return (
@@ -30,10 +26,6 @@ function SessionChatIcon() {
 
 export default function SessionListPage() {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
-  const [agents, setAgents] = useState<AgentProfileRead[]>([]);
-  const [selectedAgentId, setSelectedAgentId] = useState(() => window.localStorage.getItem('skill_agent_selected_agent') || '');
-  const [newSessionOpen, setNewSessionOpen] = useState(false);
-  const [newSessionAgentId, setNewSessionAgentId] = useState('');
   const [renameSession, setRenameSession] = useState<ChatSession | null>(null);
   const [renameTitle, setRenameTitle] = useState('');
   const navigate = useNavigate();
@@ -42,9 +34,6 @@ export default function SessionListPage() {
     window.localStorage.getItem('skill_agent_sidebar_collapsed') === 'true'
   ));
   const tenantId = auth?.user.tenant_id || 'tenant_demo';
-  const personalAgents = agents.filter((agent) => !isGalleryEmployee(agent) || isEmployeeOwnedBy(agent, auth?.user));
-  const personalAgentIds = new Set(personalAgents.map((agent) => agent.id));
-  const galleryAgents = agents.filter((agent) => isGalleryEmployee(agent) && !personalAgentIds.has(agent.id));
 
   const load = () =>
     api
@@ -62,52 +51,6 @@ export default function SessionListPage() {
   useEffect(() => {
     load();
   }, []);
-
-  useEffect(() => {
-    api
-      .get<AgentProfileRead[]>(`/api/chat/agents?tenant_id=${tenantId}`)
-      .then((rows) => {
-        const employeeRows = visibleChatEmployees(rows, auth?.user);
-        setAgents(employeeRows);
-        setSelectedAgentId((current) => {
-          if (current && employeeRows.some((item) => item.id === current)) return current;
-          const next = employeeRows[0]?.id || '';
-          if (next) window.localStorage.setItem('skill_agent_selected_agent', next);
-          return next;
-        });
-        setNewSessionAgentId((current) => (
-          current && employeeRows.some((item) => item.id === current)
-            ? current
-            : (employeeRows.find((item) => item.id === selectedAgentId)?.id || employeeRows[0]?.id || '')
-        ));
-      })
-      .catch(() => setAgents([]));
-  }, [auth?.user, selectedAgentId, tenantId]);
-
-  function openCreateSession() {
-    const fallbackAgentId = selectedAgentId && agents.some((agent) => agent.id === selectedAgentId)
-      ? selectedAgentId
-      : agents[0]?.id || '';
-    setNewSessionAgentId(fallbackAgentId);
-    setNewSessionOpen(true);
-  }
-
-  async function createSessionForAgent(agentId: string) {
-    if (!agentId) {
-      message.warning('请先选择接单员工');
-      return;
-    }
-    const session = await api.post<ChatSession>('/api/chat/sessions', { tenant_id: tenantId, agent_id: agentId });
-    setSelectedAgentId(agentId);
-    window.localStorage.setItem('skill_agent_selected_agent', agentId);
-    setNewSessionOpen(false);
-    navigate(`/${session.id}`);
-  }
-
-  async function createSession() {
-    const agentId = newSessionAgentId || selectedAgentId || agents[0]?.id || '';
-    await createSessionForAgent(agentId);
-  }
 
   function toggleSidebar() {
     setSidebarCollapsed((current) => {
@@ -174,8 +117,6 @@ export default function SessionListPage() {
             </div>
           </div>
           <div className="sidebar-actions">
-            <Button className="icon-button" icon={<ReloadOutlined />} onClick={load} />
-            <Button className="icon-button primary" icon={<PlusOutlined />} onClick={openCreateSession} />
             <Button
               className="icon-button sidebar-logout"
               icon={<LogoutOutlined />}
@@ -270,71 +211,11 @@ export default function SessionListPage() {
             <span className="chat-empty-mark"><GlobalOutlined /></span>
             <Typography.Title level={3}>从员工广场派发任务</Typography.Title>
             <Typography.Paragraph>
-              进入员工广场可直接选择员工创建会话，也可以用左上角加号选择接单员工。
+              进入员工广场选择接单员工，即可创建任务会话。
             </Typography.Paragraph>
           </div>
         </div>
       </main>
-      <Modal
-        className="new-session-agent-modal"
-        title="选择接单员工"
-        open={newSessionOpen}
-        okText="创建任务"
-        cancelText="取消"
-        okButtonProps={{ disabled: !newSessionAgentId }}
-        onOk={createSession}
-        onCancel={() => setNewSessionOpen(false)}
-      >
-        <div className="new-session-agent-copy">
-          一个任务只绑定一位接单员工。创建后，该任务不会随默认选择变化。
-        </div>
-        <div className="new-session-agent-list">
-          {agents.length === 0 ? (
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无可用员工" />
-          ) : (
-            <>
-              {personalAgents.length > 0 && <div className="new-session-agent-group-title">个人员工</div>}
-              {personalAgents.map((agent) => {
-                const profile = employeeProfile(agent);
-                return (
-                  <button
-                    key={agent.id}
-                    type="button"
-                    className={`new-session-agent-card ${newSessionAgentId === agent.id ? 'selected' : ''}`}
-                    onClick={() => setNewSessionAgentId(agent.id)}
-                  >
-                    <EmployeeAvatarMark profile={profile} />
-                    <span className="new-session-agent-info">
-                      <span className="new-session-agent-name">{employeeDisplayName(agent)}</span>
-                      <span className="new-session-agent-desc">{profile.roleName} · {agent.description || '使用该员工的技能、SOP、业务资料和岗位人设'}</span>
-                    </span>
-                    {isGalleryEmployee(agent) && <span className="new-session-agent-badge">已开放</span>}
-                  </button>
-                );
-              })}
-              {galleryAgents.length > 0 && <div className="new-session-agent-group-title">员工广场</div>}
-              {galleryAgents.map((agent) => {
-                const profile = employeeProfile(agent);
-                return (
-                  <button
-                    key={agent.id}
-                    type="button"
-                    className={`new-session-agent-card ${newSessionAgentId === agent.id ? 'selected' : ''}`}
-                    onClick={() => setNewSessionAgentId(agent.id)}
-                  >
-                    <EmployeeAvatarMark profile={profile} />
-                    <span className="new-session-agent-info">
-                      <span className="new-session-agent-name">{employeeDisplayName(agent)}</span>
-                      <span className="new-session-agent-desc">{profile.roleName} · {agent.description || '员工广场开放的数字员工'}</span>
-                    </span>
-                    <span className="new-session-agent-badge">广场</span>
-                  </button>
-                );
-              })}
-            </>
-          )}
-        </div>
-      </Modal>
       <Modal
         title="重命名任务"
         open={Boolean(renameSession)}

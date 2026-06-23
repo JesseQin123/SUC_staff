@@ -3,16 +3,21 @@ import {
   LogoutOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
-  PlusOutlined,
-  ReloadOutlined,
   RightOutlined,
 } from '@ant-design/icons';
-import { Button, Empty, Modal, Typography, message } from 'antd';
+import { Button, Empty, Typography, message } from 'antd';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, clearAuthSession, getAuthSession, isAuthError } from '../api/client';
 import EmployeeAvatarMark from '../components/EmployeeAvatarMark';
-import { employeeDisplayName, employeeProfile, isEmployeeOwnedBy, isGalleryEmployee, visibleChatEmployees } from '../employee';
+import {
+  agentResourceCount,
+  employeeDisplayName,
+  employeeProfile,
+  isEmployeeOwnedBy,
+  isGalleryEmployee,
+  visibleChatEmployees,
+} from '../employee';
 import { ThemeToggleButton } from '../theme';
 import type { AgentProfileRead, ChatSession } from '../types';
 
@@ -29,8 +34,6 @@ export default function EmployeeGalleryPage() {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [agents, setAgents] = useState<AgentProfileRead[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState(() => window.localStorage.getItem('skill_agent_selected_agent') || '');
-  const [newSessionOpen, setNewSessionOpen] = useState(false);
-  const [newSessionAgentId, setNewSessionAgentId] = useState('');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => (
     window.localStorage.getItem('skill_agent_sidebar_collapsed') === 'true'
   ));
@@ -71,14 +74,9 @@ export default function EmployeeGalleryPage() {
           if (next) window.localStorage.setItem('skill_agent_selected_agent', next);
           return next;
         });
-        setNewSessionAgentId((current) => (
-          current && employeeRows.some((item) => item.id === current)
-            ? current
-            : (employeeRows.find((item) => item.id === selectedAgentId)?.id || employeeRows[0]?.id || '')
-        ));
       })
       .catch(() => setAgents([]));
-  }, [auth?.user, selectedAgentId, tenantId]);
+  }, [auth?.user, tenantId]);
 
   function toggleSidebar() {
     setSidebarCollapsed((current) => {
@@ -86,14 +84,6 @@ export default function EmployeeGalleryPage() {
       window.localStorage.setItem('skill_agent_sidebar_collapsed', String(next));
       return next;
     });
-  }
-
-  function openCreateSession() {
-    const fallbackAgentId = selectedAgentId && availableAgents.some((agent) => agent.id === selectedAgentId)
-      ? selectedAgentId
-      : availableAgents[0]?.id || '';
-    setNewSessionAgentId(fallbackAgentId);
-    setNewSessionOpen(true);
   }
 
   async function createSessionForAgent(agentId: string) {
@@ -104,13 +94,7 @@ export default function EmployeeGalleryPage() {
     const session = await api.post<ChatSession>('/api/chat/sessions', { tenant_id: tenantId, agent_id: agentId });
     setSelectedAgentId(agentId);
     window.localStorage.setItem('skill_agent_selected_agent', agentId);
-    setNewSessionOpen(false);
     navigate(`/${session.id}`);
-  }
-
-  async function createSession() {
-    const agentId = newSessionAgentId || selectedAgentId || availableAgents[0]?.id || '';
-    await createSessionForAgent(agentId);
   }
 
   const renderEmployeeCards = (rows: AgentProfileRead[], emptyText: string) => {
@@ -119,6 +103,13 @@ export default function EmployeeGalleryPage() {
     }
     return rows.map((agent) => {
       const profile = employeeProfile(agent);
+      const sopCount = agentResourceCount(agent, 'skill');
+      const skillCount = agentResourceCount(agent, 'general_skill');
+      const knowledgeCount = agentResourceCount(agent, 'knowledge_base');
+      const updatedAt = agent.updated_at ? new Date(agent.updated_at) : null;
+      const updatedLabel = updatedAt && !Number.isNaN(updatedAt.getTime())
+        ? `${updatedAt.getMonth() + 1}/${updatedAt.getDate()} 更新`
+        : '可派发';
       return (
         <button
           key={agent.id}
@@ -128,17 +119,27 @@ export default function EmployeeGalleryPage() {
         >
           <EmployeeAvatarMark profile={profile} className="employee-gallery-page-avatar" />
           <span className="employee-gallery-page-copy">
-            <span className="employee-gallery-page-name">{employeeDisplayName(agent)}</span>
-            <span className="employee-gallery-page-role">{profile.roleName}</span>
+            <span className="employee-gallery-page-card-head">
+              <span>
+                <span className="employee-gallery-page-name">{employeeDisplayName(agent)}</span>
+                <span className="employee-gallery-page-role">{profile.roleName}</span>
+              </span>
+              <span className="employee-gallery-page-action">
+                发起对话
+                <RightOutlined />
+              </span>
+            </span>
             <span className="employee-gallery-page-desc">{agent.description || '可直接派发任务，使用该员工的技能、SOP 和业务资料。'}</span>
+            <span className="employee-gallery-page-stats">
+              <span><strong>{sopCount}</strong><em>SOP</em></span>
+              <span><strong>{skillCount}</strong><em>技能</em></span>
+              <span><strong>{knowledgeCount}</strong><em>资料</em></span>
+            </span>
             <span className="employee-gallery-page-tags">
               <span>在线</span>
               <span>{isGalleryEmployee(agent) ? '员工广场' : '个人员工'}</span>
+              <span>{updatedLabel}</span>
             </span>
-          </span>
-          <span className="employee-gallery-page-action">
-            发起对话
-            <RightOutlined />
           </span>
         </button>
       );
@@ -163,8 +164,6 @@ export default function EmployeeGalleryPage() {
             </div>
           </div>
           <div className="sidebar-actions">
-            <Button className="icon-button" icon={<ReloadOutlined />} onClick={loadSessions} />
-            <Button className="icon-button primary" icon={<PlusOutlined />} onClick={openCreateSession} />
             <Button
               className="icon-button sidebar-logout"
               icon={<LogoutOutlined />}
@@ -245,9 +244,6 @@ export default function EmployeeGalleryPage() {
                 员工广场是任务派发入口。个人员工来自当前账号，开放员工来自员工广场，点击卡片即可创建新会话。
               </Typography.Paragraph>
             </div>
-            <Button type="primary" icon={<PlusOutlined />} onClick={openCreateSession}>
-              新建任务
-            </Button>
           </section>
 
           <section className="employee-gallery-page-section">
@@ -277,66 +273,6 @@ export default function EmployeeGalleryPage() {
           </section>
         </div>
       </main>
-      <Modal
-        className="new-session-agent-modal"
-        title="选择接单员工"
-        open={newSessionOpen}
-        okText="创建任务"
-        cancelText="取消"
-        okButtonProps={{ disabled: !newSessionAgentId }}
-        onOk={createSession}
-        onCancel={() => setNewSessionOpen(false)}
-      >
-        <div className="new-session-agent-copy">
-          一个任务只绑定一位接单员工。创建后，该任务不会随默认选择变化。
-        </div>
-        <div className="new-session-agent-list">
-          {availableAgents.length === 0 ? (
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无可用员工" />
-          ) : (
-            <>
-              {personalAgents.length > 0 && <div className="new-session-agent-group-title">个人员工</div>}
-              {personalAgents.map((agent) => {
-                const profile = employeeProfile(agent);
-                return (
-                  <button
-                    key={agent.id}
-                    type="button"
-                    className={`new-session-agent-card ${newSessionAgentId === agent.id ? 'selected' : ''}`}
-                    onClick={() => setNewSessionAgentId(agent.id)}
-                  >
-                    <EmployeeAvatarMark profile={profile} />
-                    <span className="new-session-agent-info">
-                      <span className="new-session-agent-name">{employeeDisplayName(agent)}</span>
-                      <span className="new-session-agent-desc">{profile.roleName} · {agent.description || '使用该员工的技能、SOP、业务资料和岗位人设'}</span>
-                    </span>
-                    {isGalleryEmployee(agent) && <span className="new-session-agent-badge">已开放</span>}
-                  </button>
-                );
-              })}
-              {galleryAgents.length > 0 && <div className="new-session-agent-group-title">员工广场</div>}
-              {galleryAgents.map((agent) => {
-                const profile = employeeProfile(agent);
-                return (
-                  <button
-                    key={agent.id}
-                    type="button"
-                    className={`new-session-agent-card ${newSessionAgentId === agent.id ? 'selected' : ''}`}
-                    onClick={() => setNewSessionAgentId(agent.id)}
-                  >
-                    <EmployeeAvatarMark profile={profile} />
-                    <span className="new-session-agent-info">
-                      <span className="new-session-agent-name">{employeeDisplayName(agent)}</span>
-                      <span className="new-session-agent-desc">{profile.roleName} · {agent.description || '员工广场开放的数字员工'}</span>
-                    </span>
-                    <span className="new-session-agent-badge">广场</span>
-                  </button>
-                );
-              })}
-            </>
-          )}
-        </div>
-      </Modal>
     </div>
   );
 }
