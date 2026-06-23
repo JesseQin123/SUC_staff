@@ -241,6 +241,29 @@ def _unique_knowledge_base_name(db: Session, tenant_id: str, base_name: str) -> 
         index += 1
 
 
+@router.get("/jobs", response_model=list[KnowledgeIngestJobRead])
+def list_jobs(
+    tenant_id: str = Query(...),
+    agent_id: str | None = Query(None),
+    status: str | None = Query(None),
+    limit: int = Query(8, ge=1, le=50),
+    db: Session = Depends(get_session),
+) -> list[KnowledgeIngestJobRead]:
+    ensure_tenant(db, tenant_id)
+    statement = select(KnowledgeIngestJob).where(KnowledgeIngestJob.tenant_id == tenant_id)
+    if agent_id:
+        visible_version_ids = visible_knowledge_base_version_ids(db, tenant_id, agent_id)
+        if not visible_version_ids:
+            return []
+        statement = statement.where(KnowledgeIngestJob.knowledge_base_version_id.in_(visible_version_ids))
+    if status:
+        statuses = [item.strip() for item in status.split(",") if item.strip()]
+        if statuses:
+            statement = statement.where(KnowledgeIngestJob.status.in_(statuses))
+    rows = db.exec(statement.order_by(KnowledgeIngestJob.updated_at.desc()).limit(limit)).all()
+    return [job_read(row) for row in rows]
+
+
 @router.get("/jobs/{job_id}", response_model=KnowledgeIngestJobRead)
 def get_job(job_id: str, tenant_id: str = Query(...), db: Session = Depends(get_session)) -> KnowledgeIngestJobRead:
     ensure_tenant(db, tenant_id)

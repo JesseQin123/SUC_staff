@@ -1278,6 +1278,7 @@ export function KnowledgeAddPage() {
 
   useEffect(() => {
     void refreshKnowledgeBases();
+    void loadRecentJobs();
   }, [agentId]);
 
   useEffect(() => {
@@ -1316,6 +1317,18 @@ export function KnowledgeAddPage() {
       setKnowledgeBases(rows);
     } catch (error) {
       message.error(error instanceof Error ? error.message : '加载知识库失败');
+    }
+  }
+
+  async function loadRecentJobs() {
+    try {
+      const suffix = agentId ? `&agent_id=${encodeURIComponent(agentId)}` : '';
+      const rows = await api.get<KnowledgeIngestJobRead[]>(
+        `/api/enterprise/knowledge/jobs?tenant_id=${TENANT_ID}${suffix}&limit=8`,
+      );
+      setJobs(Object.fromEntries(rows.map((job) => [job.id, job])));
+    } catch {
+      setJobs({});
     }
   }
 

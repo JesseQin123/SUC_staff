@@ -2825,13 +2825,13 @@ body.skill-distill-fixed .content {
   min-height: 100%;
   width: 100%;
   display: grid;
-  place-items: start center;
-  padding: clamp(12px, 3vw, 32px);
+  place-items: start stretch;
+  padding: clamp(12px, 2.4vw, 28px);
   box-sizing: border-box;
 }
 
 .knowledge-floating-shell {
-  width: min(1120px, 100%);
+  width: 100%;
   max-width: 100%;
   box-sizing: border-box;
   display: grid;

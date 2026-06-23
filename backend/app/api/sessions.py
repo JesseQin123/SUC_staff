@@ -12,10 +12,17 @@ router = APIRouter(prefix="/api/enterprise/sessions", tags=["enterprise:sessions
 
 
 @router.get("")
-def list_sessions(tenant_id: str = Query(...), db: Session = Depends(get_session)) -> list[dict]:
+def list_sessions(
+    tenant_id: str = Query(...),
+    agent_id: str | None = Query(None),
+    db: Session = Depends(get_session),
+) -> list[dict]:
     ensure_tenant(db, tenant_id)
+    conditions = [ChatSession.tenant_id == tenant_id]
+    if agent_id:
+        conditions.append(ChatSession.agent_id == agent_id)
     rows = db.exec(
-        select(ChatSession).where(ChatSession.tenant_id == tenant_id).order_by(ChatSession.updated_at.desc())
+        select(ChatSession).where(*conditions).order_by(ChatSession.updated_at.desc())
     ).all()
     return [session_read(row).model_dump() for row in rows]
 

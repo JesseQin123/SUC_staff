@@ -31,10 +31,11 @@ class MemoryService:
         query: str,
         limit: int = 5,
         model_config: ModelConfig | None = None,
+        agent_id: str | None = None,
     ) -> list[MemoryRecord]:
         rows = [
             row
-            for row in self._list_user_memories(tenant_id, user_id, limit=80)
+            for row in self._list_user_memories(tenant_id, user_id, limit=80, agent_id=agent_id)
             if row.kind in ALLOWED_MEMORY_KINDS
         ]
         profile_rows = [row for row in rows if row.kind == "profile"][:2]
@@ -109,9 +110,16 @@ class MemoryService:
         if not request.user_id:
             return []
 
+        agent_id = session.agent_id
         user = self.db.get(User, request.user_id)
         username = user.username if user else request.user_id
-        existing_rows = self._list_user_memories(request.tenant_id, request.user_id, limit=30, normalize=False)
+        existing_rows = self._list_user_memories(
+            request.tenant_id,
+            request.user_id,
+            limit=30,
+            normalize=False,
+            agent_id=agent_id,
+        )
         raw_delta = LLMClient(model_config).generate_json(
             PROMPT_PATH.read_text(encoding="utf-8"),
             {
@@ -126,7 +134,13 @@ class MemoryService:
         records: list[MemoryRecord] = []
         for update in _normalize_memory_updates(raw_delta):
             if update["operation"] == "delete":
-                self._delete_keyed_memory(request.tenant_id, request.user_id, update["kind"], update["key"])
+                self._delete_keyed_memory(
+                    request.tenant_id,
+                    request.user_id,
+                    update["kind"],
+                    update["key"],
+                    agent_id=agent_id,
+                )
                 continue
             records.append(
                 self._upsert_keyed_memory(
@@ -142,15 +156,23 @@ class MemoryService:
                         "source": MEMORY_SOURCE,
                         "key": update["key"],
                         "reason": update.get("reason"),
+                        "agent_id": agent_id,
                     },
+                    agent_id=agent_id,
                 )
             )
 
         return records
 
     def _list_user_memories(
-        self, tenant_id: str, user_id: str, limit: int = 80, normalize: bool = True
+        self,
+        tenant_id: str,
+        user_id: str,
+        limit: int = 80,
+        normalize: bool = True,
+        agent_id: str | None = None,
     ) -> list[MemoryRecord]:
+        fetch_limit = limit * 5 if agent_id else limit
         rows = list(
             self.db.exec(
                 select(MemoryRecord)
@@ -160,9 +182,12 @@ class MemoryService:
                     MemoryRecord.kind != "conversation",
                 )
                 .order_by(MemoryRecord.updated_at.desc())
-                .limit(limit)
+                .limit(fetch_limit)
             ).all()
         )
+        if agent_id:
+            rows = [row for row in rows if memory_matches_agent(row, agent_id)]
+        rows = rows[:limit]
         return memory_rows_for_read(rows) if normalize else rows
 
     def _upsert_keyed_memory(
@@ -176,8 +201,9 @@ class MemoryService:
         content: str,
         importance: float,
         metadata: dict[str, Any],
+        agent_id: str | None = None,
     ) -> MemoryRecord:
-        existing, duplicates = self._find_keyed_memory_candidates(tenant_id, user_id, kind, key)
+        existing, duplicates = self._find_keyed_memory_candidates(tenant_id, user_id, kind, key, agent_id=agent_id)
         now = utc_now()
         if existing:
             existing.content = content[:1200]
@@ -206,14 +232,26 @@ class MemoryService:
         self.db.add(record)
         return record
 
-    def _delete_keyed_memory(self, tenant_id: str, user_id: str, kind: str, key: str) -> None:
-        existing, duplicates = self._find_keyed_memory_candidates(tenant_id, user_id, kind, key)
+    def _delete_keyed_memory(
+        self,
+        tenant_id: str,
+        user_id: str,
+        kind: str,
+        key: str,
+        agent_id: str | None = None,
+    ) -> None:
+        existing, duplicates = self._find_keyed_memory_candidates(tenant_id, user_id, kind, key, agent_id=agent_id)
         for row in [existing, *duplicates]:
             if row:
                 self.db.delete(row)
 
     def _find_keyed_memory_candidates(
-        self, tenant_id: str, user_id: str, kind: str, key: str
+        self,
+        tenant_id: str,
+        user_id: str,
+        kind: str,
+        key: str,
+        agent_id: str | None = None,
     ) -> tuple[MemoryRecord | None, list[MemoryRecord]]:
         rows = list(
             self.db.exec(
@@ -226,6 +264,8 @@ class MemoryService:
                 .order_by(MemoryRecord.updated_at.desc())
             ).all()
         )
+        if agent_id:
+            rows = [row for row in rows if memory_matches_agent(row, agent_id)]
         candidates = [row for row in rows if _memory_matches_key(row, key)]
         if not candidates:
             return None, []
@@ -239,14 +279,23 @@ class MemoryService:
         session_id: str,
         summary: str,
         metadata: dict[str, Any],
+        agent_id: str | None = None,
     ) -> MemoryRecord:
-        existing = self.db.exec(
-            select(MemoryRecord).where(
-                MemoryRecord.tenant_id == tenant_id,
-                MemoryRecord.user_id == user_id,
-                MemoryRecord.kind == "summary",
-            )
-        ).first()
+        summary_rows = list(
+            self.db.exec(
+                select(MemoryRecord)
+                .where(
+                    MemoryRecord.tenant_id == tenant_id,
+                    MemoryRecord.user_id == user_id,
+                    MemoryRecord.kind == "summary",
+                )
+                .order_by(MemoryRecord.updated_at.desc())
+            ).all()
+        )
+        if agent_id:
+            existing = next((row for row in summary_rows if memory_matches_agent(row, agent_id)), None)
+        else:
+            existing = summary_rows[0] if summary_rows else None
         now = utc_now()
         if existing:
             existing.content = summary[:1800]
@@ -257,6 +306,7 @@ class MemoryService:
             existing.metadata_json = {
                 **(existing.metadata_json or {}),
                 **metadata,
+                "agent_id": agent_id,
                 "turn_count": int((existing.metadata_json or {}).get("turn_count", 0)) + 1,
             }
             self.db.add(existing)
@@ -269,7 +319,7 @@ class MemoryService:
             kind="summary",
             content=summary[:1800],
             importance=0.8,
-            metadata_json={**metadata, "turn_count": 1},
+            metadata_json={**metadata, "agent_id": agent_id, "turn_count": 1},
         )
         self.db.add(record)
         return record
@@ -293,16 +343,30 @@ def memory_read(record: MemoryRecord) -> dict[str, Any]:
 
 def memory_rows_for_read(rows: list[MemoryRecord]) -> list[MemoryRecord]:
     visible: list[MemoryRecord] = []
-    seen_keys: set[tuple[str, str, str]] = set()
+    seen_keys: set[tuple[str, str, str | None, str]] = set()
     for row in rows:
         if _is_legacy_transcript_summary(row):
             continue
-        dedupe_key = (row.user_id, row.kind, _read_dedupe_key(row))
+        dedupe_key = (row.user_id, row.kind, memory_agent_id(row), _read_dedupe_key(row))
         if dedupe_key in seen_keys:
             continue
         seen_keys.add(dedupe_key)
         visible.append(row)
     return visible
+
+
+def memory_agent_id(record: MemoryRecord) -> str | None:
+    metadata = record.metadata_json or {}
+    value = metadata.get("agent_id")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def memory_matches_agent(record: MemoryRecord, agent_id: str | None) -> bool:
+    if not agent_id:
+        return True
+    return memory_agent_id(record) == agent_id
 
 
 def tool_read_for_activity(tool: Tool | None, result: ToolResult | None = None) -> dict[str, Any]:

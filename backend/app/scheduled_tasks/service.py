@@ -3,6 +3,7 @@ from __future__ import annotations
 import calendar
 import re
 import socket
+import threading
 from datetime import UTC, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -15,6 +16,7 @@ from sqlmodel import Session, select
 
 from app.agents.branching import model_for_agent
 from app.core import AgentLoop
+from app.db import engine
 from app.db.models import AgentEvent, AgentProfile, ChatSession, ScheduledTask, ScheduledTaskRun, User, new_id, utc_now
 from app.llm import LLMClient, LLMError
 from app.scheduled_tasks.schema import (
@@ -309,6 +311,36 @@ def execute_scheduled_task(
     manual: bool = False,
 ) -> ScheduledTaskRun:
     scheduled_for = scheduled_for or task.next_run_at or utc_now()
+    run = _prepare_scheduled_task_run(db, task, scheduled_for, manual)
+    if run.status != "running" or not run.session_id:
+        return run
+    return _execute_prepared_scheduled_task(db, task, run, manual=manual)
+
+
+def start_scheduled_task_async(
+    db: Session,
+    task: ScheduledTask,
+    *,
+    scheduled_for: datetime | None = None,
+    manual: bool = False,
+) -> ScheduledTaskRun:
+    scheduled_for = scheduled_for or task.next_run_at or utc_now()
+    run = _prepare_scheduled_task_run(db, task, scheduled_for, manual)
+    if run.status == "running" and run.session_id:
+        threading.Thread(
+            target=_execute_prepared_scheduled_task_in_background,
+            args=(task.id, run.id, manual),
+            daemon=True,
+        ).start()
+    return run
+
+
+def _prepare_scheduled_task_run(
+    db: Session,
+    task: ScheduledTask,
+    scheduled_for: datetime,
+    manual: bool,
+) -> ScheduledTaskRun:
     existing = db.exec(
         select(ScheduledTaskRun).where(
             ScheduledTaskRun.scheduled_task_id == task.id,
@@ -349,25 +381,47 @@ def execute_scheduled_task(
             return existing
         raise
     db.refresh(run)
+    session = ChatSession(
+        id=new_id("session"),
+        tenant_id=task.tenant_id,
+        user_id=task.created_by_user_id,
+        agent_id=task.agent_id,
+        title=f"自动任务：{task.title}",
+        status="active",
+    )
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    run.session_id = session.id
+    run.updated_at = utc_now()
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+    return run
+
+
+def _execute_prepared_scheduled_task_in_background(task_id: str, run_id: str, manual: bool) -> None:
+    with Session(engine) as db:
+        task = db.get(ScheduledTask, task_id)
+        run = db.get(ScheduledTaskRun, run_id)
+        if not task or not run:
+            return
+        _execute_prepared_scheduled_task(db, task, run, manual=manual)
+
+
+def _execute_prepared_scheduled_task(
+    db: Session,
+    task: ScheduledTask,
+    run: ScheduledTaskRun,
+    *,
+    manual: bool,
+) -> ScheduledTaskRun:
     try:
-        session = ChatSession(
-            id=new_id("session"),
-            tenant_id=task.tenant_id,
-            user_id=task.created_by_user_id,
-            agent_id=task.agent_id,
-            title=f"自动任务：{task.title}",
-            status="active",
-        )
-        db.add(session)
-        db.commit()
-        db.refresh(session)
-        run.session_id = session.id
-        run.updated_at = utc_now()
-        db.add(run)
-        db.commit()
+        if not run.session_id:
+            raise RuntimeError("自动任务缺少独立会话")
         request = ChatTurnRequest(
             tenant_id=task.tenant_id,
-            session_id=session.id,
+            session_id=run.session_id,
             agent_id=task.agent_id,
             user_id=task.created_by_user_id,
             message=automatic_task_message(task),
@@ -376,7 +430,7 @@ def execute_scheduled_task(
         )
         result: ChatTurnResponse | None = None
         for seq, item in enumerate(AgentLoop(db).handle_turn_stream(request), start=1):
-            _record_scheduled_task_stream_event(db, run, session.id, seq, item)
+            _record_scheduled_task_stream_event(db, run, run.session_id, seq, item)
             if item.get("event") in {"complete", "done"} and isinstance(item.get("data"), dict):
                 result = ChatTurnResponse.model_validate(item["data"])
         if result is None:
@@ -390,7 +444,7 @@ def execute_scheduled_task(
             "session_state": result.session_state.model_dump(mode="json"),
         }
         run.finished_at = utc_now()
-        _finish_task_schedule(db, task, scheduled_for, "succeeded", manual)
+        _finish_task_schedule(db, task, run.scheduled_for, "succeeded", manual)
     except Exception as exc:
         run.status = "failed"
         run.error = str(exc)
@@ -403,7 +457,7 @@ def execute_scheduled_task(
                 0,
                 {"event": "error", "data": {"message": str(exc), "sessionId": run.session_id}},
             )
-        _finish_task_schedule(db, task, scheduled_for, "failed", manual)
+        _finish_task_schedule(db, task, run.scheduled_for, "failed", manual)
     finally:
         task.lease_owner = None
         task.lease_until = None
@@ -449,14 +503,7 @@ def _record_scheduled_task_stream_event(
 
 
 def automatic_task_message(task: ScheduledTask) -> str:
-    return "\n".join(
-        [
-            "这是一次自动任务唤醒，请作为当前接单员工开启一个独立工作回合。",
-            f"自动任务名称：{task.title}",
-            f"任务目标：{task.prompt}",
-            "执行要求：先判断用户意图和任务类型，再结合该员工已学习的 SOP、已掌握技能、业务资料、工具权限和工作记忆推进；需要工具或资料时按现有 Agent Loop 规则调用；最后给出本次执行结果、关键依据和后续建议。",
-        ]
-    )
+    return task.prompt.strip() or task.title
 
 
 def compute_next_run_at(task: ScheduledTask, after: datetime | None = None) -> datetime | None:

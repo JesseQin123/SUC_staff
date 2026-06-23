@@ -1029,6 +1029,7 @@ class AgentLoop:
                     request.user_id,
                     request.message,
                     model_config=model_config,
+                    agent_id=chat_session.agent_id,
                 )
             ]
             if memory_context:
@@ -1545,6 +1546,7 @@ class AgentLoop:
                 request.user_id,
                 request.message,
                 model_config=model_config,
+                agent_id=chat_session.agent_id,
             )
         ]
         if memory_context:
@@ -4751,6 +4753,11 @@ class AgentLoop:
         citations = metadata.get("knowledge_citations")
         if not isinstance(citations, list) or not citations:
             return metadata
+        if self._reply_is_generic_non_knowledge_answer(reply):
+            next_metadata = dict(metadata)
+            next_metadata.pop("knowledge_citations", None)
+            next_metadata.pop("knowledge_query", None)
+            return next_metadata
         used_labels = self._reply_citation_labels(reply, len(citations))
         if not used_labels:
             next_metadata = dict(metadata)
@@ -4768,6 +4775,35 @@ class AgentLoop:
         next_metadata = dict(metadata)
         next_metadata["knowledge_citations"] = next_citations
         return next_metadata
+
+    def _reply_is_generic_non_knowledge_answer(self, reply: str) -> bool:
+        normalized = re.sub(r"\[\d+\]", "", reply or "").strip()
+        if not normalized:
+            return True
+        substantive_terms = (
+            "根据业务资料",
+            "根据资料",
+            "规范",
+            "规则",
+            "流程",
+            "步骤",
+            "应当",
+            "需要",
+            "禁止",
+            "包括",
+            "处理",
+        )
+        if any(term in normalized for term in substantive_terms):
+            return False
+        generic_patterns = (
+            r"请.{0,12}补充",
+            r"已记录完整信息",
+            r"请问还有其他.*帮助",
+            r"还需要.*帮助",
+            r"暂时无法.*回答",
+            r"没有找到.*相关",
+        )
+        return any(re.search(pattern, normalized) for pattern in generic_patterns)
 
     def _reply_citation_labels(self, reply: str, max_label: int) -> set[int]:
         labels: set[int] = set()

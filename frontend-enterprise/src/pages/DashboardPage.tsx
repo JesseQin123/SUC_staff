@@ -250,7 +250,7 @@ export default function DashboardPage({
     selectedAgent.persona_prompt || systemPromptSummary || selectedAgent.description || `${employee.roleName}，负责接收任务、调用业务资料、执行 SOP 并沉淀对话质量反馈。`,
     132,
   );
-  const goToLogs = () => navigate('/enterprise/feedback');
+  const goToLogs = () => navigate(`/enterprise/feedback?agent_id=${encodeURIComponent(selectedAgent.id)}`);
 
   const capabilityCards = [
     {
@@ -286,7 +286,7 @@ export default function DashboardPage({
       icon: <ToolOutlined />,
     },
     {
-      route: '/enterprise/feedback',
+      route: `/enterprise/feedback?agent_id=${encodeURIComponent(selectedAgent.id)}`,
       title: '对话日志',
       tone: 'logs',
       count: replyStats.total,

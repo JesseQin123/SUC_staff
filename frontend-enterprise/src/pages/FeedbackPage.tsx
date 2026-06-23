@@ -2,6 +2,7 @@ import { EyeOutlined, MessageOutlined, ReloadOutlined } from '@ant-design/icons'
 import { Button, Card, Descriptions, Drawer, Empty, Segmented, Space, Table, Tag, Typography, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api, TENANT_ID } from '../api/client';
 import type {
   EnterpriseChatSessionRead,
@@ -39,6 +40,8 @@ const FILTER_OPTIONS = [
 ];
 
 export default function FeedbackPage() {
+  const [searchParams] = useSearchParams();
+  const agentId = searchParams.get('agent_id') || '';
   const [sessions, setSessions] = useState<EnterpriseChatSessionRead[]>([]);
   const [downRows, setDownRows] = useState<FeedbackSessionRead[]>([]);
   const [upRows, setUpRows] = useState<FeedbackSessionRead[]>([]);
@@ -53,7 +56,9 @@ export default function FeedbackPage() {
     setLoading(true);
     try {
       const [sessionResult, downResult, upResult, summaryResult] = await Promise.all([
-        api.get<EnterpriseChatSessionRead[]>(`/api/enterprise/sessions?tenant_id=${TENANT_ID}`),
+        api.get<EnterpriseChatSessionRead[]>(
+          `/api/enterprise/sessions?tenant_id=${TENANT_ID}${agentId ? `&agent_id=${encodeURIComponent(agentId)}` : ''}`,
+        ),
         api.get<FeedbackSessionRead[]>(`/api/enterprise/feedback/sessions?tenant_id=${TENANT_ID}&rating=down`),
         api.get<FeedbackSessionRead[]>(`/api/enterprise/feedback/sessions?tenant_id=${TENANT_ID}&rating=up`),
         api.get<FeedbackSummaryRead>(`/api/enterprise/feedback/summary?tenant_id=${TENANT_ID}`),
@@ -71,17 +76,18 @@ export default function FeedbackPage() {
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [agentId]);
 
   const rows = useMemo<ConversationLogRow[]>(() => {
+    const filteredSessions = agentId ? sessions.filter((session) => session.agent_id === agentId) : sessions;
     const downBySession = new Map(downRows.map((item) => [item.session_id, item]));
     const upBySession = new Map(upRows.map((item) => [item.session_id, item]));
-    return sessions.map((session) => ({
+    return filteredSessions.map((session) => ({
       ...session,
       downFeedback: downBySession.get(session.id),
       upFeedback: upBySession.get(session.id),
     }));
-  }, [downRows, sessions, upRows]);
+  }, [agentId, downRows, sessions, upRows]);
 
   const filteredRows = useMemo(() => rows.filter((row) => {
     if (filter === 'all') return true;

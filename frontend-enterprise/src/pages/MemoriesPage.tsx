@@ -5,6 +5,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { api, TENANT_ID } from '../api/client';
 import type { MemoryRead } from '../types';
 
+const ENTERPRISE_AGENT_STORAGE_KEY = 'ultrarag_enterprise_agent_scope';
+
 type MemoryFilter = {
   username?: string;
   user_id?: string;
@@ -25,6 +27,7 @@ export default function MemoriesPage() {
   const [rows, setRows] = useState<MemoryRead[]>([]);
   const [detail, setDetail] = useState<MemoryUserGroup | null>(null);
   const [loading, setLoading] = useState(false);
+  const [agentId, setAgentId] = useState(() => window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '');
   const [form] = Form.useForm<MemoryFilter>();
 
   const load = async () => {
@@ -32,6 +35,7 @@ export default function MemoriesPage() {
     try {
       const values = form.getFieldsValue();
       const params = new URLSearchParams({ tenant_id: TENANT_ID });
+      if (agentId) params.set('agent_id', agentId);
       if (values.username?.trim()) params.set('username', values.username.trim());
       if (values.user_id?.trim()) params.set('user_id', values.user_id.trim());
       if (values.q?.trim()) params.set('q', values.q.trim());
@@ -46,8 +50,17 @@ export default function MemoriesPage() {
   };
 
   useEffect(() => {
-    load();
+    const onScopeChange = (event: Event) => {
+      const nextAgentId = (event as CustomEvent<{ agentId?: string }>).detail?.agentId || window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '';
+      setAgentId(nextAgentId);
+    };
+    window.addEventListener('ultrarag-enterprise-agent-scope-change', onScopeChange);
+    return () => window.removeEventListener('ultrarag-enterprise-agent-scope-change', onScopeChange);
   }, []);
+
+  useEffect(() => {
+    load();
+  }, [agentId]);
 
   const groups = useMemo(() => groupMemories(rows), [rows]);
 

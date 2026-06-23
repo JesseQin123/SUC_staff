@@ -16,9 +16,9 @@ from app.scheduled_tasks.schema import (
 from app.scheduled_tasks.service import (
     create_scheduled_task,
     detect_scheduled_task_draft,
-    execute_scheduled_task,
     scheduled_task_read,
     scheduled_task_run_read,
+    start_scheduled_task_async,
     update_scheduled_task,
 )
 from app.security.auth import get_current_user
@@ -148,7 +148,7 @@ def run_enterprise_scheduled_task_now(
     row = _get_task(db, tenant_id, task_id, current_user)
     if row.status == "archived":
         raise HTTPException(status_code=400, detail="已删除的自动任务不能运行")
-    run = execute_scheduled_task(db, row, scheduled_for=utc_now(), manual=True)
+    run = start_scheduled_task_async(db, row, scheduled_for=utc_now(), manual=True)
     return scheduled_task_run_read(run, row)
 
 

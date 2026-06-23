@@ -148,12 +148,12 @@ export default function ScheduledTasksPage() {
       message.warning('已删除的自动任务不能运行');
       return;
     }
-    const hide = message.loading('正在拉起独立任务会话...', 0);
+    const hide = message.loading('正在创建执行记录...', 0);
     try {
       const run = await api.post<ScheduledTaskRunRead>(
         `/api/enterprise/scheduled-tasks/${row.id}/run-now?tenant_id=${TENANT_ID}`,
       );
-      message.success(run.session_id ? '已执行，执行记录已生成' : '已触发执行');
+      message.success(run.session_id ? '已创建独立任务会话，后台开始执行' : '已触发后台执行');
       await load();
     } catch (error) {
       message.error(error instanceof Error ? error.message : '立即执行失败');
