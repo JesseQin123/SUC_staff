@@ -2136,6 +2136,8 @@ class AgentLoop:
             return None
         previous_products = self._task_reply_products(previous)
         current_products = self._task_reply_products(current)
+        if not current_products:
+            return None
         if previous_products and current_products and previous_products.isdisjoint(current_products):
             return None
 
@@ -2944,24 +2946,16 @@ class AgentLoop:
             "问什么",
             "回复",
         )
-        business_terms = (
-            "客户",
-            "用户",
-            "客服",
-            "订单",
-            "下单",
-            "支付",
-            "取消",
-            "退款",
-            "换货",
-            "售后",
-            "会员",
-            "地址",
-            "隐私",
-            "称呼",
-            "账号",
+        knowledge_terms = (
+            "规范",
+            "标准",
+            "要求",
+            "制度",
+            "手册",
+            "口径",
+            "流程说明",
         )
-        if any(term in text for term in question_terms) and any(term in text for term in business_terms):
+        if any(term in text for term in question_terms) and any(term in text for term in knowledge_terms):
             return True
         intent = (router_decision.user_intent or "").lower() if router_decision else ""
         return any(term in intent for term in ("知识", "资料", "规则", "政策"))
@@ -4333,15 +4327,6 @@ class AgentLoop:
                 if item.get("source_message") == source_message:
                     knowledge_results = [item]
                     break
-        if not knowledge_results and source_message and self._should_auto_query_knowledge(source_message):
-            knowledge_item = self._knowledge_items_for_message(
-                chat_session.tenant_id,
-                chat_session.agent_id,
-                source_message,
-            )
-            if knowledge_item:
-                self._record_knowledge_results(chat_session, knowledge_item)
-                knowledge_results = [knowledge_item]
         citations = self._dedupe_knowledge_citations(knowledge_citations_from_results(knowledge_results))
         if not citations:
             return {}
@@ -4638,6 +4623,7 @@ class AgentLoop:
     ) -> None:
         chat_session.updated_at = utc_now()
         metadata = self._assistant_message_metadata(step_result, chat_session, source_message)
+        reply = self._normalize_overlapping_task_confirmations(reply)
         reply = self._normalize_reply_citation_labels(reply, metadata.get("knowledge_citations"))
         reply = self._strip_trailing_citation_summary(reply)
         metadata = self._metadata_with_reply_citations(metadata, reply)
@@ -4681,6 +4667,26 @@ class AgentLoop:
             "",
             reply.rstrip(),
         ).rstrip()
+
+    def _normalize_overlapping_task_confirmations(self, reply: str) -> str:
+        paragraphs = [part.strip() for part in re.split(r"\n{2,}", reply or "") if part.strip()]
+        if len(paragraphs) < 2:
+            return reply
+        merged: list[str] = []
+        replaced = False
+        for paragraph in paragraphs:
+            if not merged:
+                merged.append(paragraph)
+                continue
+            candidate = self._merge_overlapping_task_confirmation("\n\n".join(merged), paragraph)
+            if candidate:
+                merged = [candidate]
+                replaced = True
+            else:
+                merged.append(paragraph)
+        if not replaced:
+            return reply
+        return "\n\n".join(merged).strip()
 
     def _metadata_with_reply_citations(self, metadata: dict[str, Any], reply: str) -> dict[str, Any]:
         citations = metadata.get("knowledge_citations")

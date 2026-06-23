@@ -186,6 +186,15 @@ export default function SessionListPage() {
             />
           </div>
         </div>
+        {!sidebarCollapsed && (
+          <SidebarEmployeeGallery
+            personalAgents={personalAgents}
+            galleryAgents={galleryAgents}
+            selectedAgentId={selectedAgentId}
+            onOpenCreate={openCreateSession}
+            onCreate={(agentId) => void createSessionForAgent(agentId)}
+          />
+        )}
         <div className="session-list-scroll">
           <div className="session-section-label">任务记录</div>
           {sessions.length === 0 ? (
@@ -256,32 +265,12 @@ export default function SessionListPage() {
           </div>
         </div>
         <div className="chat-messages">
-          <div className="chat-gallery-platform">
-            <div className="chat-gallery-hero">
-              <span className="chat-gallery-icon"><GlobalOutlined /></span>
-              <div>
-                <Typography.Text type="secondary">员工广场平台</Typography.Text>
-                <Typography.Title level={2}>选择接单员工</Typography.Title>
-                <Typography.Paragraph>
-                  从个人员工或员工广场中选择一位数字员工，直接发起绑定该员工的新任务。
-                </Typography.Paragraph>
-              </div>
-              <Button type="primary" icon={<PlusOutlined />} onClick={openCreateSession}>新建任务</Button>
-            </div>
-            <ChatAgentSection
-              title="个人员工"
-              emptyText="暂无个人员工"
-              agents={personalAgents}
-              selectedAgentId={selectedAgentId}
-              onCreate={(agentId) => void createSessionForAgent(agentId)}
-            />
-            <ChatAgentSection
-              title="员工广场"
-              emptyText="暂无开放员工"
-              agents={galleryAgents}
-              selectedAgentId={selectedAgentId}
-              onCreate={(agentId) => void createSessionForAgent(agentId)}
-            />
+          <div className="chat-empty-state">
+            <span className="chat-empty-mark"><GlobalOutlined /></span>
+            <Typography.Title level={3}>从左侧员工广场派发任务</Typography.Title>
+            <Typography.Paragraph>
+              点击员工即可直接创建会话，也可以用左上角加号选择接单员工。
+            </Typography.Paragraph>
           </div>
         </div>
       </main>
@@ -369,50 +358,59 @@ export default function SessionListPage() {
   );
 }
 
-function ChatAgentSection({
-  title,
-  emptyText,
-  agents,
+function SidebarEmployeeGallery({
+  personalAgents,
+  galleryAgents,
   selectedAgentId,
+  onOpenCreate,
   onCreate,
 }: {
-  title: string;
-  emptyText: string;
-  agents: AgentProfileRead[];
+  personalAgents: AgentProfileRead[];
+  galleryAgents: AgentProfileRead[];
   selectedAgentId: string;
+  onOpenCreate: () => void;
   onCreate: (agentId: string) => void;
 }) {
+  const hasAgents = personalAgents.length > 0 || galleryAgents.length > 0;
+  const renderAgents = (items: AgentProfileRead[], label: string) => {
+    if (items.length === 0) return null;
+    return (
+      <>
+        <div className="sidebar-agent-gallery-group">{label}</div>
+        {items.map((agent) => {
+          const profile = employeeProfile(agent);
+          return (
+            <button
+              key={agent.id}
+              type="button"
+              className={`sidebar-agent-gallery-card ${selectedAgentId === agent.id ? 'selected' : ''}`}
+              onClick={() => onCreate(agent.id)}
+            >
+              <EmployeeAvatarMark profile={profile} className="sidebar-agent-gallery-avatar" />
+              <span className="sidebar-agent-gallery-copy">
+                <strong>{employeeDisplayName(agent)}</strong>
+                <span>{profile.roleName}</span>
+              </span>
+              <RightOutlined />
+            </button>
+          );
+        })}
+      </>
+    );
+  };
+
   return (
-    <section className="chat-gallery-section">
-      <div className="chat-gallery-section-head">
-        <Typography.Title level={4}>{title}</Typography.Title>
-        <span>{agents.length}</span>
+    <section className="sidebar-agent-gallery">
+      <div className="sidebar-agent-gallery-head">
+        <span><GlobalOutlined /> 员工广场</span>
+        <Button className="sidebar-agent-gallery-add" type="text" icon={<PlusOutlined />} onClick={onOpenCreate} aria-label="选择接单员工" />
       </div>
-      {agents.length === 0 ? (
-        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyText} />
+      {!hasAgents ? (
+        <div className="sidebar-agent-gallery-empty">暂无可用员工</div>
       ) : (
-        <div className="chat-gallery-grid">
-          {agents.map((agent) => {
-            const profile = employeeProfile(agent);
-            return (
-              <button
-                key={agent.id}
-                type="button"
-                className={`chat-gallery-card ${selectedAgentId === agent.id ? 'selected' : ''}`}
-                onClick={() => onCreate(agent.id)}
-              >
-                <EmployeeAvatarMark profile={profile} className="chat-gallery-avatar" />
-                <span className="chat-gallery-copy">
-                  <strong>{employeeDisplayName(agent)}</strong>
-                  <em>{profile.roleName}</em>
-                  <span>{agent.description || '使用该员工的技能、SOP、业务资料和岗位人设。'}</span>
-                </span>
-                <span className="chat-gallery-action">
-                  发起对话 <RightOutlined />
-                </span>
-              </button>
-            );
-          })}
+        <div className="sidebar-agent-gallery-list">
+          {renderAgents(personalAgents, '个人员工')}
+          {renderAgents(galleryAgents, '员工广场')}
         </div>
       )}
     </section>

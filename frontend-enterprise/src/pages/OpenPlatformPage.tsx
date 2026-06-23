@@ -3,11 +3,11 @@ import {
   FileSearchOutlined,
   ProfileOutlined,
   RightOutlined,
-  RobotOutlined,
   SolutionOutlined,
   ToolOutlined,
+  UsergroupAddOutlined,
 } from '@ant-design/icons';
-import { Button, Card, Empty, Space, Tag, Typography, message } from 'antd';
+import { Button, Card, Drawer, Empty, Space, Tag, Typography, message } from 'antd';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -46,7 +46,7 @@ const PLATFORM_CONFIGS: PlatformConfig[] = [
     subtitle: '已发布给任务派发台选择的数字员工。',
     detail: '选择一个开放员工查看能力、岗位和服务范围。',
     useLabel: '使用员工',
-    icon: <RobotOutlined />,
+    icon: <UsergroupAddOutlined />,
   },
   {
     kind: 'knowledge',
@@ -101,6 +101,7 @@ export default function OpenPlatformPage({
   const [tools, setTools] = useState<ToolRead[]>([]);
   const [loading, setLoading] = useState(false);
   const [agentId, setAgentId] = useState(() => window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '');
+  const [detailItem, setDetailItem] = useState<{ kind: PlatformKind; item: PlatformItem } | null>(null);
 
   useEffect(() => {
     const onScopeChange = (event: Event) => {
@@ -243,23 +244,73 @@ export default function OpenPlatformPage({
     if (platformKind === 'tools') navigate('/enterprise/tools?add=plaza');
   }
 
+  function renderItemDrawer() {
+    if (!detailItem) return null;
+    const config = PLATFORM_BY_KIND.get(detailItem.kind) || PLATFORM_CONFIGS[0];
+    const { item } = detailItem;
+    return (
+      <Drawer
+        className="open-platform-item-drawer"
+        title={null}
+        width={560}
+        open
+        onClose={() => setDetailItem(null)}
+        footer={(
+          <div className="open-platform-drawer-footer">
+            <Button onClick={() => setDetailItem(null)}>关闭</Button>
+            <Button
+              type="primary"
+              onClick={() => {
+                setDetailItem(null);
+                usePlatformItem(detailItem.kind, item.id);
+              }}
+            >
+              {config.useLabel}
+            </Button>
+          </div>
+        )}
+      >
+        <div className="open-platform-drawer-hero">
+          {item.agent ? <EmployeeAvatar agent={item.agent} size={64} /> : <span className="open-platform-resource-icon">{config.icon}</span>}
+          <div>
+            <Typography.Text type="secondary">{config.title}</Typography.Text>
+            <Typography.Title level={3}>{item.title}</Typography.Title>
+            <Typography.Paragraph>{item.description}</Typography.Paragraph>
+          </div>
+        </div>
+        <div className="open-platform-drawer-meta-grid">
+          <div>
+            <span>来源</span>
+            <strong>{config.title}</strong>
+          </div>
+          <div>
+            <span>分类</span>
+            <strong>{item.meta}</strong>
+          </div>
+        </div>
+        <div className="open-platform-drawer-tags">
+          {item.tags.map((tag) => <Tag key={tag}>{tag}</Tag>)}
+        </div>
+        <div className="open-platform-drawer-summary">
+          <Typography.Text type="secondary">说明</Typography.Text>
+          <p>{config.detail}</p>
+        </div>
+      </Drawer>
+    );
+  }
+
   if (selectedKind) {
     const config = PLATFORM_BY_KIND.get(selectedKind) || PLATFORM_CONFIGS[0];
     const items = platformItems[selectedKind];
     return (
       <div className="page open-platform-page">
-        <div className="page-title open-platform-title">
+        <div className="open-platform-detail-hero">
           <div>
             <Typography.Text type="secondary">开放广场平台 / {config.title}</Typography.Text>
             <Typography.Title level={2}>{config.title}</Typography.Title>
             <Typography.Paragraph type="secondary">{config.detail}</Typography.Paragraph>
           </div>
-          <Space wrap>
-            <Button onClick={() => navigate('/enterprise/platform')}>返回平台</Button>
-            <Button type="primary" onClick={() => usePlatformItem(selectedKind)}>
-              {config.useLabel}
-            </Button>
-          </Space>
+          <Button onClick={() => navigate('/enterprise/platform')}>返回平台</Button>
         </div>
         <Card className="open-platform-detail-card" loading={loading}>
           {items.length === 0 ? (
@@ -271,7 +322,7 @@ export default function OpenPlatformPage({
                   key={item.id}
                   type="button"
                   className="open-platform-resource-card"
-                  onClick={() => usePlatformItem(selectedKind, item.id)}
+                  onClick={() => setDetailItem({ kind: selectedKind, item })}
                 >
                   {item.agent && <EmployeeAvatar agent={item.agent} size={48} />}
                   {!item.agent && <span className="open-platform-resource-icon">{config.icon}</span>}
@@ -283,50 +334,71 @@ export default function OpenPlatformPage({
                       {item.tags.slice(0, 3).map((tag) => <Tag key={tag}>{tag}</Tag>)}
                     </span>
                   </span>
-                  <span className="open-platform-use">{config.useLabel}</span>
+                  <span className="open-platform-use">查看详情 <RightOutlined /></span>
                 </button>
               ))}
             </div>
           )}
         </Card>
+        {renderItemDrawer()}
       </div>
     );
   }
 
   return (
-    <div className="page open-platform-page">
+    <div className="page open-platform-page open-platform-page-main">
       <div className="page-title open-platform-title">
         <div>
           <Typography.Text type="secondary">开放广场平台</Typography.Text>
           <Typography.Title level={2}>开放广场平台</Typography.Title>
-          <Typography.Paragraph type="secondary">
-            汇总数字员工、业务资料、通用技能、SOP 和工具五个广场。先查看详情，再把需要的能力新增到当前员工。
+          <Typography.Paragraph>
+            汇总数字员工、业务资料、通用技能、SOP 和工具五个广场。先进入广场查看详情，再把需要的能力新增到当前员工。
           </Typography.Paragraph>
         </div>
         <Tag className="open-platform-target" icon={<AppstoreOutlined />}>
           目标员工：{targetEmployee ? employeeDisplayName(targetEmployee) : '未选择'}
         </Tag>
       </div>
-      <div className="open-platform-grid">
-        {platformStats.map((item) => (
-          <Card key={item.kind} className="open-platform-card" hoverable loading={loading}>
-            <div className="open-platform-card-head">
-              <span>{item.icon}</span>
-              <strong>{item.count}</strong>
-            </div>
-            <Typography.Title level={4}>{item.title}</Typography.Title>
-            <Typography.Paragraph type="secondary">{item.subtitle}</Typography.Paragraph>
-            <div className="open-platform-card-actions">
-              <Button onClick={() => navigate(`/enterprise/platform/${item.kind}`)}>
-                查看详情 <RightOutlined />
-              </Button>
-              <Button type="primary" onClick={() => usePlatformItem(item.kind)}>
-                {item.useLabel}
-              </Button>
-            </div>
-          </Card>
-        ))}
+      <div className="open-platform-overview-shell">
+        <div className="open-platform-grid">
+          {platformStats.map((platform) => {
+            const previews = platformItems[platform.kind].slice(0, 4);
+            return (
+              <Card key={platform.kind} className="open-platform-card open-platform-row-card" hoverable loading={loading}>
+                <div className="open-platform-card-head">
+                  <span>{platform.icon}</span>
+                  <strong>{platform.count}</strong>
+                </div>
+                <div className="open-platform-card-copy">
+                  <Typography.Title level={4}>{platform.title}</Typography.Title>
+                  <Typography.Paragraph type="secondary">{platform.subtitle}</Typography.Paragraph>
+                </div>
+                <div className="open-platform-card-preview-list">
+                  {previews.length === 0 ? (
+                    <span className="open-platform-preview-empty">暂无开放内容</span>
+                  ) : previews.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className="open-platform-preview-item"
+                      onClick={() => setDetailItem({ kind: platform.kind, item })}
+                    >
+                      <strong>{item.title}</strong>
+                      <span>{item.meta}</span>
+                    </button>
+                  ))}
+                </div>
+                <div className="open-platform-card-actions">
+                  <Button onClick={() => navigate(`/enterprise/platform/${platform.kind}`)}>
+                    查看详情 <RightOutlined />
+                  </Button>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
       </div>
+      {renderItemDrawer()}
     </div>
   );
 }

@@ -10,7 +10,6 @@ import {
   LogoutOutlined,
   PlusOutlined,
   ProfileOutlined,
-  RobotOutlined,
   SolutionOutlined,
   TeamOutlined,
   ToolOutlined,
@@ -29,6 +28,7 @@ import {
   setEnterpriseAuthSession,
   type EnterpriseAuthSession,
 } from './auth';
+import EmployeeAvatar from './components/EmployeeAvatar';
 import { EMPLOYEE_TEMPLATES, employeeDisplayName, employeeMetadataFromTemplate, employeeProfile } from './employee';
 import AccountsPage from './pages/AccountsPage';
 import AgentsPage from './pages/AgentsPage';
@@ -288,7 +288,7 @@ function Shell({
             aria-label="新员工入职"
             onClick={openCreateAgentModal}
           >
-            <RobotOutlined />
+            <EmployeeAvatar agent={selectedAgent} size={36} />
           </button>
           <div className="agent-dock-main">
             <div className="agent-dock-label">当前员工</div>

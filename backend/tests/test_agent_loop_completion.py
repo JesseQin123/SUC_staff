@@ -336,6 +336,26 @@ def test_merge_scheduled_reply_replaces_duplicate_followup_confirmation() -> Non
     assert replies[0].count("请问确认下单吗") == 1
 
 
+def test_normalize_overlapping_task_confirmations_inside_final_reply() -> None:
+    loop = object.__new__(AgentLoop)
+    reply = (
+        "好的，已为您提交订单 MOCK7A17191FC9（商品 A1）的退款申请，退款原因为“不想要了”。\n\n"
+        "接下来为您购买 A3 高阶商品，请确认以下信息：\n"
+        "- 用户：hm\n"
+        "- 商品：A3\n"
+        "- 数量：1\n\n"
+        "请问确认下单吗？\n\n"
+        "好的，hm。已为您确认购买 A3 高阶商品 1 件，价格 239.0 元。请问确认下单吗？"
+    )
+
+    normalized = loop._normalize_overlapping_task_confirmations(reply)
+
+    assert "退款申请" in normalized
+    assert "已为您确认购买 A3 高阶商品 1 件，价格 239.0 元" in normalized
+    assert "请确认以下信息" not in normalized
+    assert normalized.count("请问确认下单吗") == 1
+
+
 def test_merge_scheduled_reply_keeps_distinct_followup_confirmations() -> None:
     loop = object.__new__(AgentLoop)
     first = "退款已处理。接下来为您购买 A1，请问确认下单吗？"
