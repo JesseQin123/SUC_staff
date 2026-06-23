@@ -27,6 +27,8 @@ type PlatformConfig = {
   subtitle: string;
   detail: string;
   useLabel: string;
+  metricLabel: string;
+  signals: string[];
   icon: ReactNode;
 };
 
@@ -46,6 +48,8 @@ const PLATFORM_CONFIGS: PlatformConfig[] = [
     subtitle: '已发布给任务派发台选择的数字员工。',
     detail: '选择一个开放员工查看能力、岗位和服务范围。',
     useLabel: '使用员工',
+    metricLabel: '开放员工',
+    signals: ['任务派发可选', '支持直接对话', '岗位能力可查看'],
     icon: <UsergroupAddOutlined />,
   },
   {
@@ -54,6 +58,8 @@ const PLATFORM_CONFIGS: PlatformConfig[] = [
     subtitle: '可学习到当前员工的业务资料和 LLM Wiki。',
     detail: '从广场资料学习到当前员工的业务资料库。',
     useLabel: '新增到员工资料',
+    metricLabel: '业务资料',
+    signals: ['LLM Wiki', '证据片段', '员工可学习'],
     icon: <FileSearchOutlined />,
   },
   {
@@ -62,6 +68,8 @@ const PLATFORM_CONFIGS: PlatformConfig[] = [
     subtitle: '浏览器、MCP、查询工具等可复用通用能力。',
     detail: '从广场技能学习到当前员工的已掌握技能。',
     useLabel: '新增到已掌握技能',
+    metricLabel: '通用技能',
+    signals: ['运行测试', 'MCP / 浏览器', '可复用能力'],
     icon: <SolutionOutlined />,
   },
   {
@@ -70,6 +78,8 @@ const PLATFORM_CONFIGS: PlatformConfig[] = [
     subtitle: '可学习和复用的业务流程与执行规范。',
     detail: '从广场 SOP 学习到当前员工的 SOP 管理。',
     useLabel: '新增到 SOP 管理',
+    metricLabel: '业务 SOP',
+    signals: ['流程推进', '执行规范', '启用后学习'],
     icon: <ProfileOutlined />,
   },
   {
@@ -78,6 +88,8 @@ const PLATFORM_CONFIGS: PlatformConfig[] = [
     subtitle: '可开放给员工调用和测试的工具能力。',
     detail: '进入工具箱按现有新增流程配置和测试工具。',
     useLabel: '进入工具新增',
+    metricLabel: '工具能力',
+    signals: ['调用权限', '测试可用', '工具箱配置'],
     icon: <ToolOutlined />,
   },
 ];
@@ -366,29 +378,41 @@ export default function OpenPlatformPage({
             return (
               <Card key={platform.kind} className="open-platform-card open-platform-row-card" hoverable loading={loading}>
                 <div className="open-platform-card-head">
-                  <span>{platform.icon}</span>
+                  <span className="open-platform-card-icon">{platform.icon}</span>
                   <strong>{platform.count}</strong>
+                  <em>{platform.metricLabel}</em>
                 </div>
                 <div className="open-platform-card-copy">
                   <Typography.Title level={4}>{platform.title}</Typography.Title>
                   <Typography.Paragraph type="secondary">{platform.subtitle}</Typography.Paragraph>
+                  <div className="open-platform-signal-strip">
+                    {platform.signals.map((signal) => <span key={signal}>{signal}</span>)}
+                  </div>
                 </div>
-                <div className="open-platform-card-preview-list">
-                  {previews.length === 0 ? (
-                    <span className="open-platform-preview-empty">暂无开放内容</span>
-                  ) : previews.map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      className="open-platform-preview-item"
-                      onClick={() => setDetailItem({ kind: platform.kind, item })}
-                    >
-                      <strong>{item.title}</strong>
-                      <span>{item.meta}</span>
-                    </button>
-                  ))}
+                <div className="open-platform-preview-panel">
+                  <div className="open-platform-preview-heading">
+                    <span>精选内容</span>
+                    <em>{previews.length ? `展示 ${previews.length} 项` : '等待开放'}</em>
+                  </div>
+                  <div className="open-platform-card-preview-list">
+                    {previews.length === 0 ? (
+                      <span className="open-platform-preview-empty">暂无开放内容</span>
+                    ) : previews.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className="open-platform-preview-item"
+                        onClick={() => setDetailItem({ kind: platform.kind, item })}
+                      >
+                        <strong>{item.title}</strong>
+                        <span>{item.meta}</span>
+                        {item.tags[0] && <em>{item.tags[0]}</em>}
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 <div className="open-platform-card-actions">
+                  <span>{platform.detail}</span>
                   <Button onClick={() => navigate(`/enterprise/platform/${platform.kind}`)}>
                     查看详情 <RightOutlined />
                   </Button>
