@@ -1925,7 +1925,8 @@ body.skill-distill-fixed .content {
   max-width: 100%;
   min-width: 0;
   --heatmap-weekday-width: 48px;
-  --heatmap-gap: 5px;
+  --heatmap-cell-size: 11px;
+  --heatmap-gap: 4px;
   padding: 22px 24px 18px;
   border: 1px solid color-mix(in srgb, var(--accent) 12%, var(--border));
   border-radius: 16px;
@@ -1933,15 +1934,16 @@ body.skill-distill-fixed .content {
     linear-gradient(180deg, color-mix(in srgb, var(--surface-subtle) 72%, var(--surface)), var(--surface-subtle)),
     var(--surface-subtle);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.74);
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .employee-heatmap-months {
   display: grid;
-  grid-template-columns: repeat(53, minmax(0, 1fr));
+  grid-template-columns: repeat(53, var(--heatmap-cell-size));
   gap: var(--heatmap-gap);
-  width: 100%;
-  margin: 0;
+  width: max-content;
+  margin: 0 auto;
   padding-left: calc(var(--heatmap-weekday-width) + 12px);
   box-sizing: border-box;
   color: var(--muted);
@@ -1957,16 +1959,18 @@ body.skill-distill-fixed .content {
 
 .employee-heatmap-body {
   display: grid;
-  grid-template-columns: var(--heatmap-weekday-width) minmax(0, 1fr);
+  grid-template-columns: var(--heatmap-weekday-width) max-content;
   gap: 12px;
   align-items: start;
-  justify-content: stretch;
+  justify-content: center;
   margin-top: 8px;
+  width: max-content;
+  min-width: 100%;
 }
 
 .employee-heatmap-weekdays {
   display: grid;
-  grid-template-rows: repeat(7, minmax(0, 1fr));
+  grid-template-rows: repeat(7, var(--heatmap-cell-size));
   gap: var(--heatmap-gap);
   color: var(--muted);
   font-size: 12px;
@@ -1987,18 +1991,16 @@ body.skill-distill-fixed .content {
 .employee-heatmap-grid {
   display: grid;
   grid-auto-flow: column;
-  grid-template-columns: repeat(53, minmax(0, 1fr));
-  grid-template-rows: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(53, var(--heatmap-cell-size));
+  grid-template-rows: repeat(7, var(--heatmap-cell-size));
   gap: var(--heatmap-gap);
-  width: 100%;
+  width: max-content;
   min-width: 0;
 }
 
 .employee-heatmap-cell {
-  width: 100%;
-  aspect-ratio: 1 / 1;
-  min-width: 0;
-  max-height: 15px;
+  width: var(--heatmap-cell-size);
+  height: var(--heatmap-cell-size);
   border-radius: 4px;
   border: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
   background: color-mix(in srgb, var(--accent-soft) 36%, var(--surface));
@@ -9046,6 +9048,7 @@ pre {
 
   .employee-heatmap {
     --heatmap-weekday-width: 34px;
+    --heatmap-cell-size: 10px;
     --heatmap-gap: 3px;
     padding: 16px 12px 14px;
   }
