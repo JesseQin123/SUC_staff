@@ -296,6 +296,59 @@ def test_router_removes_hallucinated_target_skill_from_non_matching_flow(monkeyp
     assert decision.target_step_id is None
 
 
+def test_router_strips_generated_message_content_slots(monkeypatch):
+    def fake_init(self, model_config):  # noqa: ANN001
+        return None
+
+    def fake_generate_json(self, system_prompt, payload):  # noqa: ANN001
+        assert "禁止填写 `message_content`" in system_prompt
+        return {
+            "decision": "continue_current_skill",
+            "target_skill_id": "purchase",
+            "target_step_id": "collect_user_name",
+            "confidence": 0.91,
+            "user_intent": "购买 A1",
+            "slot_hints": {"message_content": "模型改写后的整段输入", "product_id": "A1"},
+            "pending_tasks": [
+                {
+                    "decision": "start_skill",
+                    "target_skill_id": "purchase",
+                    "target_step_id": "collect_user_name",
+                    "slot_hints": {"message_content": "后续任务改写", "quantity": 1},
+                }
+            ],
+            "created_tasks": [
+                {
+                    "decision": "start_skill",
+                    "target_skill_id": "purchase",
+                    "target_step_id": "collect_user_name",
+                    "slot_hints": {"message_content": "新建任务改写", "user_name": "hm"},
+                }
+            ],
+            "task_updates": [
+                {
+                    "task_id": "task_purchase_a3",
+                    "slot_hints": {"message_content": "更新任务改写", "product_id": "A3"},
+                }
+            ],
+        }
+
+    monkeypatch.setattr(LLMClient, "__init__", fake_init)
+    monkeypatch.setattr(LLMClient, "generate_json", fake_generate_json)
+
+    decision = Router().decide(
+        "我要买 A1",
+        ChatSession(id="session_test", tenant_id="tenant_demo", active_skill_id="purchase"),
+        [_purchase_skill()],
+        model_config=None,  # type: ignore[arg-type]
+    )
+
+    assert decision.slot_hints == {"product_id": "A1"}
+    assert decision.pending_tasks[0].slot_hints == {"quantity": 1}
+    assert decision.created_tasks[0].slot_hints == {"user_name": "hm"}
+    assert decision.task_updates[0].slot_hints == {"product_id": "A3"}
+
+
 def _purchase_skill() -> Skill:
     return Skill(
         tenant_id="tenant_demo",

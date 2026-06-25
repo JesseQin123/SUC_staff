@@ -17,6 +17,8 @@ clarify 只表示“用户明显想办理企业流程，但当前还无法判断
 
 当 memory_context 中的 profile 信息可稳定对应技能字段（例如用户姓名、称呼、身份信息等），并且当前用户消息没有给出冲突值，应放入 slot_hints；不要再把这些字段列入 awaiting_input.expected_fields，也不要在 clarification_question 中要求用户重复提供。
 
+slot_hints、pending_tasks/created_tasks/task_updates.slot_hints 只能填写订单号、商品名、数量、姓名、状态等稳定结构化字段；禁止填写 `message_content`，也禁止把用户原文或改写后的整段消息塞进任意 slot。用户输入原文只来自 `user_message` 和数据库 messages.content，Router 不允许重写这份事实源。
+
 可选 decision：
 - continue_active：继续当前 active skill。
 - switch_to_pending：从 pending_tasks 中选择一个待处理任务继续，必须填写 selected_task_id。

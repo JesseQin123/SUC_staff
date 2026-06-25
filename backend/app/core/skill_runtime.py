@@ -4,6 +4,7 @@ from typing import Any
 
 from app.db.models import ChatSession, new_id, utc_now
 from app.session.session_schema import PendingTask, RouterDecision, TaskUpdate
+from app.session.slot_policy import strip_router_generated_message_slots
 
 
 TASK_IDENTITY_FIELDS = {
@@ -22,6 +23,10 @@ TASK_IDENTITY_FIELDS = {
 
 class SkillRuntime:
     def apply_decision(self, session: ChatSession, decision: RouterDecision) -> ChatSession:
+        _sanitize_decision_slots(decision)
+        session.slots_json = strip_router_generated_message_slots(session.slots_json)
+        session.pending_tasks_json = _sanitize_task_frames(session.pending_tasks_json)
+        session.skill_stack_json = _sanitize_task_frames(session.skill_stack_json)
         self._apply_task_updates(session, decision.task_updates)
         self._append_pending_tasks(session, [*decision.pending_tasks, *decision.created_tasks])
         session.resume_after_answer_json = None
@@ -58,7 +63,9 @@ class SkillRuntime:
                 awaiting_input["task_id"] = active_task_id
             session.awaiting_input_json = awaiting_input
         if decision.slot_hints and decision_name != "exit_current_skill":
-            session.slots_json = {**(session.slots_json or {}), **dict(decision.slot_hints)}
+            session.slots_json = strip_router_generated_message_slots(
+                {**(session.slots_json or {}), **dict(decision.slot_hints)}
+            )
 
         session.updated_at = utc_now()
         return session
@@ -74,6 +81,13 @@ class SkillRuntime:
             if not skill_id:
                 continue
             session.pending_tasks_json = tasks
+            raw_slot_hints = (
+                task.get("slots")
+                if isinstance(task.get("slots"), dict)
+                else task.get("slot_hints")
+                if isinstance(task.get("slot_hints"), dict)
+                else {}
+            )
             return RouterDecision(
                 decision="switch_to_pending",
                 selected_task_id=task.get("task_id"),
@@ -83,13 +97,7 @@ class SkillRuntime:
                 user_intent=task.get("intent_summary") or task.get("user_intent"),
                 reason=task.get("reason"),
                 source_message=task.get("source_message"),
-                slot_hints=(
-                    task.get("slots")
-                    if isinstance(task.get("slots"), dict)
-                    else task.get("slot_hints")
-                    if isinstance(task.get("slot_hints"), dict)
-                    else {}
-                ),
+                slot_hints=strip_router_generated_message_slots(raw_slot_hints),
             )
         session.pending_tasks_json = []
         return None
@@ -146,16 +154,16 @@ class SkillRuntime:
         if decision.decision == "switch_to_pending":
             session.active_skill_id = decision.target_skill_id
             session.active_step_id = decision.target_step_id
-            session.slots_json = dict(decision.slot_hints or {})
+            session.slots_json = strip_router_generated_message_slots(decision.slot_hints)
             _set_active_task_id(session, None)
             return
         if not session.active_skill_id and decision.target_skill_id:
             session.active_skill_id = decision.target_skill_id
-            session.slots_json = dict(decision.slot_hints or {})
+            session.slots_json = strip_router_generated_message_slots(decision.slot_hints)
             _set_active_task_id(session, None)
         if decision.target_skill_id and decision.decision in {"start_skill", "start_new_task"}:
             session.active_skill_id = decision.target_skill_id
-            session.slots_json = dict(decision.slot_hints or {})
+            session.slots_json = strip_router_generated_message_slots(decision.slot_hints)
             _set_active_task_id(session, None)
         if decision.target_step_id:
             session.active_step_id = decision.target_step_id
@@ -187,7 +195,9 @@ class SkillRuntime:
         ):
             session.active_skill_id = decision.target_skill_id
             session.active_step_id = decision.target_step_id
-            session.slots_json = {**(session.slots_json or {}), **dict(decision.slot_hints or {})}
+            session.slots_json = strip_router_generated_message_slots(
+                {**(session.slots_json or {}), **dict(decision.slot_hints or {})}
+            )
             _set_active_task_id(session, None)
             return
 
@@ -201,7 +211,7 @@ class SkillRuntime:
 
         session.active_skill_id = decision.target_skill_id
         session.active_step_id = decision.target_step_id
-        session.slots_json = dict(decision.slot_hints or {})
+        session.slots_json = strip_router_generated_message_slots(decision.slot_hints)
         _set_active_task_id(session, None)
 
     def _append_pending_tasks(self, session: ChatSession, tasks: list[PendingTask]) -> None:
@@ -253,8 +263,10 @@ class SkillRuntime:
                 if value is not None
             }
             if update.slot_hints:
-                patch["slots"] = update.slot_hints
-                patch["slot_hints"] = update.slot_hints
+                slot_hints = strip_router_generated_message_slots(update.slot_hints)
+                if slot_hints:
+                    patch["slots"] = slot_hints
+                    patch["slot_hints"] = slot_hints
             pending = _patch_task_frame(pending, update.task_id, patch)
             stack = _patch_task_frame(stack, update.task_id, patch)
         session.pending_tasks_json = pending
@@ -288,12 +300,39 @@ def _decision_alias(decision: str) -> str:
     return aliases.get(decision, decision)
 
 
+def _sanitize_decision_slots(decision: RouterDecision) -> None:
+    decision.slot_hints = strip_router_generated_message_slots(decision.slot_hints)
+    for task in [*decision.pending_tasks, *decision.created_tasks]:
+        task.slot_hints = strip_router_generated_message_slots(task.slot_hints)
+    for update in decision.task_updates:
+        update.slot_hints = strip_router_generated_message_slots(update.slot_hints)
+
+
+def _sanitize_task_frames(frames_json: list[dict] | None) -> list[dict]:
+    frames: list[dict] = []
+    for frame in list(frames_json or []):
+        if not isinstance(frame, dict):
+            continue
+        next_frame = dict(frame)
+        raw_slots = next_frame.get("slots") if isinstance(next_frame.get("slots"), dict) else {}
+        raw_hints = next_frame.get("slot_hints") if isinstance(next_frame.get("slot_hints"), dict) else {}
+        slots = strip_router_generated_message_slots({**raw_hints, **raw_slots})
+        if slots:
+            next_frame["slots"] = slots
+            next_frame["slot_hints"] = slots
+        else:
+            next_frame.pop("slots", None)
+            next_frame.pop("slot_hints", None)
+        frames.append(next_frame)
+    return frames
+
+
 def _task_frame_from_pending(task: PendingTask) -> dict[str, Any]:
     now = utc_now().isoformat()
     task_id = task.task_id or new_id("task")
     skill_id = task.target_skill_id
     step_id = task.target_step_id
-    slots = dict(task.slot_hints or {})
+    slots = strip_router_generated_message_slots(task.slot_hints)
     return {
         "task_id": task_id,
         "status": task.status or "pending",
@@ -332,8 +371,8 @@ def _current_frame(
         "target_skill_id": session.active_skill_id,
         "step_id": session.active_step_id,
         "target_step_id": session.active_step_id,
-        "slots": session.slots_json or {},
-        "slot_hints": session.slots_json or {},
+        "slots": strip_router_generated_message_slots(session.slots_json),
+        "slot_hints": strip_router_generated_message_slots(session.slots_json),
         "intent_summary": None,
         "source_turn_id": None,
         "source_message": None,
@@ -368,7 +407,7 @@ def _activate_frame(session: ChatSession, frame: dict[str, Any]) -> None:
     session.active_skill_id = frame.get("skill_id") or frame.get("target_skill_id")
     session.active_step_id = frame.get("step_id") or frame.get("target_step_id")
     slots = frame.get("slots") if isinstance(frame.get("slots"), dict) else frame.get("slot_hints")
-    session.slots_json = slots if isinstance(slots, dict) else {}
+    session.slots_json = strip_router_generated_message_slots(slots)
     session.summary = frame.get("summary")
     session.last_agent_question = frame.get("last_agent_question")
     _set_active_task_id(session, str(frame.get("task_id") or ""))
@@ -450,8 +489,12 @@ def _task_frames_equivalent(left: dict[str, Any], right: dict[str, Any]) -> bool
 
 def _merge_task_frames(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
     merged = dict(existing)
-    existing_slots = existing.get("slots") if isinstance(existing.get("slots"), dict) else {}
-    incoming_slots = incoming.get("slots") if isinstance(incoming.get("slots"), dict) else {}
+    existing_slots = strip_router_generated_message_slots(
+        existing.get("slots") if isinstance(existing.get("slots"), dict) else {}
+    )
+    incoming_slots = strip_router_generated_message_slots(
+        incoming.get("slots") if isinstance(incoming.get("slots"), dict) else {}
+    )
     slots = {**existing_slots, **incoming_slots}
     merged.update(
         {
@@ -463,6 +506,9 @@ def _merge_task_frames(existing: dict[str, Any], incoming: dict[str, Any]) -> di
     if slots:
         merged["slots"] = slots
         merged["slot_hints"] = slots
+    else:
+        merged.pop("slots", None)
+        merged.pop("slot_hints", None)
     merged["task_id"] = existing.get("task_id") or incoming.get("task_id")
     merged["created_at"] = existing.get("created_at") or incoming.get("created_at")
     merged["updated_at"] = utc_now().isoformat()
@@ -478,6 +524,7 @@ def _task_identity_slots(frame: dict[str, Any]) -> dict[str, str]:
     slots = frame.get("slots") if isinstance(frame.get("slots"), dict) else frame.get("slot_hints")
     if not isinstance(slots, dict):
         return {}
+    slots = strip_router_generated_message_slots(slots)
     identity: dict[str, str] = {}
     for key in TASK_IDENTITY_FIELDS:
         value = slots.get(key)
@@ -517,9 +564,15 @@ def _frame_with_slot_hints(frame: dict[str, Any] | None, slot_hints: dict | None
     if not frame or not slot_hints:
         return frame
     next_frame = dict(frame)
-    current_slots = next_frame.get("slots") if isinstance(next_frame.get("slots"), dict) else {}
-    current_hints = next_frame.get("slot_hints") if isinstance(next_frame.get("slot_hints"), dict) else {}
-    next_frame["slots"] = {**current_hints, **current_slots, **dict(slot_hints)}
-    next_frame["slot_hints"] = {**current_hints, **current_slots, **dict(slot_hints)}
+    current_slots = strip_router_generated_message_slots(
+        next_frame.get("slots") if isinstance(next_frame.get("slots"), dict) else {}
+    )
+    current_hints = strip_router_generated_message_slots(
+        next_frame.get("slot_hints") if isinstance(next_frame.get("slot_hints"), dict) else {}
+    )
+    incoming_hints = strip_router_generated_message_slots(slot_hints)
+    merged_slots = strip_router_generated_message_slots({**current_hints, **current_slots, **incoming_hints})
+    next_frame["slots"] = merged_slots
+    next_frame["slot_hints"] = merged_slots
     next_frame["updated_at"] = utc_now().isoformat()
     return next_frame

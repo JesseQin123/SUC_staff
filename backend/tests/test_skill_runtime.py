@@ -223,6 +223,80 @@ def test_pending_tasks_are_queued_and_popped_without_using_skill_stack():
     assert session.slots_json == {"product_id": "A3"}
 
 
+def test_runtime_never_persists_router_generated_message_content_slots():
+    session = ChatSession(
+        id="session_test",
+        tenant_id="tenant_demo",
+        active_skill_id="refund",
+        active_step_id="confirm_refund_order",
+        slots_json={"message_content": "旧的模型改写", "order_id": "ORDER-1"},
+        pending_tasks_json=[
+            {
+                "task_id": "task_purchase_a1",
+                "decision": "start_skill",
+                "target_skill_id": "purchase",
+                "target_step_id": "collect_user_name",
+                "slot_hints": {"message_content": "pending 改写", "product_id": "A1"},
+            }
+        ],
+        skill_stack_json=[
+            {
+                "task_id": "task_purchase_a3",
+                "skill_id": "purchase",
+                "step_id": "collect_user_name",
+                "slots": {"message_content": "stack 改写", "product_id": "A3"},
+            }
+        ],
+    )
+    runtime = SkillRuntime()
+
+    runtime.apply_decision(
+        session,
+        RouterDecision(
+            decision="switch_to_pending",
+            selected_task_id="task_purchase_a1",
+            target_skill_id="purchase",
+            target_step_id="collect_user_name",
+            slot_hints={"message_content": "当前轮改写", "quantity": 1},
+        ),
+    )
+
+    assert session.active_skill_id == "purchase"
+    assert session.slots_json == {"product_id": "A1", "quantity": 1}
+    assert session.skill_stack_json[0]["slots"] == {"product_id": "A3"}
+
+
+def test_runtime_ignores_message_content_only_task_update():
+    session = ChatSession(
+        id="session_test",
+        tenant_id="tenant_demo",
+        pending_tasks_json=[
+            {
+                "task_id": "task_purchase_a1",
+                "target_skill_id": "purchase",
+                "target_step_id": "collect_user_name",
+                "slots": {"product_id": "A1"},
+            }
+        ],
+    )
+    runtime = SkillRuntime()
+
+    runtime.apply_decision(
+        session,
+        RouterDecision(
+            decision="update_pending",
+            task_updates=[
+                {
+                    "task_id": "task_purchase_a1",
+                    "slot_hints": {"message_content": "不要覆盖已有任务 slot"},
+                }
+            ],
+        ),
+    )
+
+    assert session.pending_tasks_json[0]["slots"] == {"product_id": "A1"}
+
+
 def test_pending_task_is_not_claimed_without_selected_task_id():
     session = ChatSession(
         id="session_test",

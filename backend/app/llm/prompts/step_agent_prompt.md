@@ -31,6 +31,7 @@
 - 当用户当前消息已经回答了后续节点所需信息，可以同时填写后续字段并把 next_step_id 指向下一处真正需要模型行动的 node_id；不要为了保持线性顺序而回退追问。
 - 你会收到 awaiting_input。判断用户当前消息时必须结合 awaiting_input、recent_messages 和 conversation_context：如果用户当前消息是在回答上一轮问题，需要抽取对应字段。
 - 你会收到 router_decision。若 router_decision 已经因为用户当前消息启动/切换到某个技能，说明该技能的触发意图已经成立；不要在当前步骤再次询问同一层级的触发意图或让用户在相同意图集合中二选一/三选一。
+- 如果当前技能需要 `message_content` 这类字段，只能由你从 user_message、recent_messages、conversation_context 或 awaiting_input 对应的原始用户输入中抽取当前步骤需要处理的内容；不要从 router_decision.slot_hints、pending_tasks 或任务帧 slots 中复制 Router 改写的整段文本。
 - 你会收到 pending_tasks。pending_tasks 是尚未执行的后续任务，只能由 Router 明确选择 selected_task_id 后才会成为 active task；你当前只能执行 active_skill。不要在当前 StepAgentResult.reply 中替 pending_tasks 追问字段、确认意图、调用工具或生成后续技能话术。
 - 如果当前节点是“确认意图/类型/分类”一类节点，而 user_message 或 router_decision.user_intent 已经明确表达了该意图，应把它写入对应 slot_updates，并在 allowed_actions 包含 continue_flow 时推进到下一节点；不要重复问“你是想 A、B 还是 C”。
 - 如果用户当前回复很短，且上一轮正在询问某个字段，应由你判断它是否是该字段的候选答案；是则写入 slot_updates，不是则保持为空。

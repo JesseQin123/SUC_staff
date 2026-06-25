@@ -7,6 +7,7 @@ from app.db.models import ChatSession, ModelConfig, Skill
 from app.llm import LLMClient, LLMError
 from app.session.helpers import public_session
 from app.session.session_schema import RouterDecision, RouterDecisionValue, TaskScheduleDecision
+from app.session.slot_policy import strip_router_generated_message_slots
 
 
 PROMPT_PATH = Path(__file__).resolve().parents[1] / "llm" / "prompts" / "router_prompt.md"
@@ -189,6 +190,7 @@ class Router:
     def _normalize_decision(
         self, decision: RouterDecision, session: ChatSession, available_skills: list[Skill]
     ) -> RouterDecision:
+        self._strip_generated_message_slots(decision)
         skills = {skill.skill_id: skill for skill in available_skills}
         if decision.target_skill_id and decision.target_skill_id not in skills:
             decision.target_skill_id = None
@@ -222,6 +224,13 @@ class Router:
         decision.pending_tasks = normalized_tasks
         decision.created_tasks = self._normalize_tasks(decision.created_tasks, skills)
         return decision
+
+    def _strip_generated_message_slots(self, decision: RouterDecision) -> None:
+        decision.slot_hints = strip_router_generated_message_slots(decision.slot_hints)
+        for task in [*decision.pending_tasks, *decision.created_tasks]:
+            task.slot_hints = strip_router_generated_message_slots(task.slot_hints)
+        for update in decision.task_updates:
+            update.slot_hints = strip_router_generated_message_slots(update.slot_hints)
 
     def _normalize_tasks(self, tasks, skills: dict[str, Skill]):
         normalized_tasks = []
@@ -268,7 +277,9 @@ class Router:
                         "status": frame.get("status"),
                         "skill_id": frame.get("skill_id") or frame.get("target_skill_id"),
                         "step_id": frame.get("step_id") or frame.get("target_step_id"),
-                        "slots": frame.get("slots") if isinstance(frame.get("slots"), dict) else {},
+                        "slots": strip_router_generated_message_slots(
+                            frame.get("slots") if isinstance(frame.get("slots"), dict) else {}
+                        ),
                         "intent_summary": frame.get("intent_summary") or frame.get("user_intent"),
                         "source_message": frame.get("source_message"),
                         "parent_task_id": frame.get("parent_task_id"),
