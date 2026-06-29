@@ -1,21 +1,16 @@
-import {
-  GlobalOutlined,
-  LogoutOutlined,
-  MenuFoldOutlined,
-  MenuUnfoldOutlined,
-  RightOutlined,
-} from '@ant-design/icons';
-import { Button, Empty, Select, Typography, message } from 'antd';
+import { Button, Empty, Input, Select, message } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { api, clearAuthSession, getAuthSession, isAuthError } from '../api/client';
 import EmployeeAvatarMark from '../components/EmployeeAvatarMark';
+import StaffdeckIcon from '../components/StaffdeckIcon';
 import {
   agentResourceCount,
   employeeDisplayName,
   employeeProfile,
   isEmployeeOwnedBy,
   isGalleryEmployee,
+  staffdeckDisplayText,
   visibleChatEmployees,
 } from '../employee';
 import { ThemeToggleButton } from '../theme';
@@ -35,6 +30,8 @@ export default function EmployeeGalleryPage() {
   const [agents, setAgents] = useState<AgentProfileRead[]>([]);
   const [sessionAgentFilter, setSessionAgentFilter] = useState('all');
   const [selectedAgentId, setSelectedAgentId] = useState(() => window.localStorage.getItem('skill_agent_selected_agent') || '');
+  const [employeeTab, setEmployeeTab] = useState<'all' | 'mine' | 'gallery'>('mine');
+  const [searchText, setSearchText] = useState('');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => (
     window.localStorage.getItem('skill_agent_sidebar_collapsed') === 'true'
   ));
@@ -50,6 +47,18 @@ export default function EmployeeGalleryPage() {
   const personalAgents = availableAgents.filter((agent) => !isGalleryEmployee(agent) || isEmployeeOwnedBy(agent, auth?.user));
   const personalAgentIds = new Set(personalAgents.map((agent) => agent.id));
   const galleryAgents = availableAgents.filter((agent) => isGalleryEmployee(agent) && !personalAgentIds.has(agent.id));
+  const tabAgents = employeeTab === 'all' ? availableAgents : employeeTab === 'mine' ? personalAgents : galleryAgents;
+  const visibleEmployeeCards = tabAgents.filter((agent) => {
+    const query = searchText.trim().toLowerCase();
+    if (!query) return true;
+    const profile = employeeProfile(agent);
+    return [
+      employeeDisplayName(agent),
+      profile.roleName,
+      agent.description || '',
+      ...profile.expertiseTags,
+    ].join(' ').toLowerCase().includes(query);
+  });
   const agentById = useMemo(() => new Map(availableAgents.map((agent) => [agent.id, agent])), [availableAgents]);
   const visibleSessions = useMemo(() => (
     sessionAgentFilter === 'all'
@@ -173,14 +182,14 @@ export default function EmployeeGalleryPage() {
               </span>
               <span className="employee-gallery-page-action">
                 发起对话
-                <RightOutlined />
+                <StaffdeckIcon name="arrow" />
               </span>
             </span>
-            <span className="employee-gallery-page-desc">{agent.description || '暂无描述'}</span>
+            <span className="employee-gallery-page-desc">{staffdeckDisplayText(agent.description || '暂无描述')}</span>
             <span className="employee-gallery-page-stats">
-              <span><strong>{sopCount}</strong><em>SOP</em></span>
-              <span><strong>{skillCount}</strong><em>技能</em></span>
               <span><strong>{knowledgeCount}</strong><em>资料</em></span>
+              <span><strong>{skillCount}</strong><em>技能</em></span>
+              <span><strong>{sopCount}</strong><em>SOP</em></span>
             </span>
             <span className="employee-gallery-page-tags">
               <span>在线</span>
@@ -199,21 +208,21 @@ export default function EmployeeGalleryPage() {
         <div className="sidebar-head">
           <Button
             className="icon-button"
-            icon={sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+            icon={<StaffdeckIcon name={sidebarCollapsed ? 'sidebar-open' : 'sidebar-close'} />}
             aria-label={sidebarCollapsed ? '展开侧边栏' : '折叠侧边栏'}
             onClick={toggleSidebar}
           />
           <div className="brand-block">
-            <span className="brand-mark">UR</span>
+            <span className="brand-mark">SD</span>
             <div>
-              <div className="brand-title">UltraRAG4</div>
-              <div className="brand-subtitle">{auth?.user.display_name || auth?.user.username}</div>
+              <div className="brand-title">Modelbest</div>
+              <div className="brand-subtitle">UltraRAG4</div>
             </div>
           </div>
           <div className="sidebar-actions">
             <Button
               className="icon-button sidebar-logout"
-              icon={<LogoutOutlined />}
+              icon={<StaffdeckIcon name="logout" />}
               onClick={() => {
                 clearAuthSession();
                 navigate('/login', { replace: true });
@@ -224,12 +233,12 @@ export default function EmployeeGalleryPage() {
         {!sidebarCollapsed && (
           <div className="sidebar-workspace-panel">
             <button type="button" className="sidebar-gallery-entry active" onClick={() => navigate('/employees')}>
-              <span className="sidebar-gallery-entry-icon"><GlobalOutlined /></span>
+              <span className="sidebar-gallery-entry-icon"><StaffdeckIcon name="globe" /></span>
               <span className="sidebar-gallery-entry-copy">
                 <strong>数字员工广场</strong>
                 <span>选择数字员工</span>
               </span>
-              <RightOutlined />
+              <StaffdeckIcon name="arrow" />
             </button>
             <div className="session-filter-bar">
               <span className="session-filter-label">员工会话</span>
@@ -251,8 +260,8 @@ export default function EmployeeGalleryPage() {
             </div>
           ) : (
             visibleSessions.map((session) => {
-              const sessionTitle = session.title || session.id;
-              const sessionSummary = session.summary || session.last_agent_question || '新任务';
+              const sessionTitle = staffdeckDisplayText(session.title || session.id);
+              const sessionSummary = staffdeckDisplayText(session.summary || session.last_agent_question || '新任务');
               const sessionAgent = session.agent_id ? agentById.get(session.agent_id) || null : null;
               const sessionProfile = sessionAgent ? employeeProfile(sessionAgent) : null;
               const sessionAgentFallback = sessionAgent ? employeeDisplayName(sessionAgent).slice(0, 1) : '员';
@@ -296,48 +305,50 @@ export default function EmployeeGalleryPage() {
             })
           )}
         </div>
+        <button type="button" className="sidebar-bottom-link" onClick={() => { window.location.href = '/enterprise/dashboard'; }}>
+          <StaffdeckIcon name="grid" />
+          <span>管理端</span>
+          <StaffdeckIcon name="arrow" />
+        </button>
       </aside>
       <main className="chat-main employee-gallery-page-main">
         <div className="chat-header">
-          <div>
-            <Typography.Text strong>数字员工广场</Typography.Text>
-          </div>
+          <Input
+            className="staffdeck-search-input"
+            prefix={<StaffdeckIcon name="search" />}
+            placeholder="搜索"
+            value={searchText}
+            onChange={(event) => setSearchText(event.target.value)}
+          />
           <div className="chat-header-actions">
-            <Button icon={<GlobalOutlined />} onClick={() => { window.location.href = '/enterprise/dashboard'; }}>
+            <Button icon={<StaffdeckIcon name="grid" />} onClick={() => { window.location.href = '/enterprise/dashboard'; }}>
               数字账号管理
             </Button>
             <ThemeToggleButton />
           </div>
         </div>
         <div className="employee-gallery-page">
-          <section className="employee-gallery-page-hero">
-            <span className="employee-gallery-page-hero-icon"><GlobalOutlined /></span>
-            <div>
-              <Typography.Title level={2}>选择数字员工</Typography.Title>
-            </div>
+          <section className="employee-gallery-tabs" aria-label="数字员工分类">
+            {[
+              { key: 'all', label: '所有员工', count: availableAgents.length },
+              { key: 'mine', label: '我的数字员工', count: personalAgents.length },
+              { key: 'gallery', label: '数字员工广场', count: galleryAgents.length },
+            ].map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                className={employeeTab === item.key ? 'active' : ''}
+                onClick={() => setEmployeeTab(item.key as 'all' | 'mine' | 'gallery')}
+              >
+                {item.label}
+                <span>{item.count}</span>
+              </button>
+            ))}
           </section>
 
-          <section className="employee-gallery-page-section">
-            <div className="employee-gallery-page-section-head">
-              <div>
-                <Typography.Title level={3}>我的数字员工</Typography.Title>
-              </div>
-              <span>{personalAgents.length}</span>
-            </div>
+          <section className="employee-gallery-page-section sd1-flat-section">
             <div className="employee-gallery-page-grid">
-              {renderEmployeeCards(personalAgents, '暂无我的数字员工')}
-            </div>
-          </section>
-
-          <section className="employee-gallery-page-section">
-            <div className="employee-gallery-page-section-head">
-              <div>
-                <Typography.Title level={3}>数字员工广场</Typography.Title>
-              </div>
-              <span>{galleryAgents.length}</span>
-            </div>
-            <div className="employee-gallery-page-grid">
-              {renderEmployeeCards(galleryAgents, '广场暂无数字员工')}
+              {renderEmployeeCards(visibleEmployeeCards, searchText ? '没有匹配的数字员工' : '暂无数字员工')}
             </div>
           </section>
         </div>

@@ -45,8 +45,9 @@ export default function LoginPage() {
     <div className="login-page">
       <div className="login-shell">
         <div className="login-brand">
-          <span className="brand-mark">SA</span>
+          <span className="brand-mark">SD</span>
           <div>
+            <Typography.Text className="brand-title">Modelbest</Typography.Text>
             <Typography.Title level={3}>UltraRAG4</Typography.Title>
           </div>
         </div>

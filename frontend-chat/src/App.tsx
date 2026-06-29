@@ -24,17 +24,17 @@ export default function App() {
       theme={{
         algorithm: isDark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
         token: {
-          colorPrimary: isDark ? '#e4b976' : '#0f766e',
-          borderRadius: 8,
-          colorBgBase: isDark ? '#0f172a' : '#fbfaf6',
+          colorPrimary: isDark ? '#f4f4f5' : '#111111',
+          borderRadius: 6,
+          colorBgBase: isDark ? '#111111' : '#f7f8fa',
           colorBgContainer: isDark ? '#111827' : '#ffffff',
           colorBgElevated: isDark ? '#1e293b' : '#ffffff',
-          colorFillSecondary: isDark ? 'rgba(148, 163, 184, 0.16)' : '#f5f1eb',
-          colorText: isDark ? '#f8fafc' : '#20201d',
-          colorTextSecondary: isDark ? '#94a3b8' : '#6d726e',
-          colorBorder: isDark ? 'rgba(148, 163, 184, 0.24)' : '#ded7cc',
+          colorFillSecondary: isDark ? 'rgba(255, 255, 255, 0.1)' : '#f3f4f6',
+          colorText: isDark ? '#f8fafc' : '#111111',
+          colorTextSecondary: isDark ? '#a1a1aa' : '#6b7280',
+          colorBorder: isDark ? 'rgba(255, 255, 255, 0.14)' : '#e5e7eb',
           fontFamily:
-            '"Avenir Next", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif',
+            '"Inter", "Avenir Next", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif',
         },
       }}
     >

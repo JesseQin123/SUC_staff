@@ -34,10 +34,10 @@ export type EmployeeTemplate = {
 };
 
 export const EMPLOYEE_AVATAR_PRESETS: EmployeeAvatarPreset[] = [
-  { key: 'service-orbit', label: '客服接待', text: '客', tone: 'teal' },
-  { key: 'after-sales-seal', label: '售后处理', text: '售', tone: 'copper' },
+  { key: 'service-orbit', label: '研发员工', text: '研', tone: 'teal' },
+  { key: 'after-sales-seal', label: '行政员工', text: '行', tone: 'copper' },
   { key: 'knowledge-node', label: '知识运营', text: '知', tone: 'olive' },
-  { key: 'commerce-compass', label: '商品导购', text: '导', tone: 'blue' },
+  { key: 'commerce-compass', label: '财务员工', text: '财', tone: 'blue' },
   { key: 'ops-grid', label: '运营排查', text: '运', tone: 'ink' },
   { key: 'quality-star', label: '质量复盘', text: '质', tone: 'gold' },
 ];
@@ -45,25 +45,25 @@ export const EMPLOYEE_AVATAR_PRESETS: EmployeeAvatarPreset[] = [
 export const EMPLOYEE_TEMPLATES: EmployeeTemplate[] = [
   {
     key: 'service-specialist',
-    roleName: '在线客服',
-    avatarText: '客',
+    roleName: '研发',
+    avatarText: '研',
     avatarTone: 'teal',
     avatarPreset: 'service-orbit',
-    description: '负责接待用户咨询、识别意图、推进购买和基础售后问题。',
-    workStyles: ['事实先行', '流程推进', '及时追问'],
-    expertiseTags: ['用户接待', '购买引导', '售后分诊'],
-    workModes: ['先确认诉求', '调用 SOP', '必要时补齐信息'],
+    description: '负责研发资料查询、代码任务拆解、SOP 执行和交付记录沉淀。',
+    workStyles: ['目标明确', '证据优先', '动作可追溯'],
+    expertiseTags: ['研发协作', '代码检索', 'SOP 执行'],
+    workModes: ['理解需求', '检索资料', '推进执行'],
   },
   {
     key: 'after-sales',
-    roleName: '售后处理',
-    avatarText: '售',
+    roleName: '行政',
+    avatarText: '行',
     avatarTone: 'copper',
     avatarPreset: 'after-sales-seal',
-    description: '负责退款、换货、履约异常和会员权益补偿类处理。',
-    workStyles: ['证据优先', '风险克制', '留痕复盘'],
-    expertiseTags: ['退款', '换货', '权益核对'],
-    workModes: ['查订单', '核规则', '给结论'],
+    description: '负责会议纪要、资料归档、跨部门事务跟进和结果同步。',
+    workStyles: ['流程推进', '及时追问', '留痕复盘'],
+    expertiseTags: ['资料归档', '会议纪要', '事务跟进'],
+    workModes: ['确认事项', '拆解步骤', '同步结果'],
   },
   {
     key: 'knowledge-operator',
@@ -78,20 +78,45 @@ export const EMPLOYEE_TEMPLATES: EmployeeTemplate[] = [
   },
   {
     key: 'commerce-guide',
-    roleName: '商品导购',
-    avatarText: '导',
+    roleName: '财务',
+    avatarText: '财',
     avatarTone: 'blue',
     avatarPreset: 'commerce-compass',
-    description: '负责商品咨询、价格比较、购买确认和用户偏好复用。',
-    workStyles: ['偏好敏感', '主动比较', '确认后执行'],
-    expertiseTags: ['商品比价', '购买流程', '偏好记忆'],
-    workModes: ['理解需求', '比较选项', '确认下单'],
+    description: '负责报销核对、预算口径、财务资料检索和风险提示。',
+    workStyles: ['证据优先', '口径统一', '风险克制'],
+    expertiseTags: ['报销核对', '预算口径', '数据复盘'],
+    workModes: ['查规则', '核凭证', '给结论'],
   },
 ];
 
 const DEFAULT_WORK_STYLES = ['目标明确', '证据优先', '动作可追溯'];
 const DEFAULT_EXPERTISE = ['业务问答', 'SOP 执行', '工具调用'];
 const DEFAULT_WORK_MODES = ['识别意图', '补齐信息', '执行并复盘'];
+
+const SD1_TEXT_REPLACEMENTS: Array<[RegExp, string]> = [
+  [/在线客服员工/g, '研发员工'],
+  [/在线客服/g, '研发'],
+  [/客服接待/g, '研发协作'],
+  [/客服分支/g, '研发分支'],
+  [/智能客服/g, '数字员工'],
+  [/客服/g, '员工'],
+  [/售后退款流程/g, '行政资料复盘流程'],
+  [/售后换货流程/g, '行政事务跟进流程'],
+  [/售后处理/g, '行政处理'],
+  [/售后/g, '行政'],
+  [/商品比价服务/g, '财务数据核对'],
+  [/商品比价/g, '财务核对'],
+  [/商品导购/g, '财务分析'],
+  [/商品/g, '资料'],
+  [/订单/g, '任务单'],
+  [/退款/g, '报销'],
+  [/换货/g, '归档'],
+  [/购买/g, '执行'],
+];
+
+export function staffdeckDisplayText(value: string): string {
+  return SD1_TEXT_REPLACEMENTS.reduce((current, [pattern, replacement]) => current.replace(pattern, replacement), value);
+}
 
 function asStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
@@ -117,7 +142,7 @@ export function employeeProfile(agent?: AgentProfileRead | null): EmployeeProfil
     : 'preset';
   return {
     roleKey: stringFromMeta(metadata, 'role_key') || template?.key || '',
-    roleName: isOverall ? '开放广场' : stringFromMeta(metadata, 'role_name') || template?.roleName || '待补充岗位',
+    roleName: isOverall ? '开放广场' : staffdeckDisplayText(stringFromMeta(metadata, 'role_name') || template?.roleName || '待补充岗位'),
     avatarText: isOverall ? '广' : stringFromMeta(metadata, 'avatar_text') || preset.text || template?.avatarText || '员',
     avatarTone: isOverall ? 'overall' : stringFromMeta(metadata, 'avatar_tone') || preset.tone || template?.avatarTone || 'teal',
     avatarKind: isOverall ? 'preset' : avatarKind,

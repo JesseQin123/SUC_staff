@@ -1,19 +1,3 @@
-import {
-  ApiOutlined,
-  ClockCircleOutlined,
-  CommentOutlined,
-  DashboardOutlined,
-  DatabaseOutlined,
-  FileSearchOutlined,
-  GlobalOutlined,
-  IdcardOutlined,
-  LogoutOutlined,
-  PlusOutlined,
-  ProfileOutlined,
-  SolutionOutlined,
-  TeamOutlined,
-  ToolOutlined,
-} from '@ant-design/icons';
 import { Button, ConfigProvider, Input, Layout, Menu, Modal, Radio, Select, Typography, message, theme as antdTheme } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { useEffect, useMemo, useState } from 'react';
@@ -29,6 +13,7 @@ import {
   type EnterpriseAuthSession,
 } from './auth';
 import EmployeeAvatar from './components/EmployeeAvatar';
+import StaffdeckIcon from './components/StaffdeckIcon';
 import { employeeBlankMetadata, employeeDisplayName, employeeProfile } from './employee';
 import AccountsPage from './pages/AccountsPage';
 import AgentsPage from './pages/AgentsPage';
@@ -186,8 +171,8 @@ function Shell({
     ? '开放广场'
     : employeeProfile(selectedAgent).roleName;
   const navItems = [
-    { key: '/enterprise/platform', icon: <GlobalOutlined />, label: '开放广场' },
-    ...(!isOverallScope ? [{ key: '/enterprise/agents', icon: <TeamOutlined />, label: '我的数字员工' }] : []),
+    { key: '/enterprise/platform', icon: <StaffdeckIcon name="globe" />, label: '开放广场' },
+    ...(!isOverallScope ? [{ key: '/enterprise/agents', icon: <StaffdeckIcon name="user" />, label: '我的数字员工' }] : []),
     ...(!isOverallScope
       ? [
           {
@@ -195,10 +180,10 @@ function Shell({
             type: 'group' as const,
             label: '当前数字员工',
             children: [
-              { key: '/enterprise/dashboard', icon: <DashboardOutlined />, label: '数字员工档案' },
-              { key: '/enterprise/scheduled-tasks', icon: <ClockCircleOutlined />, label: '定时任务' },
-              { key: '/enterprise/memories', icon: <DatabaseOutlined />, label: '员工记忆' },
-              { key: '/enterprise/feedback', icon: <CommentOutlined />, label: '对话日志' },
+              { key: '/enterprise/dashboard', icon: <StaffdeckIcon name="file" />, label: '数字员工档案' },
+              { key: '/enterprise/scheduled-tasks', icon: <StaffdeckIcon name="clock" />, label: '定时任务' },
+              { key: '/enterprise/memories', icon: <StaffdeckIcon name="database" />, label: '员工记忆' },
+              { key: '/enterprise/feedback', icon: <StaffdeckIcon name="chat" />, label: '对话日志' },
             ],
           },
         ]
@@ -208,11 +193,11 @@ function Shell({
       type: 'group' as const,
       label: isOverallScope ? '开放广场' : '数字员工能力',
       children: [
-        ...(isOverallScope ? [{ key: '/enterprise/agents', icon: <TeamOutlined />, label: '数字员工广场' }] : []),
-        { key: '/enterprise/knowledge', icon: <FileSearchOutlined />, label: isOverallScope ? '知识库广场' : '知识库' },
-        { key: '/enterprise/general-skills', icon: <SolutionOutlined />, label: isOverallScope ? '技能广场' : '技能' },
-        { key: '/enterprise/skills', icon: <ProfileOutlined />, label: isOverallScope ? 'SOP 广场' : 'SOP' },
-        { key: '/enterprise/tools', icon: <ToolOutlined />, label: isOverallScope ? '工具广场' : '工具' },
+        ...(isOverallScope ? [{ key: '/enterprise/agents', icon: <StaffdeckIcon name="user" />, label: '数字员工广场' }] : []),
+        { key: '/enterprise/knowledge', icon: <StaffdeckIcon name="file" />, label: isOverallScope ? '知识库广场' : '知识库' },
+        { key: '/enterprise/general-skills', icon: <StaffdeckIcon name="spark" />, label: isOverallScope ? '技能广场' : '技能' },
+        { key: '/enterprise/skills', icon: <StaffdeckIcon name="filter" />, label: isOverallScope ? 'SOP 广场' : 'SOP' },
+        { key: '/enterprise/tools', icon: <StaffdeckIcon name="tool" />, label: isOverallScope ? '工具广场' : '工具' },
       ],
     },
     ...(isAdmin
@@ -222,8 +207,8 @@ function Shell({
             type: 'group' as const,
             label: '系统',
             children: [
-              { key: '/enterprise/accounts', icon: <IdcardOutlined />, label: '账号管理' },
-              { key: '/enterprise/models', icon: <ApiOutlined />, label: '模型' },
+              { key: '/enterprise/accounts', icon: <StaffdeckIcon name="user" />, label: '账号管理' },
+              { key: '/enterprise/models', icon: <StaffdeckIcon name="model" />, label: '模型' },
             ],
           },
         ]
@@ -288,10 +273,10 @@ function Shell({
     <Layout className="app-shell">
       <Sider width={232} theme={effectiveTheme} className="sidebar">
         <div className="brand">
-          <span className="brand-mark">UR</span>
+          <span className="brand-mark">SD</span>
           <div>
-            <div className="brand-title">UltraRAG4</div>
-            <div className="brand-subtitle">数字员工管理台</div>
+            <div className="brand-title">Modelbest</div>
+            <div className="brand-subtitle">UltraRAG4</div>
           </div>
         </div>
         <Menu
@@ -327,7 +312,7 @@ function Shell({
                 <>
                   {menu}
                   <div className="agent-dock-dropdown-footer" onMouseDown={(event) => event.preventDefault()}>
-                    <Button type="text" block icon={<PlusOutlined />} onClick={openCreateAgentModal}>
+                    <Button type="text" block icon={<StaffdeckIcon name="user" />} onClick={openCreateAgentModal}>
                       新建数字员工
                     </Button>
                   </div>
@@ -336,6 +321,11 @@ function Shell({
             />
           </div>
         </div>
+        <button type="button" className="enterprise-sidebar-chat-link" onClick={() => { window.location.href = '/chat/'; }}>
+          <StaffdeckIcon name="chat" />
+          <span>聊天端</span>
+          <StaffdeckIcon name="arrow" />
+        </button>
       </Sider>
       <Layout>
         <Header className="topbar">
@@ -348,12 +338,12 @@ function Shell({
             </div>
           </div>
           <div className="topbar-actions">
-            <Button icon={<CommentOutlined />} onClick={() => { window.location.href = '/chat/'; }}>
+            <Button icon={<StaffdeckIcon name="chat" />} onClick={() => { window.location.href = '/chat/'; }}>
               聊天端
             </Button>
             {accountRoleLabel && <span className="account-chip">{accountRoleLabel}</span>}
             <ThemeToggleButton />
-            <Button icon={<LogoutOutlined />} onClick={onLogout} aria-label="退出登录" />
+            <Button icon={<StaffdeckIcon name="logout" />} onClick={onLogout} aria-label="退出登录" />
           </div>
         </Header>
         <Content className="content">
@@ -425,7 +415,7 @@ function Shell({
             <Input
               value={agentForm.roleName}
               onChange={(event) => setAgentForm((prev) => ({ ...prev, roleName: event.target.value }))}
-              placeholder="例如 在线客服员工、知识运营员工"
+              placeholder="例如 研发员工、财务员工"
             />
           </label>
           {agentForm.sourceMode === 'copy' && (
@@ -507,8 +497,9 @@ function EnterpriseLogin({
   return (
     <div className="enterprise-login-page">
       <section className="enterprise-login-card">
-        <span className="brand-mark">UR</span>
+        <span className="brand-mark">SD</span>
         <div>
+          <Typography.Text className="brand-title">Modelbest</Typography.Text>
           <Typography.Title level={2}>UltraRAG4 数字员工运营台</Typography.Title>
         </div>
         <div className="enterprise-login-form">
@@ -556,17 +547,17 @@ export default function App() {
       theme={{
         algorithm: isDark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
         token: {
-          colorPrimary: isDark ? '#e4b976' : '#04756f',
-          borderRadius: 8,
-          colorBgBase: isDark ? '#0f172a' : '#fbfaf6',
+          colorPrimary: isDark ? '#f4f4f5' : '#111111',
+          borderRadius: 6,
+          colorBgBase: isDark ? '#111111' : '#f7f8fa',
           colorBgContainer: isDark ? '#111827' : '#ffffff',
           colorBgElevated: isDark ? '#1e293b' : '#ffffff',
-          colorFillSecondary: isDark ? 'rgba(148, 163, 184, 0.16)' : '#f5f1eb',
-          colorText: isDark ? '#f8fafc' : '#1d1d1b',
-          colorTextSecondary: isDark ? '#94a3b8' : '#737373',
-          colorBorder: isDark ? 'rgba(148, 163, 184, 0.24)' : '#e7e1d8',
+          colorFillSecondary: isDark ? 'rgba(255, 255, 255, 0.1)' : '#f3f4f6',
+          colorText: isDark ? '#f8fafc' : '#111111',
+          colorTextSecondary: isDark ? '#a1a1aa' : '#6b7280',
+          colorBorder: isDark ? 'rgba(255, 255, 255, 0.14)' : '#e5e7eb',
           fontFamily:
-            '"Avenir Next", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif',
+            '"Inter", "Avenir Next", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif',
         },
       }}
     >

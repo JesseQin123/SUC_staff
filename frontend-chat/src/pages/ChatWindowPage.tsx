@@ -1,25 +1,3 @@
-import {
-  BranchesOutlined,
-  CheckCircleOutlined,
-  CheckOutlined,
-  ClockCircleOutlined,
-  CloudSyncOutlined,
-  DeleteOutlined,
-  DislikeOutlined,
-  DownOutlined,
-  EditOutlined,
-  FileSearchOutlined,
-  GlobalOutlined,
-  LikeOutlined,
-  LogoutOutlined,
-  MenuFoldOutlined,
-  MenuUnfoldOutlined,
-  PlusOutlined,
-  RightOutlined,
-  SendOutlined,
-  StopOutlined,
-  ToolOutlined,
-} from '@ant-design/icons';
 import { Button, Dropdown, Empty, Input, Modal, Select, Typography, message } from 'antd';
 import type { MouseEvent, ReactNode } from 'react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -28,7 +6,8 @@ import { SHOW_DEBUG, TENANT_ID, api, clearAuthSession, getAuthSession, isAuthErr
 import type { ChatStreamEvent } from '../api/client';
 import CodeBlock from '../components/CodeBlock';
 import EmployeeAvatarMark from '../components/EmployeeAvatarMark';
-import { employeeDisplayName, employeeProfile, visibleChatEmployees } from '../employee';
+import StaffdeckIcon from '../components/StaffdeckIcon';
+import { employeeDisplayName, employeeProfile, staffdeckDisplayText, visibleChatEmployees } from '../employee';
 import { ThemeToggleButton } from '../theme';
 import type {
   AgentProfileRead,
@@ -1000,7 +979,7 @@ function ScheduledDraftCard({
     <div className={`scheduled-draft-card ${editing ? 'editing' : ''}${created ? ' created' : ''}`}>
       <div className="scheduled-draft-header">
         <div className="scheduled-draft-identity">
-          <div className="scheduled-draft-icon">{created ? <CheckCircleOutlined /> : <ClockCircleOutlined />}</div>
+          <div className="scheduled-draft-icon">{created ? <StaffdeckIcon name="check" /> : <StaffdeckIcon name="clock" />}</div>
           <div className="scheduled-draft-title-block">
             <div className="scheduled-draft-kicker">{created ? '定时任务已创建' : '定时任务草案'}</div>
             {editing ? (
@@ -1018,7 +997,7 @@ function ScheduledDraftCard({
         <div className="scheduled-draft-top-actions">
           {created ? (
             <span className="scheduled-draft-created-badge">
-              <CheckCircleOutlined />
+              <StaffdeckIcon name="check" />
               已创建
             </span>
           ) : editing ? (
@@ -1028,7 +1007,7 @@ function ScheduledDraftCard({
             </>
           ) : (
             <>
-              <Button size="small" type="text" icon={<EditOutlined />} onClick={() => setEditing(true)}>编辑</Button>
+              <Button size="small" type="text" icon={<StaffdeckIcon name="edit" />} onClick={() => setEditing(true)}>编辑</Button>
               <Button size="small" type="text" onClick={onDismiss}>忽略</Button>
             </>
           )}
@@ -1436,7 +1415,7 @@ export default function ChatWindowPage() {
             <span className="composer-model-menu-name">{modelDisplayName(model)}</span>
             <span className="composer-model-menu-detail">{modelDetailText(model)}</span>
           </span>
-          {selectedModelConfig?.id === model.id && <CheckOutlined />}
+          {selectedModelConfig?.id === model.id && <StaffdeckIcon name="check" />}
         </span>
       ),
     }));
@@ -2690,21 +2669,21 @@ export default function ChatWindowPage() {
         <div className="sidebar-head">
           <Button
             className="icon-button"
-            icon={sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+            icon={<StaffdeckIcon name={sidebarCollapsed ? 'sidebar-open' : 'sidebar-close'} />}
             aria-label={sidebarCollapsed ? '展开侧边栏' : '折叠侧边栏'}
             onClick={toggleSidebar}
           />
           <div className="brand-block">
-            <span className="brand-mark">UR</span>
+            <span className="brand-mark">SD</span>
             <div>
-              <div className="brand-title">UltraRAG4</div>
-              <div className="brand-subtitle">{auth?.user.display_name || auth?.user.username}</div>
+              <div className="brand-title">Modelbest</div>
+              <div className="brand-subtitle">UltraRAG4</div>
             </div>
           </div>
           <div className="sidebar-actions">
             <Button
               className="icon-button sidebar-logout"
-              icon={<LogoutOutlined />}
+              icon={<StaffdeckIcon name="logout" />}
               onClick={() => {
                 clearAuthSession();
                 navigate('/login', { replace: true });
@@ -2715,24 +2694,24 @@ export default function ChatWindowPage() {
         {!sidebarCollapsed && (
           <div className="sidebar-workspace-panel">
             <button type="button" className="sidebar-gallery-entry" onClick={() => navigate('/employees')}>
-              <span className="sidebar-gallery-entry-icon"><GlobalOutlined /></span>
+              <span className="sidebar-gallery-entry-icon"><StaffdeckIcon name="globe" /></span>
               <span className="sidebar-gallery-entry-copy">
                 <strong>数字员工广场</strong>
                 <span>选择数字员工</span>
               </span>
-              <RightOutlined />
+              <StaffdeckIcon name="arrow" />
             </button>
             <button
               type="button"
               className={`sidebar-handoff-entry${handoffs.length ? ' has-items' : ''}`}
               onClick={() => setShowHandoffInbox(true)}
             >
-              <span className="sidebar-handoff-entry-icon"><ClockCircleOutlined /></span>
+              <span className="sidebar-handoff-entry-icon"><StaffdeckIcon name="clock" /></span>
               <span className="sidebar-gallery-entry-copy">
                 <strong>待回答</strong>
                 <span>{handoffs.length ? `${handoffs.length} 条等待处理` : '暂无挂起消息'}</span>
               </span>
-              {handoffs.length ? <span className="sidebar-handoff-badge">{handoffs.length}</span> : <RightOutlined />}
+              {handoffs.length ? <span className="sidebar-handoff-badge">{handoffs.length}</span> : <StaffdeckIcon name="arrow" />}
             </button>
             <div className="session-filter-bar">
               <span className="session-filter-label">员工会话</span>
@@ -2753,10 +2732,10 @@ export default function ChatWindowPage() {
           ) : null}
           {visibleSessions.map((session) => {
             const itemStream = getStreamSlot(session.id);
-            const sessionTitle = session.title || session.id;
+            const sessionTitle = staffdeckDisplayText(session.title || session.id);
             const sessionSummary = itemStream.loading
               ? itemStream.phase || '正在思考'
-              : session.summary || session.last_agent_question || '新任务';
+              : staffdeckDisplayText(session.summary || session.last_agent_question || '新任务');
             const hasUnread = sessionHasUnreadReply(session, sessionReadTimes, sessionId);
             const sessionAgentForCard = session.agent_id
               ? agents.find((agent) => agent.id === session.agent_id) || null
@@ -2805,7 +2784,7 @@ export default function ChatWindowPage() {
                       className="session-action"
                       size="small"
                       type="text"
-                      icon={<EditOutlined />}
+                      icon={<StaffdeckIcon name="edit" />}
                       aria-label="重命名"
                       onClick={(event) => openRename(event, session)}
                     />
@@ -2813,7 +2792,7 @@ export default function ChatWindowPage() {
                       className="session-action danger"
                       size="small"
                       type="text"
-                      icon={<DeleteOutlined />}
+                      icon={<StaffdeckIcon name="trash" />}
                       aria-label="删除任务"
                       onClick={(event) => confirmDelete(event, session)}
                     />
@@ -2824,7 +2803,7 @@ export default function ChatWindowPage() {
           })}
         </div>
         <div className="chat-agent-dock">
-          <EmployeeAvatarMark profile={displayedProfile} fallback="UR" className="chat-agent-mark" />
+          <EmployeeAvatarMark profile={displayedProfile} fallback="SD" className="chat-agent-mark" />
           <div className="chat-agent-main">
             <span className="chat-agent-label">
               {sessionId ? '当前数字员工' : '默认数字员工'}
@@ -2832,10 +2811,15 @@ export default function ChatWindowPage() {
             <span className="chat-agent-name">
               {displayedAgent && displayedProfile
                 ? `${employeeDisplayName(displayedAgent)} · ${displayedProfile.roleName}`
-                : '暂无数字员工'}
+              : '暂无数字员工'}
             </span>
           </div>
         </div>
+        <button type="button" className="sidebar-bottom-link" onClick={() => { window.location.href = '/enterprise/dashboard'; }}>
+          <StaffdeckIcon name="grid" />
+          <span>管理端</span>
+          <StaffdeckIcon name="arrow" />
+        </button>
       </aside>
       <main className="chat-main">
         <div className="chat-header">
@@ -2845,14 +2829,29 @@ export default function ChatWindowPage() {
             </Typography.Text>
           </div>
           <div className="chat-header-actions">
-            <Button icon={<GlobalOutlined />} onClick={() => { window.location.href = '/enterprise/dashboard'; }}>
+            <Button icon={<StaffdeckIcon name="grid" />} onClick={() => { window.location.href = '/enterprise/dashboard'; }}>
               数字账号管理
             </Button>
             <ThemeToggleButton />
           </div>
         </div>
         <div className="chat-messages" ref={chatMessagesRef}>
-          {displayedMessages.length === 0 && <div className="chat-empty-state">暂无消息，描述任务后开始</div>}
+          {displayedMessages.length === 0 && (
+            <div className="chat-empty-state staffdeck-empty-state">
+              <EmployeeAvatarMark profile={displayedProfile} fallback="SD" className="staffdeck-empty-avatar" />
+              <div className="staffdeck-empty-copy">
+                <strong>Hello {displayedAgent ? employeeDisplayName(displayedAgent) : 'Jessie'}!</strong>
+                <span>我可以开始接收任务了。</span>
+              </div>
+              {displayedAgent && displayedProfile && (
+                <div className="staffdeck-empty-stats">
+                  <span><b>{displayedAgent.resources?.filter((item) => item.resource_type === 'skill').length || 0}</b>SOP</span>
+                  <span><b>{displayedAgent.resources?.filter((item) => item.resource_type === 'general_skill').length || 0}</b>技能</span>
+                  <span><b>{displayedAgent.resources?.filter((item) => item.resource_type === 'knowledge_base').length || 0}</b>资料</span>
+                </div>
+              )}
+            </div>
+          )}
           <div className="message-stack">
             {displayedMessages.map((item) => {
               const turnId = item.turnId || item.id;
@@ -2861,9 +2860,9 @@ export default function ChatWindowPage() {
               const summary = trace && visibleTrace.length > 0 ? traceSummary(trace, visibleTrace) : null;
               const details = traceDetails(visibleTrace);
               const expanded = expandedTraceIds.includes(turnId);
-              const visibleContent = item.role === 'assistant'
+              const visibleContent = staffdeckDisplayText(item.role === 'assistant'
                 ? stripTrailingCitationSummary(item.content)
-                : item.content;
+                : item.content);
               const citations = item.role === 'assistant' ? knowledgeCitations(item, visibleContent) : [];
               const scheduledTaskPrompt = isScheduledTaskPrompt(item);
               const scheduledDraft = item.role === 'assistant' && !dismissedDraftMessageIds.includes(item.id)
@@ -2884,11 +2883,11 @@ export default function ChatWindowPage() {
                             className={`turn-trace-summary ${summary.state}`}
                             onClick={() => toggleTrace(turnId)}
                           >
-                            <span className="trace-icon-slot"><CloudSyncOutlined /></span>
+                            <span className="trace-icon-slot"><StaffdeckIcon name="refresh" /></span>
                             <span className="trace-primary-text" data-text={summary.text}>{summary.text}</span>
                             {details.length > 0 && (
                               <span className="trace-chevron-slot">
-                                {expanded ? <DownOutlined /> : <RightOutlined />}
+                                <StaffdeckIcon name="arrow" style={expanded ? { transform: 'rotate(90deg)' } : undefined} />
                               </span>
                             )}
                           </button>
@@ -2898,15 +2897,15 @@ export default function ChatWindowPage() {
                                 <div key={line.id} className={`turn-trace-line ${line.kind} ${line.state}`}>
                                   <span className="trace-icon-slot">
                                     {line.kind === 'skill' ? (
-                                      <BranchesOutlined />
+                                      <StaffdeckIcon name="branch" />
                                     ) : line.kind === 'tool' ? (
-                                      <ToolOutlined />
+                                      <StaffdeckIcon name="tool" />
                                     ) : line.kind === 'knowledge' ? (
-                                      <FileSearchOutlined />
+                                      <StaffdeckIcon name="file" />
                                     ) : line.kind === 'code' ? (
                                       <TerminalTraceIcon />
                                     ) : (
-                                      <CloudSyncOutlined />
+                                      <StaffdeckIcon name="refresh" />
                                     )}
                                   </span>
                                     <span className="turn-trace-content">
@@ -2938,7 +2937,7 @@ export default function ChatWindowPage() {
                           <div className="plain-answer">
                             {scheduledTaskPrompt && (
                               <span className="message-mode-chip">
-                                <ClockCircleOutlined />
+                                <StaffdeckIcon name="clock" />
                                 定时任务
                               </span>
                             )}
@@ -2951,7 +2950,7 @@ export default function ChatWindowPage() {
                       {item.role === 'assistant' && citations.length > 0 && (
                         <div className="message-citations" aria-label="知识引用">
                           <div className="citation-heading">
-                            <FileSearchOutlined />
+                            <StaffdeckIcon name="file" />
                             <span>知识来源</span>
                           </div>
                           <div className="citation-list">
@@ -2983,7 +2982,7 @@ export default function ChatWindowPage() {
                             type="text"
                             size="small"
                             className={item.feedback_rating === 'up' ? 'active' : ''}
-                            icon={<LikeOutlined />}
+                            icon={<StaffdeckIcon name="thumb-up" />}
                             aria-label="点赞"
                             onClick={() => rateMessage(item, 'up')}
                           />
@@ -2991,7 +2990,7 @@ export default function ChatWindowPage() {
                             type="text"
                             size="small"
                             className={item.feedback_rating === 'down' ? 'active danger' : ''}
-                            icon={<DislikeOutlined />}
+                            icon={<StaffdeckIcon name="thumb-down" />}
                             aria-label="点踩"
                             onClick={() => rateMessage(item, 'down')}
                           />
@@ -3045,7 +3044,7 @@ export default function ChatWindowPage() {
                     items: [
                       {
                         key: 'scheduled_task',
-                        icon: <ClockCircleOutlined />,
+                        icon: <StaffdeckIcon name="clock" />,
                         label: '创建定时任务',
                       },
                     ],
@@ -3058,7 +3057,7 @@ export default function ChatWindowPage() {
                     type="text"
                     htmlType="button"
                     className="composer-plus-button"
-                    icon={<PlusOutlined />}
+                    icon={<StaffdeckIcon name="plus" />}
                     disabled={currentStream.loading}
                     aria-label="添加对话项目"
                   />
@@ -3071,7 +3070,7 @@ export default function ChatWindowPage() {
                     onClick={() => setComposerIntent('normal')}
                   >
                     <span className="composer-intent-icon" aria-hidden="true">
-                      <ClockCircleOutlined />
+                      <StaffdeckIcon name="clock" />
                     </span>
                     <span>定时任务</span>
                   </button>
@@ -3099,13 +3098,13 @@ export default function ChatWindowPage() {
                     <span className="composer-model-label">
                       {selectedModelConfig ? modelDisplayName(selectedModelConfig) : '默认模型'}
                     </span>
-                    <DownOutlined />
+                    <StaffdeckIcon name="arrow" style={{ transform: 'rotate(90deg)' }} />
                   </Button>
                 </Dropdown>
                 <Button
                   type="primary"
                   htmlType={currentStream.loading ? 'button' : 'submit'}
-                  icon={currentStream.loading ? <StopOutlined /> : <SendOutlined />}
+                  icon={<StaffdeckIcon name={currentStream.loading ? 'stop' : 'send'} />}
                   onClick={currentStream.loading ? abortStream : undefined}
                   className={`composer-send-button${currentStream.loading ? ' stop-button' : ''}`}
                   aria-label={currentStream.loading ? '停止生成' : '发送'}

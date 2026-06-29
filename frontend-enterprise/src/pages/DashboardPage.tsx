@@ -1,18 +1,3 @@
-import {
-  ApiOutlined,
-  BookOutlined,
-  CheckCircleOutlined,
-  ClockCircleOutlined,
-  DashboardOutlined,
-  DatabaseOutlined,
-  EditOutlined,
-  FileTextOutlined,
-  MessageOutlined,
-  PictureOutlined,
-  ProfileOutlined,
-  RightOutlined,
-  ToolOutlined,
-} from '@ant-design/icons';
 import { Button, Card, Space, Tag, Typography, message } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -22,7 +7,11 @@ import { isEmployeeOwnedBy, isGalleryEmployee, type EnterpriseAuthUser } from '.
 import EmployeeAvatar from '../components/EmployeeAvatar';
 import EmployeeAvatarEditor from '../components/EmployeeAvatarEditor';
 import EmployeeProfileEditor from '../components/EmployeeProfileEditor';
-import { employeeDisplayName, employeeProfile } from '../employee';
+import StaffdeckIcon from '../components/StaffdeckIcon';
+import capabilityLogs from '../assets/staffdeck/staffdeck-avatar-quality.png';
+import capabilityTasks from '../assets/staffdeck/staffdeck-avatar-ops.png';
+import capabilityTools from '../assets/staffdeck/staffdeck-avatar-commerce.png';
+import { employeeDisplayName, employeeProfile, staffdeckDisplayText } from '../employee';
 import type {
   AgentProfileRead,
   EnterpriseChatSessionRead,
@@ -225,13 +214,13 @@ export default function DashboardPage({
           </div>
         </section>
         <div className="org-dashboard-grid">
-          <DashboardStat title="SOP" value={skills.length} icon={<ProfileOutlined />} />
-          <DashboardStat title="技能" value={generalSkills.length} icon={<ApiOutlined />} />
-          <DashboardStat title="知识库" value={knowledgeBases.length} icon={<BookOutlined />} />
-          <DashboardStat title="可用工具" value={tools.filter((item) => item.enabled).length} icon={<ToolOutlined />} />
-          <DashboardStat title="SOP 调用" value={totalCalls} icon={<MessageOutlined />} />
-          <DashboardStat title="好评" value={positiveFeedback || feedbackSummary?.up_count || 0} icon={<DashboardOutlined />} />
-          <DashboardStat title="差评" value={negativeFeedback || feedbackSummary?.down_count || 0} icon={<DashboardOutlined />} />
+          <DashboardStat title="SOP" value={skills.length} icon={<StaffdeckIcon name="filter" />} />
+          <DashboardStat title="技能" value={generalSkills.length} icon={<StaffdeckIcon name="spark" />} />
+          <DashboardStat title="知识库" value={knowledgeBases.length} icon={<StaffdeckIcon name="file" />} />
+          <DashboardStat title="可用工具" value={tools.filter((item) => item.enabled).length} icon={<StaffdeckIcon name="tool" />} />
+          <DashboardStat title="SOP 调用" value={totalCalls} icon={<StaffdeckIcon name="chat" />} />
+          <DashboardStat title="好评" value={positiveFeedback || feedbackSummary?.up_count || 0} icon={<StaffdeckIcon name="chat" />} />
+          <DashboardStat title="差评" value={negativeFeedback || feedbackSummary?.down_count || 0} icon={<StaffdeckIcon name="chat" />} />
           <Card className="org-dashboard-card" title="默认模型">
             <Typography.Text>{defaultModel ? `${defaultModel.name} / ${defaultModel.model}` : '未配置'}</Typography.Text>
           </Card>
@@ -256,59 +245,68 @@ export default function DashboardPage({
     ? selectedAgent.metadata.system_prompt_summary
     : '';
   const systemSummary = compactSummary(
-    selectedAgent.persona_prompt || systemPromptSummary || selectedAgent.description || `${employee.roleName}，负责接收任务、调用知识库、执行 SOP 并沉淀对话质量反馈。`,
+    staffdeckDisplayText(selectedAgent.persona_prompt || systemPromptSummary || selectedAgent.description || `${employee.roleName}，负责接收任务、调用知识库、执行 SOP 并沉淀对话质量反馈。`),
     132,
   );
   const goToLogs = () => navigate(`/enterprise/feedback?agent_id=${encodeURIComponent(selectedAgent.id)}`);
 
   const capabilityCards = [
     {
+      route: '/enterprise/knowledge',
+      title: '知识库',
+      tone: 'knowledge',
+      count: activeKnowledge.length,
+      body: activeKnowledge.slice(0, 3).map((item) => staffdeckDisplayText(item.name)).join(' / ') || '暂无知识库',
+      icon: <StaffdeckIcon name="file" />,
+      dark: false,
+    },
+    {
       route: '/enterprise/general-skills',
       title: '技能',
       tone: 'skill',
       count: activeGeneralSkills.length,
-      body: activeGeneralSkills.slice(0, 3).map((item) => item.name).join(' / ') || '暂无启用技能',
-      icon: <ApiOutlined />,
+      body: activeGeneralSkills.slice(0, 3).map((item) => staffdeckDisplayText(item.name)).join(' / ') || '暂无启用技能',
+      icon: <StaffdeckIcon name="spark" />,
+      dark: false,
     },
     {
       route: '/enterprise/skills',
       title: 'SOP',
       tone: 'sop',
       count: activeSkills.length,
-      body: activeSkills.slice(0, 3).map((item) => item.name).join(' / ') || '暂无启用 SOP',
-      icon: <ProfileOutlined />,
-    },
-    {
-      route: '/enterprise/knowledge',
-      title: '知识库',
-      tone: 'knowledge',
-      count: activeKnowledge.length,
-      body: activeKnowledge.slice(0, 3).map((item) => item.name).join(' / ') || '暂无知识库',
-      icon: <FileTextOutlined />,
+      body: activeSkills.slice(0, 3).map((item) => staffdeckDisplayText(item.name)).join(' / ') || '暂无启用 SOP',
+      icon: <StaffdeckIcon name="filter" />,
+      dark: false,
     },
     {
       route: '/enterprise/tools',
       title: '工具',
       tone: 'tools',
       count: activeTools.length,
-      body: activeTools.slice(0, 3).map((item) => item.display_name || item.name).join(' / ') || '暂无启用工具',
-      icon: <ToolOutlined />,
-    },
-    {
-      route: `/enterprise/feedback?agent_id=${encodeURIComponent(selectedAgent.id)}`,
-      title: '对话日志',
-      tone: 'logs',
-      count: replyStats.total,
-      body: employeeSessions[0]?.summary || employeeSessions[0]?.last_agent_question || '暂无对话任务',
-      icon: <MessageOutlined />,
+      body: activeTools.slice(0, 3).map((item) => staffdeckDisplayText(item.display_name || item.name)).join(' / ') || '暂无启用工具',
+      icon: <StaffdeckIcon name="tool" />,
+      dark: true,
+      illustration: capabilityTools,
     },
     {
       route: '/enterprise/scheduled-tasks',
       title: '定时任务',
       tone: 'tasks',
       count: activeScheduledTasks.length,
-      body: activeScheduledTasks.slice(0, 2).map((item) => item.title).join(' / ') || '暂无启用定时任务',
-      icon: <ClockCircleOutlined />,
+      body: activeScheduledTasks.slice(0, 2).map((item) => staffdeckDisplayText(item.title)).join(' / ') || '暂无启用定时任务',
+      icon: <StaffdeckIcon name="clock" />,
+      dark: true,
+      illustration: capabilityTasks,
+    },
+    {
+      route: `/enterprise/feedback?agent_id=${encodeURIComponent(selectedAgent.id)}`,
+      title: '对话日志',
+      tone: 'logs',
+      count: replyStats.total,
+      body: staffdeckDisplayText(employeeSessions[0]?.summary || employeeSessions[0]?.last_agent_question || '暂无对话任务'),
+      icon: <StaffdeckIcon name="chat" />,
+      dark: true,
+      illustration: capabilityLogs,
     },
   ];
 
@@ -323,7 +321,7 @@ export default function DashboardPage({
           {canEditSelectedAgent && (
             <Button
               size="small"
-              icon={<PictureOutlined />}
+              icon={<StaffdeckIcon name="user" />}
               onClick={() => setAvatarEditorOpen(true)}
             >
               更换头像
@@ -337,7 +335,7 @@ export default function DashboardPage({
             {canEditSelectedAgent && (
               <Button
                 size="small"
-                icon={<EditOutlined />}
+                icon={<StaffdeckIcon name="edit" />}
                 onClick={() => setProfileEditorOpen(true)}
               >
                 编辑资料
@@ -395,18 +393,18 @@ export default function DashboardPage({
         <div className="employee-section-head">
           <div>
             <Typography.Title level={4}>
-              <span className="employee-memory-heading"><ClockCircleOutlined /> 定时任务</span>
+              <span className="employee-memory-heading"><StaffdeckIcon name="clock" /> 定时任务</span>
             </Typography.Title>
           </div>
-          <Button type="link" onClick={() => navigate('/enterprise/scheduled-tasks')}>全部任务 <RightOutlined /></Button>
+          <Button type="link" onClick={() => navigate('/enterprise/scheduled-tasks')}>全部任务 <StaffdeckIcon name="arrow" /></Button>
         </div>
         {employeeScheduledTasks.length ? (
           <div className="employee-task-list">
             {employeeScheduledTasks.slice(0, 4).map((item) => (
               <button type="button" className="employee-task-item" key={item.id} onClick={() => navigate('/enterprise/scheduled-tasks')}>
-                <span className="employee-task-icon"><ClockCircleOutlined /></span>
+                <span className="employee-task-icon"><StaffdeckIcon name="clock" /></span>
                 <span className="employee-task-copy">
-                  <strong>{item.title}</strong>
+                  <strong>{staffdeckDisplayText(item.title)}</strong>
                   <small>{formatTaskSchedule(item)} · {item.next_run_at ? `下次 ${formatTaskTime(item.next_run_at)}` : '暂无下次执行'}</small>
                 </span>
                 <Tag color={item.status === 'active' ? 'green' : 'gold'}>{item.status === 'active' ? '启用' : '暂停'}</Tag>
@@ -422,7 +420,7 @@ export default function DashboardPage({
         <div className="employee-section-head">
           <div>
             <Typography.Title level={4}>
-              <span className="employee-memory-heading"><DatabaseOutlined /> 成长轨迹</span>
+              <span className="employee-memory-heading"><StaffdeckIcon name="database" /> 成长轨迹</span>
             </Typography.Title>
           </div>
         </div>
@@ -437,8 +435,8 @@ export default function DashboardPage({
                 <span className={`employee-memory-dot is-${item.tone}`}>{item.icon}</span>
                 <div className="employee-memory-copy">
                   <small>{item.kind}</small>
-                  <strong>{item.title}</strong>
-                  <span>{item.description}</span>
+                  <strong>{staffdeckDisplayText(item.title)}</strong>
+                  <span>{staffdeckDisplayText(item.description)}</span>
                 </div>
               </div>
             ))}
@@ -457,14 +455,20 @@ export default function DashboardPage({
         </div>
         <div className="employee-capability-grid">
           {capabilityCards.map((item) => (
-            <Card key={item.title} className={`employee-capability-card tone-${item.tone}`} hoverable onClick={() => navigate(item.route)}>
+            <Card
+              key={item.title}
+              className={`employee-capability-card tone-${item.tone}${item.dark ? ' is-dark' : ''}`}
+              hoverable
+              onClick={() => navigate(item.route)}
+            >
               <div className="employee-capability-head">
                 <span>{item.icon}</span>
                 <em>{item.count}</em>
               </div>
               <strong className="employee-capability-title">{item.title}</strong>
               <Typography.Paragraph ellipsis={{ rows: 2 }}>{item.body}</Typography.Paragraph>
-              <span className="employee-capability-action">查看详情 <RightOutlined /></span>
+              {item.illustration && <img className="employee-capability-illustration" src={item.illustration} alt="" />}
+              <span className="employee-capability-action">查看详情 <StaffdeckIcon name="arrow" /></span>
             </Card>
           ))}
         </div>
@@ -599,7 +603,7 @@ function growthTimeline(
         ? `本地版本从 ${item.branch_base_version || item.version} 进化到 ${item.branch_head_version || item.version}`
         : `新增 ${item.version} 版业务流程`,
       timestamp: stableGrowthTimestamp(item),
-      icon: <ProfileOutlined />,
+      icon: <StaffdeckIcon name="filter" />,
       tone: 'mint',
     });
   });
@@ -612,7 +616,7 @@ function growthTimeline(
       title: item.name,
       description: upgraded ? '技能说明、权限或运行配置有更新' : `新增 ${item.slug} 通用能力`,
       timestamp: stableGrowthTimestamp(item),
-      icon: <CheckCircleOutlined />,
+      icon: <StaffdeckIcon name="spark" />,
       tone: 'teal',
     });
   });
@@ -624,7 +628,7 @@ function growthTimeline(
       title: item.display_name || item.name,
       description: `${item.bucket || '工具'} · ${item.tool_type.toUpperCase()} 调用能力`,
       timestamp: stableGrowthTimestamp(item),
-      icon: <ToolOutlined />,
+      icon: <StaffdeckIcon name="tool" />,
       tone: 'green',
     });
   });

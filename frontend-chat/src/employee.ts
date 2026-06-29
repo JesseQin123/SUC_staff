@@ -15,10 +15,10 @@ export type EmployeeProfile = {
 };
 
 const AVATAR_PRESETS: Record<string, { text: string; tone: string }> = {
-  'service-orbit': { text: '客', tone: 'teal' },
-  'after-sales-seal': { text: '售', tone: 'copper' },
+  'service-orbit': { text: '研', tone: 'teal' },
+  'after-sales-seal': { text: '行', tone: 'copper' },
   'knowledge-node': { text: '知', tone: 'olive' },
-  'commerce-compass': { text: '导', tone: 'blue' },
+  'commerce-compass': { text: '财', tone: 'blue' },
   'ops-grid': { text: '运', tone: 'ink' },
   'quality-star': { text: '质', tone: 'gold' },
 };
@@ -33,22 +33,22 @@ const EMPLOYEE_TEMPLATES: Record<string, {
   workModes: string[];
 }> = {
   'service-specialist': {
-    roleName: '在线客服',
-    avatarText: '客',
+    roleName: '研发',
+    avatarText: '研',
     avatarTone: 'teal',
     avatarPreset: 'service-orbit',
-    workStyles: ['事实先行', '流程推进', '及时追问'],
-    expertiseTags: ['用户接待', '购买引导', '售后分诊'],
-    workModes: ['先确认诉求', '调用 SOP', '必要时补齐信息'],
+    workStyles: ['目标明确', '证据优先', '动作可追溯'],
+    expertiseTags: ['研发协作', '代码检索', 'SOP 执行'],
+    workModes: ['理解需求', '检索资料', '推进执行'],
   },
   'after-sales': {
-    roleName: '售后处理',
-    avatarText: '售',
+    roleName: '行政',
+    avatarText: '行',
     avatarTone: 'copper',
     avatarPreset: 'after-sales-seal',
-    workStyles: ['证据优先', '风险克制', '留痕复盘'],
-    expertiseTags: ['退款', '换货', '权益核对'],
-    workModes: ['查订单', '核规则', '给结论'],
+    workStyles: ['流程推进', '及时追问', '留痕复盘'],
+    expertiseTags: ['资料归档', '会议纪要', '事务跟进'],
+    workModes: ['确认事项', '拆解步骤', '同步结果'],
   },
   'knowledge-operator': {
     roleName: '知识运营',
@@ -60,19 +60,48 @@ const EMPLOYEE_TEMPLATES: Record<string, {
     workModes: ['解析文档', '组织结构', '发现缺口'],
   },
   'commerce-guide': {
-    roleName: '商品导购',
-    avatarText: '导',
+    roleName: '财务',
+    avatarText: '财',
     avatarTone: 'blue',
     avatarPreset: 'commerce-compass',
-    workStyles: ['偏好敏感', '主动比较', '确认后执行'],
-    expertiseTags: ['商品比价', '购买流程', '偏好记忆'],
-    workModes: ['理解需求', '比较选项', '确认下单'],
+    workStyles: ['证据优先', '口径统一', '风险克制'],
+    expertiseTags: ['报销核对', '预算口径', '数据复盘'],
+    workModes: ['查规则', '核凭证', '给结论'],
   },
 };
 
 const DEFAULT_WORK_STYLES = ['目标明确', '证据优先', '动作可追溯'];
 const DEFAULT_EXPERTISE = ['业务问答', 'SOP 执行', '工具调用'];
 const DEFAULT_WORK_MODES = ['识别意图', '补齐信息', '执行并复盘'];
+
+const SD1_TEXT_REPLACEMENTS: Array<[RegExp, string]> = [
+  [/在线客服员工/g, '研发员工'],
+  [/在线客服/g, '研发'],
+  [/客服接待/g, '研发协作'],
+  [/客服分支/g, '研发分支'],
+  [/智能客服/g, '数字员工'],
+  [/客服/g, '员工'],
+  [/售后退款流程/g, '行政资料复盘流程'],
+  [/售后换货流程/g, '行政事务跟进流程'],
+  [/售后处理/g, '行政处理'],
+  [/售后/g, '行政'],
+  [/商品比价服务/g, '财务数据核对'],
+  [/商品比价/g, '财务核对'],
+  [/商品导购/g, '财务分析'],
+  [/商品/g, '资料'],
+  [/订单/g, '任务单'],
+  [/退款/g, '报销'],
+  [/换货/g, '归档'],
+  [/购买/g, '执行'],
+];
+
+export function staffdeckDisplayText(value: string): string {
+  return SD1_TEXT_REPLACEMENTS.reduce((current, [pattern, replacement]) => current.replace(pattern, replacement), value);
+}
+
+function staffdeckRoleName(value: string): string {
+  return staffdeckDisplayText(value);
+}
 
 function stringFromMeta(metadata: Record<string, unknown> | undefined, key: string): string {
   const value = metadata?.[key];
@@ -113,7 +142,7 @@ export function employeeProfile(agent?: AgentProfileRead | null): EmployeeProfil
   const workModes = arrayFromMeta(metadata, 'work_modes');
   return {
     roleKey: roleKey || (template ? templateKey : ''),
-    roleName: stringFromMeta(metadata, 'role_name') || template?.roleName || '待补充岗位',
+    roleName: staffdeckRoleName(stringFromMeta(metadata, 'role_name') || template?.roleName || '待补充岗位'),
     avatarText: stringFromMeta(metadata, 'avatar_text') || preset.text || template?.avatarText || '员',
     avatarTone: stringFromMeta(metadata, 'avatar_tone') || preset.tone || template?.avatarTone || 'teal',
     avatarKind,

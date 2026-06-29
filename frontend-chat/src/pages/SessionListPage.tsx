@@ -1,19 +1,11 @@
-import {
-  DeleteOutlined,
-  EditOutlined,
-  GlobalOutlined,
-  LogoutOutlined,
-  MenuFoldOutlined,
-  MenuUnfoldOutlined,
-  RightOutlined,
-} from '@ant-design/icons';
 import { Button, Empty, Input, Modal, Select, Typography, message } from 'antd';
 import type { MouseEvent } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, clearAuthSession, getAuthSession, isAuthError } from '../api/client';
 import EmployeeAvatarMark from '../components/EmployeeAvatarMark';
-import { employeeDisplayName, employeeProfile } from '../employee';
+import StaffdeckIcon from '../components/StaffdeckIcon';
+import { employeeDisplayName, employeeProfile, staffdeckDisplayText } from '../employee';
 import { ThemeToggleButton } from '../theme';
 import type { AgentProfileRead, ChatSession } from '../types';
 
@@ -146,21 +138,21 @@ export default function SessionListPage() {
         <div className="sidebar-head">
           <Button
             className="icon-button"
-            icon={sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+            icon={<StaffdeckIcon name={sidebarCollapsed ? 'sidebar-open' : 'sidebar-close'} />}
             aria-label={sidebarCollapsed ? '展开侧边栏' : '折叠侧边栏'}
             onClick={toggleSidebar}
           />
           <div className="brand-block">
-            <span className="brand-mark">UR</span>
+            <span className="brand-mark">SD</span>
             <div>
-              <div className="brand-title">UltraRAG4</div>
-              <div className="brand-subtitle">{auth?.user.display_name || auth?.user.username}</div>
+              <div className="brand-title">Modelbest</div>
+              <div className="brand-subtitle">UltraRAG4</div>
             </div>
           </div>
           <div className="sidebar-actions">
             <Button
               className="icon-button sidebar-logout"
-              icon={<LogoutOutlined />}
+              icon={<StaffdeckIcon name="logout" />}
               onClick={() => {
                 clearAuthSession();
                 navigate('/login', { replace: true });
@@ -171,12 +163,12 @@ export default function SessionListPage() {
         {!sidebarCollapsed && (
           <div className="sidebar-workspace-panel">
             <button type="button" className="sidebar-gallery-entry" onClick={() => navigate('/employees')}>
-              <span className="sidebar-gallery-entry-icon"><GlobalOutlined /></span>
+              <span className="sidebar-gallery-entry-icon"><StaffdeckIcon name="globe" /></span>
               <span className="sidebar-gallery-entry-copy">
                 <strong>数字员工广场</strong>
                 <span>选择数字员工</span>
               </span>
-              <RightOutlined />
+              <StaffdeckIcon name="arrow" />
             </button>
             <div className="session-filter-bar">
               <span className="session-filter-label">员工会话</span>
@@ -198,8 +190,8 @@ export default function SessionListPage() {
             </div>
           ) : (
             visibleSessions.map((session) => {
-              const sessionTitle = session.title || session.id;
-              const sessionSummary = session.summary || session.last_agent_question || '新任务';
+              const sessionTitle = staffdeckDisplayText(session.title || session.id);
+              const sessionSummary = staffdeckDisplayText(session.summary || session.last_agent_question || '新任务');
               const sessionAgent = session.agent_id ? agents.find((agent) => agent.id === session.agent_id) || null : null;
               const sessionProfile = sessionAgent ? employeeProfile(sessionAgent) : null;
               const sessionAgentFallback = sessionAgent ? employeeDisplayName(sessionAgent).slice(0, 1) : '员';
@@ -242,7 +234,7 @@ export default function SessionListPage() {
                         className="session-action"
                         size="small"
                         type="text"
-                        icon={<EditOutlined />}
+                        icon={<StaffdeckIcon name="edit" />}
                         aria-label="重命名"
                         onClick={(event) => openRename(event, session)}
                       />
@@ -250,7 +242,7 @@ export default function SessionListPage() {
                         className="session-action danger"
                         size="small"
                         type="text"
-                        icon={<DeleteOutlined />}
+                        icon={<StaffdeckIcon name="trash" />}
                         aria-label="删除任务"
                         onClick={(event) => confirmDelete(event, session)}
                       />
@@ -261,6 +253,11 @@ export default function SessionListPage() {
             })
           )}
         </div>
+        <button type="button" className="sidebar-bottom-link" onClick={() => { window.location.href = '/enterprise/dashboard'; }}>
+          <StaffdeckIcon name="grid" />
+          <span>管理端</span>
+          <StaffdeckIcon name="arrow" />
+        </button>
       </aside>
       <main className="chat-main">
         <div className="chat-header">
@@ -273,7 +270,7 @@ export default function SessionListPage() {
         </div>
         <div className="chat-messages">
           <div className="chat-empty-state">
-            <span className="chat-empty-mark"><GlobalOutlined /></span>
+            <span className="chat-empty-mark"><StaffdeckIcon name="globe" /></span>
             <Typography.Title level={3}>选择一位数字员工开始对话</Typography.Title>
             <Typography.Paragraph>
               前往数字员工广场选择一位员工，开始对话。

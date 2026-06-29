@@ -22,7 +22,7 @@ type EmployeeProfileFormValues = {
 };
 
 const STYLE_OPTIONS = ['目标明确', '证据优先', '动作可追溯', '事实先行', '流程推进', '风险克制', '及时追问'];
-const EXPERTISE_OPTIONS = ['业务问答', 'SOP 执行', '工具调用', '用户接待', '商品比价', '售后处理', '资料维护'];
+const EXPERTISE_OPTIONS = ['业务问答', 'SOP 执行', '工具调用', '代码检索', '报销核对', '事务跟进', '资料维护'];
 const WORK_MODE_OPTIONS = ['识别意图', '补齐信息', '调用 SOP', '查询资料', '执行并复盘', '确认后执行', '必要时转人工'];
 
 export default function EmployeeProfileEditor({
@@ -135,7 +135,7 @@ export default function EmployeeProfileEditor({
               <Input placeholder="例如：默认员工" />
             </Form.Item>
             <Form.Item name="roleName" label="岗位">
-              <Input placeholder="例如：在线客服" />
+              <Input placeholder="例如：研发" />
             </Form.Item>
             <Form.Item name="onboardedAt" label="入职时间">
               <Input type="date" />

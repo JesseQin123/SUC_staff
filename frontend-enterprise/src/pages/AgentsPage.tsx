@@ -1,14 +1,3 @@
-import {
-  CommentOutlined,
-  DeleteOutlined,
-  EditOutlined,
-  GlobalOutlined,
-  MoreOutlined,
-  PauseCircleOutlined,
-  PictureOutlined,
-  PlayCircleOutlined,
-  ReloadOutlined,
-} from '@ant-design/icons';
 import { Button, Card, Dropdown, Modal, Space, Tag, Typography, message } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -17,7 +6,8 @@ import { isEmployeeOwnedBy, isGalleryEmployee, type EnterpriseAuthUser } from '.
 import EmployeeAvatar from '../components/EmployeeAvatar';
 import EmployeeAvatarEditor from '../components/EmployeeAvatarEditor';
 import EmployeeProfileEditor from '../components/EmployeeProfileEditor';
-import { employeeDisplayName, employeeProfile, resourceCount } from '../employee';
+import StaffdeckIcon from '../components/StaffdeckIcon';
+import { employeeDisplayName, employeeProfile, resourceCount, staffdeckDisplayText } from '../employee';
 import type { AgentProfileRead } from '../types';
 
 const ENTERPRISE_AGENT_STORAGE_KEY = 'ultrarag_enterprise_agent_scope';
@@ -164,7 +154,7 @@ export default function AgentsPage({
         <div>
           <Typography.Title level={2}>{isOverallScope ? '数字员工广场' : '我的数字员工'}</Typography.Title>
         </div>
-        <Button icon={<ReloadOutlined />} onClick={() => void load()} loading={loading}>
+        <Button icon={<StaffdeckIcon name="refresh" />} onClick={() => void load()} loading={loading}>
           刷新
         </Button>
       </div>
@@ -258,19 +248,19 @@ function EmployeeCard({
           trigger={['click']}
           menu={{
             items: [
-              { key: 'chat', icon: <CommentOutlined />, label: '发起对话', disabled: employee.status !== 'active' },
+              { key: 'chat', icon: <StaffdeckIcon name="chat" />, label: '发起对话', disabled: employee.status !== 'active' },
               employee.status === 'active'
-                ? { key: 'archive', icon: <PauseCircleOutlined />, label: '下线', disabled: !canManage }
-                : { key: 'active', icon: <PlayCircleOutlined />, label: '上线', disabled: !canManage },
+                ? { key: 'archive', icon: <StaffdeckIcon name="pause" />, label: '下线', disabled: !canManage }
+                : { key: 'active', icon: <StaffdeckIcon name="play" />, label: '上线', disabled: !canManage },
               {
                 key: 'gallery',
-                icon: <GlobalOutlined />,
+                icon: <StaffdeckIcon name="globe" />,
                 label: galleryPublished ? '从广场下架' : '发布到广场',
                 disabled: !canManage,
               },
-              { key: 'edit', icon: <EditOutlined />, label: '编辑资料', disabled: !canManage },
-              { key: 'avatar', icon: <PictureOutlined />, label: '设置头像', disabled: !canManage },
-              { key: 'delete', icon: <DeleteOutlined />, label: '删除', danger: true, disabled: !canManage },
+              { key: 'edit', icon: <StaffdeckIcon name="edit" />, label: '编辑资料', disabled: !canManage },
+              { key: 'avatar', icon: <StaffdeckIcon name="image" />, label: '设置头像', disabled: !canManage },
+              { key: 'delete', icon: <StaffdeckIcon name="trash" />, label: '删除', danger: true, disabled: !canManage },
             ],
             onClick: ({ key, domEvent }) => {
               domEvent.stopPropagation();
@@ -286,14 +276,14 @@ function EmployeeCard({
         >
           <Button
             type="text"
-            icon={<MoreOutlined />}
+            icon={<StaffdeckIcon name="more" />}
             aria-label="员工操作"
             onClick={(event) => event.stopPropagation()}
           />
         </Dropdown>
       </div>
       <Typography.Paragraph ellipsis={{ rows: 2 }}>
-        {employee.description || '暂无描述'}
+        {staffdeckDisplayText(employee.description || '暂无描述')}
       </Typography.Paragraph>
       <Space wrap className="employee-roster-tags">
         <Tag color={employee.status === 'active' ? 'green' : 'default'}>{employee.status === 'active' ? '在线' : '下线'}</Tag>
