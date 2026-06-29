@@ -191,22 +191,22 @@ export default function AgentsPage({
       <div className="sd1-agents-summary" aria-label="数字员工统计">
         <button type="button" className={employeeFilter === 'all' ? 'active' : ''} onClick={() => setEmployeeFilter('all')}>
           <strong>{employees.length}</strong>
-          <span>员工总数</span>
+          <span className="sd1-agents-summary-label">员工总数<StaffdeckIcon name="info" /></span>
           <small>{isOverallScope ? '全部可见员工' : '当前可管理范围'}</small>
         </button>
         <button type="button" className={employeeFilter === 'offline' ? 'active' : ''} onClick={() => setEmployeeFilter('offline')}>
           <strong>{offlineEmployees.length}</strong>
-          <span>下线员工</span>
+          <span className="sd1-agents-summary-label">下线员工<StaffdeckIcon name="info" /></span>
           <small>已归档或暂停使用</small>
         </button>
         <button type="button" className={employeeFilter === 'pending' ? 'active' : ''} onClick={() => setEmployeeFilter('pending')}>
           <strong>{pendingEmployees.length}</strong>
-          <span>待审核</span>
+          <span className="sd1-agents-summary-label">待审核<StaffdeckIcon name="info" /></span>
           <small>等待管理员确认</small>
         </button>
         <button type="button" className="is-create" onClick={onCreateAgent}>
           <span className="sd1-agents-add"><StaffdeckIcon name="plus" /></span>
-          <span>新建数字员工</span>
+          <span className="sd1-agents-summary-label">新建数字员工<StaffdeckIcon name="info" /></span>
           <small>复制广场配置或从空白开始</small>
         </button>
       </div>

@@ -12667,15 +12667,15 @@ body,
   align-content: center;
   text-align: left;
   border: 0;
-  border-radius: 18px;
+  border-radius: 20px;
   color: #202226;
-  background: #ffffff;
+  background: #f6f6f6;
   cursor: pointer;
 }
 
 .sd1-agents-summary button.active,
 .sd1-agents-summary button:hover {
-  background: #f8f8f9;
+  background: #f6f6f6;
 }
 
 .sd1-agents-summary strong,
@@ -12688,15 +12688,25 @@ body,
   font-weight: 760;
 }
 
-.sd1-agents-summary span:not(.sd1-agents-add) {
+.sd1-agents-summary-label {
   min-width: 0;
   overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   color: #202226;
   font-size: 14px;
   line-height: 19px;
   font-weight: 760;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.sd1-agents-summary-label .sd1-icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  color: #8b94aa;
 }
 
 .sd1-agents-summary small {
@@ -13806,6 +13816,10 @@ body:has(.sd1-scheduled-page) .topbar {
 
 :root[data-theme='dark'] .sd1-agents-search .ant-input::placeholder {
   color: #6f788a !important;
+}
+
+:root[data-theme='dark'] .sd1-agents-summary-label .sd1-icon {
+  color: #8f98aa !important;
 }
 
 :root[data-theme='dark'] .sd1-agents-tabs button.active,
