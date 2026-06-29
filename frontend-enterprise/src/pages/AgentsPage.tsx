@@ -68,7 +68,6 @@ export default function AgentsPage({
 
   const overallAgent = agents.find((item) => item.is_overall);
   const currentScopeAgent = agents.find((item) => item.id === selectedAgentId) || (isAdmin ? overallAgent : undefined);
-  const isOverallScope = Boolean(currentScopeAgent?.is_overall);
   const employees = useMemo(
     () => agents.filter((item) => (
       !item.is_overall && (isAdmin || isEmployeeOwnedBy(item, currentUser) || isGalleryEmployee(item))
@@ -76,6 +75,7 @@ export default function AgentsPage({
     [agents, currentUser, isAdmin],
   );
   const offlineEmployees = employees.filter((item) => item.status !== 'active');
+  const onlineEmployees = employees.filter((item) => item.status === 'active');
   const pendingEmployees = employees.filter((item) => {
     const metadata = item.metadata || {};
     return item.status === 'pending'
@@ -192,22 +192,22 @@ export default function AgentsPage({
         <button type="button" className={employeeFilter === 'all' ? 'active' : ''} onClick={() => setEmployeeFilter('all')}>
           <strong>{employees.length}</strong>
           <span className="sd1-agents-summary-label">员工总数<StaffdeckIcon name="info" /></span>
-          <small>{isOverallScope ? '全部可见员工' : '当前可管理范围'}</small>
+          <small>{onlineEmployees.length}位在线</small>
         </button>
         <button type="button" className={employeeFilter === 'offline' ? 'active' : ''} onClick={() => setEmployeeFilter('offline')}>
           <strong>{offlineEmployees.length}</strong>
           <span className="sd1-agents-summary-label">下线员工<StaffdeckIcon name="info" /></span>
-          <small>已归档或暂停使用</small>
+          <small>0位在线</small>
         </button>
         <button type="button" className={employeeFilter === 'pending' ? 'active' : ''} onClick={() => setEmployeeFilter('pending')}>
           <strong>{pendingEmployees.length}</strong>
-          <span className="sd1-agents-summary-label">待审核<StaffdeckIcon name="info" /></span>
-          <small>等待管理员确认</small>
+          <span className="sd1-agents-summary-label">待审批<StaffdeckIcon name="info" /></span>
+          <small>{pendingEmployees.filter((item) => item.status === 'active').length}位在线</small>
         </button>
         <button type="button" className="is-create" onClick={onCreateAgent}>
           <span className="sd1-agents-add"><StaffdeckIcon name="plus" /></span>
-          <span className="sd1-agents-summary-label">新建数字员工<StaffdeckIcon name="info" /></span>
-          <small>复制广场配置或从空白开始</small>
+          <span className="sd1-agents-summary-label">创建新员工<StaffdeckIcon name="info" /></span>
+          <small>配置它的skills</small>
         </button>
       </div>
 

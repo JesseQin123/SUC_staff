@@ -9,14 +9,14 @@ Implementation checkpoints:
 - Figma reference exports: `/private/tmp/ultrarag4-figma-sd1/01-figma-1-2892.png` through `/private/tmp/ultrarag4-figma-sd1/15-figma-1-5409.png`
 - Visual comparison contact sheet: `/private/tmp/ultrarag4-sd1-visual-diff/overview-15-scenarios.png`
 - Visual comparison report: `/private/tmp/ultrarag4-sd1-visual-diff/visual-diff-report.json`
-- Enterprise employee roster: `/private/tmp/ultrarag4-sd1-qa/02-enterprise-agents-collapsed.png`, `/private/tmp/ultrarag4-sd1-qa/05-enterprise-agents-expanded.png`, `/private/tmp/ultrarag4-sd1-qa/09-enterprise-agents-collapsed-reference.png`
+- Enterprise employee roster: `/private/tmp/ultrarag4-sd1-qa/02-enterprise-agents-collapsed.png` (legacy filename; Figma node `1:765` is expanded), `/private/tmp/ultrarag4-sd1-qa/05-enterprise-agents-expanded.png`, `/private/tmp/ultrarag4-sd1-qa/09-enterprise-agents-collapsed-reference.png`
 - Enterprise employee profile: `/private/tmp/ultrarag4-sd1-qa/06-enterprise-dashboard-expanded.png`, `/private/tmp/ultrarag4-sd1-qa/10-enterprise-dashboard-collapsed.png`
 - Dark and responsive checks: `/private/tmp/ultrarag4-sd1-qa/20-dark-chat-input.png`, `/private/tmp/ultrarag4-sd1-qa/21-dark-enterprise-dashboard.png`, `/private/tmp/ultrarag4-sd1-qa/22-mobile-chat-input.png`, `/private/tmp/ultrarag4-sd1-qa/23-mobile-enterprise-agents.png`
 - Machine-readable report: `/private/tmp/ultrarag4-sd1-qa/report.json`
 
 Browser QA summary:
 - 23 browser states checked: all 15 SD1 frames, 4 enterprise regression pages, 2 dark-mode pages, and 2 narrow-screen pages.
-- Figma metadata was checked for all 15 nodes. Important interaction-state corrections: `1:2165` is the chat gallery employee-filter dropdown state, and `1:4286` is an expanded-sidebar model-dropdown input state, not a collapsed-sidebar state.
+- Figma metadata was checked for all 15 nodes. Important interaction-state corrections: `1:2165` is the chat gallery employee-filter dropdown state, `1:4286` is an expanded-sidebar model-dropdown input state, and only `1:5883` is the collapsed enterprise employee roster; `1:765` and `1:68` are expanded-sidebar roster states.
 - Formal API data path used: `/api/auth/login`, `/api/chat/agents`, `/api/chat/sessions`, `/api/enterprise/agents`, and page-owned enterprise/chat API calls.
 - Layout checks passed: no horizontal overflow, no visible error toast, no pageerror, key 1440x900 chat dimensions matched SD1 (`72/220` sidebar, `56` header, `570` empty state, `1078/960 x 100` composer).
 - In-app Browser checks verified `/chat/gallery` at expanded `220px` sidebar with `所有员工` active, visible employee-filter dropdown, top-right `切换主题`/`刷新页面` only, `/enterprise/agents` summary labels, model-dropdown input state, and dark enterprise dashboard inversion.
