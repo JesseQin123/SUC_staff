@@ -1451,6 +1451,29 @@ export default function ChatWindowPage() {
     });
   }, [getSlot, getStreamSlot]);
 
+  const clearStreamSlot = useCallback((id: string, removeStreamingMessage = false) => {
+    const stream = getStreamSlot(id);
+    if (stream.timer) {
+      window.clearTimeout(stream.timer);
+      stream.timer = null;
+    }
+    stream.loading = false;
+    stream.phase = '';
+    stream.accumulated = '';
+    stream.turnId = null;
+    stream.abortController = null;
+    if (removeStreamingMessage) {
+      const slot = getSlot(id);
+      const streamId = `__streaming_${id}`;
+      const nextRealtime = slot.realtimeMessages.filter((item) => item.id !== streamId);
+      if (nextRealtime.length !== slot.realtimeMessages.length) {
+        slot.realtimeMessages = nextRealtime;
+        notifyStore();
+      }
+    }
+    notifyStream();
+  }, [getSlot, getStreamSlot, notifyStore, notifyStream]);
+
   const displayedMessages = useMemo(() => {
     if (!sessionId) return [];
     void storeTick;
@@ -1544,13 +1567,32 @@ export default function ChatWindowPage() {
       .then((rows) => {
         const slot = getSlot(id);
         slot.serverMessages = attachTurnIdsToServerMessages(rows, slot.realtimeMessages, slot.serverMessages);
+        const stream = getStreamSlot(id);
+        if (stream.loading) {
+          const latestUserTime = Math.max(
+            0,
+            ...slot.serverMessages
+              .filter((messageItem) => messageItem.role === 'user')
+              .map((messageItem) => parseMessageTime(messageItem.created_at)),
+          );
+          const hasCompletedAssistant = slot.serverMessages.some((messageItem) => (
+            messageItem.role === 'assistant'
+            && (
+              (stream.turnId && messageItem.turnId === stream.turnId)
+              || parseMessageTime(messageItem.created_at) > latestUserTime
+            )
+          ));
+          if (hasCompletedAssistant) {
+            clearStreamSlot(id, true);
+          }
+        }
         pruneRealtime(id);
         notifyStore();
       })
       .catch((error) => {
         notifyRequestError('messages', error, '消息加载失败');
       });
-  }, [getSlot, notifyRequestError, notifyStore, pruneRealtime, tenantId]);
+  }, [clearStreamSlot, getSlot, getStreamSlot, notifyRequestError, notifyStore, pruneRealtime, tenantId]);
 
   const loadTraces = useCallback((id: string) => {
     return api
@@ -2156,6 +2198,11 @@ export default function ChatWindowPage() {
       finishTrace(turnId);
       upsertTraceLine(turnId, { id: 'thinking', kind: 'thinking', text: '执行记录', state: 'completed' });
       finalizeStreaming(eventSessionId);
+      const eventStream = getStreamSlot(eventSessionId);
+      eventStream.loading = false;
+      eventStream.phase = '';
+      eventStream.abortController = null;
+      notifyStream();
       return;
     }
     if (item.event === 'complete' || item.event === 'done') {
@@ -2225,6 +2272,7 @@ export default function ChatWindowPage() {
   const isTerminalEvent = useCallback((event: ChatSessionEventRead) => (
     event.event === 'complete' ||
     event.event === 'done' ||
+    event.event === 'stream_end' ||
     event.event === 'error'
   ), []);
 
@@ -2235,6 +2283,23 @@ export default function ChatWindowPage() {
 
   const hydrateRunningSessionFromEvents = useCallback((id: string, events: ChatSessionEventRead[]) => {
     if (locallyCancelledSessionIdsRef.current.has(id)) return false;
+    const slot = getSlot(id);
+    const latestUserTime = Math.max(
+      0,
+      ...slot.serverMessages
+        .filter((messageItem) => messageItem.role === 'user')
+        .map((messageItem) => parseMessageTime(messageItem.created_at)),
+    );
+    const latestAssistantTime = Math.max(
+      0,
+      ...slot.serverMessages
+        .filter((messageItem) => messageItem.role === 'assistant')
+        .map((messageItem) => parseMessageTime(messageItem.created_at)),
+    );
+    if (latestUserTime > 0 && latestAssistantTime > latestUserTime) {
+      clearStreamSlot(id, true);
+      return false;
+    }
     const stream = getStreamSlot(id);
     if (stream.loading) return false;
 
@@ -2255,8 +2320,18 @@ export default function ChatWindowPage() {
 
     const runId = runningGroup[0].run_id;
     const turnId = scheduledTurnId(id, runId);
-    const slot = getSlot(id);
+    const latestRunningEventTime = eventTime(runningGroup[runningGroup.length - 1]);
+    const hasAssistantAfterRunningGroup = slot.serverMessages.some((messageItem) => (
+      messageItem.role === 'assistant'
+      && latestRunningEventTime > 0
+      && parseMessageTime(messageItem.created_at) >= latestRunningEventTime
+    ));
+    if (hasAssistantAfterRunningGroup) {
+      clearStreamSlot(id, true);
+      return false;
+    }
     if (slot.serverMessages.some((messageItem) => messageItem.role === 'assistant' && messageItem.turnId === turnId)) {
+      clearStreamSlot(id, true);
       return false;
     }
 
@@ -2285,6 +2360,7 @@ export default function ChatWindowPage() {
     notifyStream();
     return true;
   }, [
+    clearStreamSlot,
     eventTextPayload,
     eventTime,
     getSlot,
@@ -2667,6 +2743,11 @@ export default function ChatWindowPage() {
           finishTrace(turnId);
           upsertTraceLine(turnId, { id: 'thinking', kind: 'thinking', text: '执行记录', state: 'completed' });
           finalizeStreaming(eventSessionId);
+          const eventStream = getStreamSlot(eventSessionId);
+          eventStream.loading = false;
+          eventStream.phase = '';
+          eventStream.abortController = null;
+          notifyStream();
           return;
         }
         if (item.event === 'complete' || item.event === 'done') {
