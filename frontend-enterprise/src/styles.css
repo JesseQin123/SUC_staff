@@ -11845,12 +11845,12 @@ body,
 .employee-home-main {
   position: absolute !important;
   left: 192px;
-  top: 12px;
+  top: 4.5px;
   width: 828px;
   min-width: 0;
-  padding-top: 12px;
+  padding-top: 0;
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .employee-home-title-row {
@@ -11861,8 +11861,8 @@ body,
 
 .employee-home-title-row h2.ant-typography {
   margin: 0 !important;
-  font-size: 24px !important;
-  line-height: 30px !important;
+  font-size: 20px !important;
+  line-height: 24px !important;
   font-weight: 760 !important;
   letter-spacing: 0 !important;
   color: #202226;
@@ -12419,6 +12419,86 @@ body,
   height: 84px;
   object-fit: contain;
   object-position: center bottom;
+}
+
+@media (min-width: 1181px) {
+  .employee-work-card {
+    position: relative;
+    display: block;
+    padding: 0 !important;
+  }
+
+  .employee-work-metrics {
+    position: absolute;
+    left: 18px;
+    top: 18px;
+    width: calc(100% - 36px);
+  }
+
+  .employee-heatmap {
+    position: absolute;
+    left: 50%;
+    top: 102px;
+    transform: translateX(-50%);
+  }
+
+  .employee-growth-title {
+    position: absolute;
+    left: 18px;
+    top: 257px;
+    height: 19px;
+    align-self: auto;
+  }
+
+  .employee-memory-timeline {
+    position: absolute;
+    left: 18px;
+    top: 278px;
+    width: calc(100% - 36px);
+    height: 101px;
+    grid-template-columns: repeat(4, 160px);
+    gap: 80px;
+    padding: 0 0 0 60px;
+  }
+
+  .employee-memory-timeline::before {
+    top: 27px;
+    left: 36px;
+    right: 20px;
+  }
+
+  .employee-memory-event {
+    width: 160px;
+    height: 101px;
+  }
+
+  .employee-memory-dot {
+    top: 24px;
+    left: 76px;
+    width: 8px;
+    height: 8px;
+    box-shadow: none;
+  }
+
+  .employee-memory-copy {
+    position: absolute;
+    left: 10px;
+    top: 40px;
+    width: 140px;
+    height: 61px;
+    min-height: 61px;
+    margin-top: 0;
+  }
+
+  .employee-capability-grid {
+    position: absolute;
+    left: 18px;
+    top: 403px;
+    width: calc(100% - 36px);
+    height: 230px;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 32px;
+  }
 }
 
 @media (max-width: 1180px) {
