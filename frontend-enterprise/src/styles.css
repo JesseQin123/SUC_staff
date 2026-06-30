@@ -14536,3 +14536,116 @@ body:has(.sd1-scheduled-page) .topbar {
     --capability-illustration-size: 92px;
   }
 }
+
+/* SD1 large desktop: keep the profile view proportional instead of locking it to a 1440 canvas. */
+@media (min-width: 1600px) {
+  .employee-home-page {
+    max-width: min(1640px, calc(100vw - 280px)) !important;
+    padding-right: 28px;
+    padding-left: 28px;
+  }
+
+  .app-shell.sidebar-collapsed .employee-home-page {
+    max-width: min(1640px, calc(100vw - 160px)) !important;
+  }
+
+  .employee-home-hero,
+  .app-shell.sidebar-expanded .employee-home-hero {
+    width: calc(100% - 56px);
+    margin-right: 28px !important;
+    margin-left: 28px !important;
+  }
+
+  .employee-home-main,
+  .app-shell.sidebar-expanded .employee-home-main {
+    width: min(1040px, calc(100% - 220px));
+  }
+
+  .employee-system-summary.ant-typography {
+    max-width: min(1040px, 100%);
+  }
+
+  .employee-home-side,
+  .app-shell.sidebar-expanded .employee-home-side {
+    width: min(672px, calc(100% - 220px));
+    grid-template-columns: repeat(4, minmax(132px, 1fr));
+  }
+
+  .employee-metric-tile {
+    justify-content: center;
+  }
+
+  .employee-profile-tabs,
+  .app-shell.sidebar-expanded .employee-profile-tabs {
+    width: min(620px, calc(100% - 260px));
+    grid-template-columns: repeat(4, minmax(128px, 1fr));
+  }
+
+  .employee-work-card {
+    min-height: max(805px, calc(100vh - 252px));
+  }
+
+  .employee-heatmap {
+    width: 902px;
+  }
+
+  .employee-heatmap-months {
+    width: 844px !important;
+    grid-template-columns: repeat(33, 12px);
+    column-gap: 14px;
+    margin-left: 58px;
+  }
+
+  .employee-heatmap-body {
+    width: 902px;
+    grid-template-columns: 44px 844px;
+    gap: 14px;
+  }
+
+  .employee-heatmap-grid {
+    width: 844px;
+    grid-auto-columns: 12px;
+    gap: 6px 14px;
+  }
+
+  .employee-heatmap-cell {
+    width: 12px !important;
+    height: 10px !important;
+    min-width: 12px !important;
+    max-width: 12px !important;
+  }
+
+  .employee-memory-timeline {
+    grid-template-columns: repeat(4, minmax(180px, 1fr));
+    gap: 32px;
+    padding: 0 48px;
+  }
+
+  .employee-memory-timeline::before {
+    left: 48px;
+    right: 48px;
+  }
+
+  .employee-memory-event {
+    width: 100%;
+  }
+
+  .employee-memory-dot {
+    left: 50%;
+    transform: translateX(-50%);
+  }
+
+  .employee-memory-copy {
+    left: 50%;
+    width: min(180px, calc(100% - 24px));
+    transform: translateX(-50%);
+  }
+
+  .employee-capability-grid {
+    gap: clamp(28px, 1.65vw, 36px) !important;
+  }
+
+  .employee-capability-card.ant-card {
+    min-width: 0;
+  }
+}
