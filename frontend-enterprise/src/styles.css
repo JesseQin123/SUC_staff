@@ -13648,6 +13648,14 @@ body:has(.sd1-scheduled-page) .topbar {
   margin: 0 0 6px !important;
   padding-right: 184px;
   align-items: flex-start;
+  flex-wrap: nowrap;
+  gap: 24px;
+}
+
+.sd1-scheduled-page .page-title > div {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: min(740px, calc(100% - 240px));
 }
 
 .sd1-scheduled-page .page-title h3.ant-typography {
@@ -13656,7 +13664,7 @@ body:has(.sd1-scheduled-page) .topbar {
 }
 
 .sd1-scheduled-page .page-title .ant-typography-secondary {
-  max-width: 980px;
+  max-width: 100%;
   margin-top: 6px !important;
   color: #202226 !important;
   font-size: 20px !important;
@@ -13665,6 +13673,7 @@ body:has(.sd1-scheduled-page) .topbar {
 }
 
 .scheduled-task-page-actions {
+  flex: 0 0 auto;
   margin-top: 4px;
 }
 
@@ -15032,5 +15041,55 @@ body:has(.sd1-scheduled-page) .topbar {
     width: 6px !important;
     min-width: 6px !important;
     height: 6px !important;
+  }
+}
+
+@media (min-width: 761px) {
+  .sd1-management-content > .page-title {
+    width: auto !important;
+    min-height: 58px;
+    margin: 72px 28px 18px !important;
+    padding-right: 184px;
+    align-items: flex-start;
+  }
+
+  .sd1-management-content > .page-title > .ant-space,
+  .sd1-management-content > .page-title > .page-actions {
+    flex-shrink: 0;
+    justify-content: flex-end;
+  }
+
+  .sd1-management-content > .page-title > .ant-space,
+  .sd1-management-content > .page-title > .page-actions,
+  .sd1-management-content > .page-title > .ant-btn {
+    margin-top: 0;
+  }
+
+  .sd1-management-content > .page-title + .grid-2,
+  .sd1-management-content > .page-title ~ .data-card,
+  .sd1-management-content > .page-title ~ .conversation-log-card,
+  .sd1-management-content > .page-title ~ .editor-card,
+  .sd1-management-content > .page-title ~ .ant-card {
+    width: auto !important;
+    margin-right: 28px !important;
+    margin-left: 28px !important;
+  }
+
+  .sd1-management-content > .page:not(.dashboard-page):not(.sd1-scheduled-page) {
+    width: auto !important;
+    max-width: none !important;
+    margin: 0 28px 40px !important;
+    padding-top: 72px;
+  }
+
+  .sd1-management-content > .page:not(.dashboard-page):not(.sd1-scheduled-page) > .page-title {
+    padding-right: 184px;
+    align-items: flex-start;
+  }
+
+  .sd1-management-content > .page:not(.dashboard-page):not(.sd1-scheduled-page) > .page-title > .ant-space,
+  .sd1-management-content > .page:not(.dashboard-page):not(.sd1-scheduled-page) > .page-title > .page-actions {
+    flex-shrink: 0;
+    justify-content: flex-end;
   }
 }
