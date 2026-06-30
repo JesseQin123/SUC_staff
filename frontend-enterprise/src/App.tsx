@@ -378,7 +378,7 @@ function Shell({
                   <EmployeeAvatar agent={sidebarAgent} size={32} />
                   <span className="sd1-rail-agent-label">
                     <span className="sd1-rail-agent-short">{sidebarAgent.is_overall ? '广场' : employeeProfile(sidebarAgent).roleName.slice(0, 2)}</span>
-                    <span className="sd1-rail-agent-name">{sidebarAgent.is_overall ? '开放广场' : employeeDisplayName(sidebarAgent)}</span>
+                    <span className="sd1-rail-agent-name">{sidebarAgent.is_overall ? '开放广场' : '当前员工'}</span>
                     <span className="sd1-rail-agent-role">{sidebarAgent.is_overall ? '平台' : employeeProfile(sidebarAgent).roleName}</span>
                   </span>
                   <span className="sd1-rail-agent-chevron" aria-hidden="true">
