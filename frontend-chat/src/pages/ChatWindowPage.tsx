@@ -3111,19 +3111,6 @@ export default function ChatWindowPage() {
             );
           })}
         </div>
-        <div className="chat-agent-dock">
-          <EmployeeAvatarMark profile={displayedProfile} fallback="SD" className="chat-agent-mark" />
-          <div className="chat-agent-main">
-            <span className="chat-agent-label">
-              {sessionId ? '当前数字员工' : '默认数字员工'}
-            </span>
-            <span className="chat-agent-name">
-              {displayedAgent && displayedProfile
-                ? `${employeeDisplayName(displayedAgent)} · ${displayedProfile.roleName}`
-              : '暂无数字员工'}
-            </span>
-          </div>
-        </div>
         <button type="button" className="sidebar-bottom-link" onClick={() => { window.location.href = '/enterprise/dashboard'; }}>
           <StaffdeckIcon name="chat" />
           <span>管理端</span>
