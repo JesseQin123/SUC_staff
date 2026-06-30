@@ -1523,7 +1523,7 @@ export default function ChatWindowPage() {
     || displayedMessages.length > 0
     || currentSessionRunning,
   );
-  const showComposerAvatar = Boolean(sessionId && displayedProfile && composerActive);
+  const showComposerAvatar = Boolean(sessionId && displayedProfile);
   const modelMenuItems = useMemo(() => {
     if (!enabledModelConfigs.length) {
       return [
