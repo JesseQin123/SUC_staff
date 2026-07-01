@@ -1,5 +1,6 @@
 import {
   AppstoreOutlined,
+  DeleteOutlined,
   FileSearchOutlined,
   ProfileOutlined,
   RightOutlined,
@@ -7,9 +8,9 @@ import {
   ToolOutlined,
   UsergroupAddOutlined,
 } from '../icons';
-import { Button, Card, Drawer, Empty, Space, Tag, Typography, message } from 'antd';
+import { Button, Card, Drawer, Empty, Modal, Tag, Typography, message } from 'antd';
 import type { ReactNode } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, TENANT_ID } from '../api/client';
 import { isEmployeeOwnedBy, isGalleryEmployee, type EnterpriseAuthUser } from '../auth';
@@ -34,6 +35,7 @@ type PlatformConfig = {
 
 type PlatformItem = {
   id: string;
+  deleteKey?: string;
   title: string;
   description: string;
   meta: string;
@@ -112,6 +114,7 @@ export default function OpenPlatformPage({
   const [skills, setSkills] = useState<SkillRead[]>([]);
   const [tools, setTools] = useState<ToolRead[]>([]);
   const [loading, setLoading] = useState(false);
+  const [deletingItemKey, setDeletingItemKey] = useState('');
   const [agentId, setAgentId] = useState(() => window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '');
   const [detailItem, setDetailItem] = useState<{ kind: PlatformKind; item: PlatformItem } | null>(null);
 
@@ -126,39 +129,42 @@ export default function OpenPlatformPage({
     return () => window.removeEventListener('ultrarag-enterprise-agent-scope-change', onScopeChange);
   }, []);
 
-  useEffect(() => {
-    async function load() {
-      setLoading(true);
-      try {
-        const agentRows = await api.get<AgentProfileRead[]>(`/api/enterprise/agents?tenant_id=${TENANT_ID}`);
-        const overall = agentRows.find((item) => item.is_overall);
-        const overallSuffix = overall ? `&agent_id=${encodeURIComponent(overall.id)}` : '';
-        const [kbRows, generalRows, skillRows, toolRows] = await Promise.all([
-          api.get<KnowledgeBaseRead[]>(`/api/enterprise/knowledge-bases?tenant_id=${TENANT_ID}${overallSuffix}`),
-          api.get<GeneralSkillRead[]>(`/api/enterprise/general-skills?tenant_id=${TENANT_ID}${overallSuffix}`),
-          overall
-            ? api.get<SkillRead[]>(`/api/enterprise/agents/${overall.id}/skills?tenant_id=${TENANT_ID}`)
-            : Promise.resolve([]),
-          api.get<ToolRead[]>(`/api/enterprise/tools?tenant_id=${TENANT_ID}${overallSuffix}`),
-        ]);
-        setAgents(agentRows);
-        setKnowledgeBases(kbRows);
-        setGeneralSkills(generalRows);
-        setSkills(skillRows);
-        setTools(toolRows);
-      } catch (error) {
-        message.error(error instanceof Error ? error.message : '加载开放广场失败');
-      } finally {
-        setLoading(false);
-      }
+  const loadPlatformData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const agentRows = await api.get<AgentProfileRead[]>(`/api/enterprise/agents?tenant_id=${TENANT_ID}`);
+      const overall = agentRows.find((item) => item.is_overall);
+      const overallSuffix = overall ? `&agent_id=${encodeURIComponent(overall.id)}` : '';
+      const [kbRows, generalRows, skillRows, toolRows] = await Promise.all([
+        api.get<KnowledgeBaseRead[]>(`/api/enterprise/knowledge-bases?tenant_id=${TENANT_ID}${overallSuffix}`),
+        api.get<GeneralSkillRead[]>(`/api/enterprise/general-skills?tenant_id=${TENANT_ID}${overallSuffix}`),
+        overall
+          ? api.get<SkillRead[]>(`/api/enterprise/agents/${overall.id}/skills?tenant_id=${TENANT_ID}`)
+          : Promise.resolve([]),
+        api.get<ToolRead[]>(`/api/enterprise/tools?tenant_id=${TENANT_ID}${overallSuffix}`),
+      ]);
+      setAgents(agentRows);
+      setKnowledgeBases(kbRows);
+      setGeneralSkills(generalRows);
+      setSkills(skillRows);
+      setTools(toolRows);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '加载开放广场失败');
+    } finally {
+      setLoading(false);
     }
-    void load();
   }, []);
+
+  useEffect(() => {
+    void loadPlatformData();
+  }, [loadPlatformData]);
 
   const visibleAgents = useMemo(
     () => agents.filter((item) => !item.is_overall && item.status === 'active' && isGalleryEmployee(item)),
     [agents],
   );
+  const overallAgent = agents.find((item) => item.is_overall) || null;
+  const canManagePlatform = isAdmin;
   const currentAgent = agents.find((item) => item.id === agentId);
   const targetEmployee = !currentAgent?.is_overall && currentAgent
     ? currentAgent
@@ -169,6 +175,7 @@ export default function OpenPlatformPage({
       const profile = employeeProfile(item);
       return {
         id: item.id,
+        deleteKey: item.id,
         title: employeeDisplayName(item),
         description: item.description || '广场开放的数字员工。',
         meta: profile.roleName,
@@ -184,6 +191,7 @@ export default function OpenPlatformPage({
       .filter((item) => item.status === 'active' && !isEmptyDefaultKnowledgeBase(item))
       .map((item) => ({
         id: item.id,
+        deleteKey: item.id,
         title: item.name,
         description: item.description || '广场沉淀的知识库。',
         meta: `${item.document_count} 文档 / ${item.bucket_count} 桶 / ${item.chunk_count} 片段`,
@@ -193,6 +201,7 @@ export default function OpenPlatformPage({
       .filter((item) => item.status === 'published')
       .map((item) => ({
         id: item.id,
+        deleteKey: item.slug,
         title: item.name,
         description: item.description || '可复制到当前数字员工的技能。',
         meta: item.slug,
@@ -202,6 +211,7 @@ export default function OpenPlatformPage({
       .filter((item) => item.status === 'published')
       .map((item) => ({
         id: item.id,
+        deleteKey: item.id,
         title: item.name,
         description: item.description || '可复制和复用的业务 SOP。',
         meta: `${item.skill_id} / ${item.version}`,
@@ -211,6 +221,7 @@ export default function OpenPlatformPage({
       .filter((item) => item.enabled)
       .map((item) => ({
         id: item.id,
+        deleteKey: item.id,
         title: item.display_name || item.name,
         description: item.description || '可配置到员工工具的工具。',
         meta: `${item.bucket || '工具'} / ${item.tool_type.toUpperCase()}`,
@@ -256,10 +267,55 @@ export default function OpenPlatformPage({
     if (platformKind === 'tools') navigate('/enterprise/tools?add=plaza');
   }
 
+  function platformItemDeleteKey(platformKind: PlatformKind, item: PlatformItem): string {
+    return `${platformKind}:${item.deleteKey || item.id}`;
+  }
+
+  function platformDeleteUrl(platformKind: PlatformKind, item: PlatformItem): string {
+    const resourceKey = encodeURIComponent(item.deleteKey || item.id);
+    const overallSuffix = overallAgent ? `&agent_id=${encodeURIComponent(overallAgent.id)}` : '';
+    if (platformKind === 'agents') return `/api/enterprise/agents/${resourceKey}?tenant_id=${TENANT_ID}`;
+    if (platformKind === 'knowledge') return `/api/enterprise/knowledge-bases/${resourceKey}?tenant_id=${TENANT_ID}${overallSuffix}`;
+    if (platformKind === 'general-skills') return `/api/enterprise/general-skills/${resourceKey}?tenant_id=${TENANT_ID}${overallSuffix}`;
+    if (platformKind === 'skills') return `/api/enterprise/skills/${resourceKey}?tenant_id=${TENANT_ID}${overallSuffix}`;
+    return `/api/enterprise/tools/${resourceKey}?tenant_id=${TENANT_ID}${overallSuffix}`;
+  }
+
+  function deletePlatformItem(platformKind: PlatformKind, item: PlatformItem) {
+    const config = PLATFORM_BY_KIND.get(platformKind) || PLATFORM_CONFIGS[0];
+    const key = platformItemDeleteKey(platformKind, item);
+    Modal.confirm({
+      title: `删除${config.metricLabel}「${item.title}」？`,
+      content: platformKind === 'agents'
+        ? '删除后该数字员工会从广场和员工列表移除，相关资源绑定也会一并清理。'
+        : '删除后该广场内容会从开放平台移除，已复制到员工侧的引用可能不再可同步。',
+      okText: '删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        setDeletingItemKey(key);
+        try {
+          await api.delete(platformDeleteUrl(platformKind, item));
+          message.success('已删除广场内容');
+          setDetailItem((current) => (
+            current && current.kind === platformKind && current.item.id === item.id ? null : current
+          ));
+          await loadPlatformData();
+        } catch (error) {
+          message.error(error instanceof Error ? error.message : '删除失败');
+          throw error;
+        } finally {
+          setDeletingItemKey('');
+        }
+      },
+    });
+  }
+
   function renderItemDrawer() {
     if (!detailItem) return null;
     const config = PLATFORM_BY_KIND.get(detailItem.kind) || PLATFORM_CONFIGS[0];
     const { item } = detailItem;
+    const deleteKey = platformItemDeleteKey(detailItem.kind, item);
     return (
       <Drawer
         className="open-platform-item-drawer"
@@ -269,6 +325,16 @@ export default function OpenPlatformPage({
         onClose={() => setDetailItem(null)}
         footer={(
           <div className="open-platform-drawer-footer">
+            {canManagePlatform && (
+              <Button
+                danger
+                icon={<DeleteOutlined />}
+                loading={deletingItemKey === deleteKey}
+                onClick={() => deletePlatformItem(detailItem.kind, item)}
+              >
+                删除
+              </Button>
+            )}
             <Button onClick={() => setDetailItem(null)}>关闭</Button>
             <Button
               type="primary"
