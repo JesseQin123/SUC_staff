@@ -3,6 +3,7 @@ import type { ChangeEvent, ClipboardEvent, DragEvent, MouseEvent, ReactNode } fr
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
+  ApiError,
   SHOW_DEBUG,
   TENANT_ID,
   api,
@@ -139,6 +140,10 @@ function draftConversationKey(agentId: string): string {
 
 function isDraftConversationKey(id: string): boolean {
   return id.startsWith('draft:');
+}
+
+function isMissingChatSessionError(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 404 && error.message === 'Session not found';
 }
 
 function modelStorageKey(tenantId: string): string {
@@ -798,6 +803,12 @@ function traceLineAllowed(line: TraceLine, config: UIConfigRead): boolean {
 }
 
 function traceSummary(trace: TurnTrace, lines: TraceLine[]): { text: string; state: TraceLine['state'] } {
+  if (trace.completedAt) {
+    if (lines.some((line) => line.state === 'failed')) {
+      return { text: '执行遇到问题', state: 'failed' };
+    }
+    return { text: '执行记录', state: 'completed' };
+  }
   if (lines.some((line) => line.state === 'running')) {
     return { text: '正在执行', state: 'running' };
   }
@@ -1473,14 +1484,40 @@ export default function ChatWindowPage() {
     return store.get(id)!;
   }, []);
 
+  const forgetMissingSession = useCallback((id: string) => {
+    knownSessionIdsRef.current.delete(id);
+    storeRef.current.delete(id);
+    streamRef.current.delete(id);
+    locallyCancelledSessionIdsRef.current.delete(id);
+    setSessions((current) => current.filter((item) => item.id !== id));
+    setScheduledDrafts((current) => {
+      if (!current[id]) return current;
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+    setCreatedScheduledTasks((current) => {
+      const key = `session:${id}`;
+      if (!current[key]) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+    notifyStore();
+    notifyStream();
+  }, [notifyStore, notifyStream]);
+
   const upsertTraceLine = useCallback((turnId: string, line: TraceLine) => {
     const trace = getTurnTrace(turnId);
+    const nextLine = trace.completedAt && line.state === 'running'
+      ? { ...line, state: 'completed' as const }
+      : line;
     const index = trace.lines.findIndex((item) => item.id === line.id);
     if (index >= 0) {
       trace.lines = [...trace.lines];
-      trace.lines[index] = line;
+      trace.lines[index] = nextLine;
     } else {
-      trace.lines = [...trace.lines, line].slice(-80);
+      trace.lines = [...trace.lines, nextLine].slice(-80);
     }
     notifyTrace();
   }, [getTurnTrace, notifyTrace]);
@@ -1548,14 +1585,27 @@ export default function ChatWindowPage() {
     [composerAttachments],
   );
   const uploadingComposerAttachment = composerAttachments.some((item) => item.uploadStatus === 'uploading');
-  const hasStreamingStatusPlaceholder = useMemo(() => (
+  const hasStreamingAssistantMessage = useMemo(() => (
     displayedMessages.some((item) => (
       item.role === 'assistant'
       && item.isStreaming
-      && !staffdeckDisplayText(stripTrailingCitationSummary(item.content))
     ))
   ), [displayedMessages]);
-  const showFallbackRunningStatus = currentSessionRunning && !hasStreamingStatusPlaceholder;
+  const hasInlineCurrentTrace = useMemo(() => {
+    void traceTick;
+    const activeTraceIds = new Set(
+      [currentStream.turnId, runningTurn?.turnId].filter((value): value is string => Boolean(value)),
+    );
+    if (!activeTraceIds.size) return false;
+    return displayedMessages.some((item) => {
+      if (item.role !== 'assistant') return false;
+      const traceTurnId = item.turnId || item.id;
+      if (!activeTraceIds.has(traceTurnId)) return false;
+      const trace = turnTraceRef.current.get(traceTurnId);
+      return Boolean(trace?.lines.length);
+    });
+  }, [currentStream.turnId, displayedMessages, runningTurn?.turnId, traceTick]);
+  const showFallbackRunningStatus = currentSessionRunning && !hasStreamingAssistantMessage && !hasInlineCurrentTrace;
   const composerActive = Boolean(
     input.trim()
     || composerAttachments.length > 0
@@ -1739,9 +1789,14 @@ export default function ChatWindowPage() {
         notifyStore();
       })
       .catch((error) => {
+        if (isMissingChatSessionError(error)) {
+          forgetMissingSession(id);
+          loadSessions();
+          return;
+        }
         notifyRequestError('messages', error, '消息加载失败');
       });
-  }, [clearStreamSlot, getSlot, getStreamSlot, notifyRequestError, notifyStore, pruneRealtime, tenantId]);
+  }, [clearStreamSlot, forgetMissingSession, getSlot, getStreamSlot, loadSessions, notifyRequestError, notifyStore, pruneRealtime, tenantId]);
 
   const loadTraces = useCallback((id: string) => {
     return api
@@ -1769,9 +1824,14 @@ export default function ChatWindowPage() {
         notifyTrace();
       })
       .catch((error) => {
+        if (isMissingChatSessionError(error)) {
+          forgetMissingSession(id);
+          loadSessions();
+          return;
+        }
         notifyRequestError('trace', error, '轨迹加载失败');
       });
-  }, [notifyRequestError, notifyTrace, tenantId]);
+  }, [forgetMissingSession, loadSessions, notifyRequestError, notifyTrace, tenantId]);
 
   const loadHandoffs = useCallback(() => {
     if (!auth) return Promise.resolve();
