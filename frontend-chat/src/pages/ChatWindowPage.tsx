@@ -1927,12 +1927,15 @@ export default function ChatWindowPage() {
     const index = slot.realtimeMessages.findIndex((item) => item.id === streamId);
     const previousMessage = index >= 0 ? slot.realtimeMessages[index] : undefined;
     const activeTurnId = turnId || stream.turnId || undefined;
+    const previousCreatedAt = previousMessage && previousMessage.turnId === activeTurnId
+      ? previousMessage.created_at
+      : undefined;
     const streamingMessage: ChatMessage = {
       id: streamId,
       turnId: activeTurnId,
       role: 'assistant',
       content: text,
-      created_at: previousMessage?.created_at || timestampAfterMessage(latestUserMessageForTurn(slot, activeTurnId)),
+      created_at: previousCreatedAt || timestampAfterMessage(latestUserMessageForTurn(slot, activeTurnId)),
       isStreaming: true,
     };
     if (index >= 0) {
