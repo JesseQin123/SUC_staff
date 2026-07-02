@@ -5320,7 +5320,7 @@ body,
 }
 
 .assistant-trace {
-  padding: 10px 16px 8px !important;
+  padding: 12px 16px 14px !important;
   color: #858b9c !important;
   background: #ffffff !important;
   border-bottom: 0.5px solid #e3e7f1 !important;
@@ -5345,6 +5345,35 @@ body,
 }
 
 .assistant-trace .trace-chevron-slot .sd1-icon {
+  width: 14px !important;
+  height: 14px !important;
+}
+
+.assistant-trace .turn-trace-details {
+  margin-top: 12px !important;
+  padding: 12px 14px 14px !important;
+  gap: 10px !important;
+  border-radius: 8px !important;
+  background: #f6f7f9 !important;
+}
+
+.assistant-trace .turn-trace-line {
+  min-height: 20px !important;
+  grid-template-columns: 16px minmax(0, 1fr) !important;
+  column-gap: 10px !important;
+  font-size: 13px !important;
+  line-height: 20px !important;
+}
+
+.assistant-trace .turn-trace-line > .trace-icon-slot,
+.assistant-trace .turn-trace-line .trace-icon-slot,
+.assistant-trace .turn-trace-line .trace-terminal-icon {
+  width: 14px !important;
+  height: 14px !important;
+}
+
+.assistant-trace .turn-trace-line .sd1-icon,
+.assistant-trace .turn-trace-line .anticon svg {
   width: 14px !important;
   height: 14px !important;
 }
@@ -5432,6 +5461,10 @@ body,
 :root[data-theme='dark'] .assistant-trace,
 :root[data-theme='dark'] .message-feedback .ant-btn {
   color: #a8afbd !important;
+}
+
+:root[data-theme='dark'] .assistant-trace .turn-trace-details {
+  background: #2b2d34 !important;
 }
 
 .message-item.assistant {
