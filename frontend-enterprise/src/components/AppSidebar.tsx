@@ -374,7 +374,7 @@ function CollapsedSidebar({
     : '未选择';
 
   return (
-    <div className="flex size-full flex-col items-center gap-[32px] px-[20px] py-[10px]">
+    <div className="flex h-full w-(--sidebar-width-icon) shrink-0 flex-col items-center gap-[32px] px-[16px] py-[10px]">
       <div className="flex w-full flex-col items-center gap-[10px]">
         <button type="button" title="开放广场" className="flex items-center justify-center p-[10px]">
           <BrandLogo markOnly />
@@ -504,7 +504,7 @@ export default function AppSidebar({
     return (
       <Sidebar
         collapsible="icon"
-        className="border-r border-sidebar-border bg-sidebar backdrop-blur-[9.5px] **:data-[slot=sidebar-inner]:bg-sidebar"
+        className="overflow-hidden border-r border-sidebar-border bg-sidebar backdrop-blur-[9.5px] **:data-[slot=sidebar-inner]:bg-sidebar"
       >
         <CollapsedSidebar
           selected={selected}
@@ -524,8 +524,9 @@ export default function AppSidebar({
   return (
     <Sidebar
       collapsible="icon"
-      className="border-r border-sidebar-border bg-sidebar backdrop-blur-[9.5px] **:data-[slot=sidebar-inner]:bg-sidebar"
+      className="overflow-hidden border-r border-sidebar-border bg-sidebar backdrop-blur-[9.5px] **:data-[slot=sidebar-inner]:bg-sidebar"
     >
+      <div className="flex h-full w-(--sidebar-width) shrink-0 flex-col">
       <SidebarHeader className="gap-[24px] px-[20px] pt-[10px] group-data-[collapsible=icon]:px-[20px]">
         <div className="flex items-center justify-between">
           <button type="button" title="开放广场">
@@ -601,6 +602,7 @@ export default function AppSidebar({
       <SidebarFooter className="px-[20px] pb-[20px] group-data-[collapsible=icon]:px-[20px]">
         <SidebarFooterActions onOpenChat={onOpenChat} />
       </SidebarFooter>
+      </div>
     </Sidebar>
   );
 }
