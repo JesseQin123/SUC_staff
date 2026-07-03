@@ -1,4 +1,5 @@
 import { Button, Dropdown, Empty, Input, Modal, Select, Typography, message } from 'antd';
+import { Fragment } from 'react';
 import type { ChangeEvent, ClipboardEvent, DragEvent, MouseEvent, ReactNode } from 'react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -3506,7 +3507,13 @@ export default function ChatWindowPage() {
               const attachments = messageAttachments(item);
               const statusOnly = stoppedStatusOnly || (runningStatusOnly && !summary);
               const statusOnlyText = runningStatusOnly ? '正在执行...' : visibleContent;
-              const showInlineTrace = Boolean(summary && !stoppedStatusOnly);
+              const splitStreamingTrace = Boolean(
+                item.role === 'assistant'
+                && item.isStreaming
+                && visibleContent
+                && summary?.state === 'running'
+              );
+              const showInlineTrace = Boolean(summary && !stoppedStatusOnly && !splitStreamingTrace);
               if (
                 item.role === 'assistant'
                 && !visibleContent
@@ -3519,8 +3526,8 @@ export default function ChatWindowPage() {
                 return null;
               }
               void traceTick;
-              return (
-                <div key={item.id} className={`message-item ${item.role}${statusOnly ? ' status-only-item' : ''}`}>
+              const messageNode = (
+                <div key={`${item.id}:message`} className={`message-item ${item.role}${statusOnly ? ' status-only-item' : ''}`}>
                   <div className={`message-row ${item.role} ${item.isError ? 'error' : ''}`}>
                     <div className={`bubble ${showInlineTrace ? 'has-trace' : ''}${statusOnly ? ' status-only' : ''}`}>
                       {statusOnly ? (
@@ -3620,6 +3627,21 @@ export default function ChatWindowPage() {
                   </div>
                 </div>
               );
+              if (splitStreamingTrace && summary) {
+                return (
+                  <Fragment key={item.id}>
+                    <div className="message-item assistant running-trace-item">
+                      <div className="message-row assistant">
+                        <div className="bubble has-trace">
+                          {renderAssistantTrace(traceTurnId, summary, details, expanded)}
+                        </div>
+                      </div>
+                    </div>
+                    {messageNode}
+                  </Fragment>
+                );
+              }
+              return messageNode;
             })}
             {showFallbackRunningStatus && (
               <div className={`message-item assistant ${fallbackTraceSummary ? 'running-trace-item' : 'status-only-item'}`}>
