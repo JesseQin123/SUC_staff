@@ -12,7 +12,7 @@ from app.api.chat import (
     create_chat_session,
 )
 from app.core.agent_loop import AgentLoop, AgentLoopPreconditionError
-from app.db.models import AgentProfile, ChatSession, ModelConfig, Tenant, User
+from app.db.models import AgentProfile, ChatSession, ModelConfig, PersonaConfig, Tenant, User
 from app.session.session_schema import ChatSessionCreateRequest, ChatTurnRequest
 
 
@@ -199,6 +199,67 @@ def test_chat_turn_rejects_disabled_selected_model_config() -> None:
             )
 
         assert exc_info.value.code == "disabled_model_config"
+
+
+def test_agent_persona_prompt_includes_employee_identity_and_metadata() -> None:
+    with _test_session() as db:
+        db.add(Tenant(id="tenant_demo", name="Demo"))
+        db.add(
+            AgentProfile(
+                id="agent_dev",
+                tenant_id="tenant_demo",
+                name="研发员工",
+                description="负责研发资料查询、SOP 执行和交付记录沉淀。",
+                is_overall=False,
+                metadata_json={
+                    "role_name": "研发",
+                    "work_styles": ["目标明确", "证据优先"],
+                    "expertise_tags": ["代码检索", "SOP 执行"],
+                    "work_modes": ["理解需求", "推进执行"],
+                    "owner_user_id": "user_demo",
+                },
+            )
+        )
+        db.commit()
+
+        prompt = AgentLoop(db)._get_persona_prompt("tenant_demo", "agent_dev")
+
+        assert prompt is not None
+        assert "员工名称：研发员工" in prompt
+        assert "员工描述：负责研发资料查询、SOP 执行和交付记录沉淀。" in prompt
+        assert "岗位：研发" in prompt
+        assert "工作风格：目标明确、证据优先" in prompt
+        assert "擅长领域：代码检索、SOP 执行" in prompt
+        assert "工作方式：理解需求、推进执行" in prompt
+        assert "owner_user_id" not in prompt
+        assert "user_demo" not in prompt
+
+
+def test_agent_persona_prompt_keeps_custom_prompt_with_identity() -> None:
+    with _test_session() as db:
+        db.add(Tenant(id="tenant_demo", name="Demo"))
+        db.add(PersonaConfig(tenant_id="tenant_demo", system_prompt="全局员工设定"))
+        db.add(
+            AgentProfile(
+                id="agent_finance",
+                tenant_id="tenant_demo",
+                name="财务员工",
+                description="负责报销核对。",
+                persona_prompt="只能在有证据时给结论。\n必要时先追问缺失凭证。",
+                is_overall=False,
+                metadata_json={"role_name": "财务"},
+            )
+        )
+        db.commit()
+
+        prompt = AgentLoop(db)._get_persona_prompt("tenant_demo", "agent_finance")
+
+        assert prompt is not None
+        assert "员工名称：财务员工" in prompt
+        assert "岗位：财务" in prompt
+        assert "员工角色补充要求：" in prompt
+        assert "只能在有证据时给结论。\n必要时先追问缺失凭证。" in prompt
+        assert "全局员工设定" not in prompt
 
 
 def _test_session() -> Session:
