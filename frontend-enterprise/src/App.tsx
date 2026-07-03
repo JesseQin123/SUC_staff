@@ -39,6 +39,7 @@ import ToolsPage, { ToolEditPage, ToolNewPage, ToolTestPage } from './pages/Tool
 import { useIsMobile } from './hooks/use-mobile';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { toast } from 'sonner';
 import type { AgentProfileRead } from './types';
 
 const { Header, Sider, Content } = Layout;
@@ -232,17 +233,22 @@ function Shell({
       onboarded_at: new Date().toISOString().slice(0, 10),
       blank_onboarding: isBlankOnboarding,
     };
-    const created = await api.post<AgentProfileRead>('/api/enterprise/agents', {
-      tenant_id: TENANT_ID,
-      name,
-      description,
-      source_mode: agentForm.sourceMode,
-      copy_from_agent_id: agentForm.sourceMode === 'copy' ? agentForm.copyFromAgentId || undefined : undefined,
-      metadata: isBlankOnboarding ? employeeBlankMetadata(baseMetadata) : baseMetadata,
-    });
-    await loadAgents();
-    changeAgentScope(created.id);
-    setAgentCreateOpen(false);
+    try {
+      const created = await api.post<AgentProfileRead>('/api/enterprise/agents', {
+        tenant_id: TENANT_ID,
+        name,
+        description,
+        source_mode: agentForm.sourceMode,
+        copy_from_agent_id: agentForm.sourceMode === 'copy' ? agentForm.copyFromAgentId || undefined : undefined,
+        metadata: isBlankOnboarding ? employeeBlankMetadata(baseMetadata) : baseMetadata,
+      });
+      await loadAgents();
+      changeAgentScope(created.id);
+      setAgentCreateOpen(false);
+      toast.success('数字员工创建成功');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '创建数字员工失败');
+    }
   }
 
   return (
