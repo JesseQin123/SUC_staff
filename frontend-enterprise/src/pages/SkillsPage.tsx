@@ -18,6 +18,8 @@ import type { ColumnsType } from 'antd/es/table';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api, TENANT_ID } from '../api/client';
+import type { EnterpriseAuthUser } from '../auth';
+import AppHeader from '@/components/AppHeader';
 import type { AgentProfileRead, SkillRead, SkillVersionRead } from '../types';
 
 const ENTERPRISE_AGENT_STORAGE_KEY = 'ultrarag_enterprise_agent_scope';
@@ -51,7 +53,13 @@ type NumericSkillMetric =
   | 'recent_positive_rate'
   | 'recent_negative_rate';
 
-export default function SkillsPage() {
+export default function SkillsPage({
+  currentUser,
+  onLogout,
+}: {
+  currentUser?: EnterpriseAuthUser;
+  onLogout?: () => void;
+} = {}) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [rows, setRows] = useState<SkillRead[]>([]);
@@ -475,14 +483,14 @@ export default function SkillsPage() {
   }
 
   return (
-    <>
-      <div className="page-title">
-        <div>
-          <Typography.Title level={3}>SOP</Typography.Title>
-        </div>
-      </div>
+    <div className="min-h-full box-border px-[48px] pt-[32px] pb-[43px] max-[900px]:px-[16px]" aria-busy={loading}>
+      <AppHeader
+        onLogout={onLogout}
+        userName={currentUser?.username}
+        left={<Typography.Title level={3} style={{ marginBottom: 0 }}>SOP</Typography.Title>}
+      />
       <Card
-        className="data-card"
+        className="data-card mt-[20px]"
         title={isOverallAgent ? 'SOP 广场列表' : '本地 SOP'}
         extra={(
           <Dropdown
@@ -717,7 +725,7 @@ export default function SkillsPage() {
           </div>
         )}
       </Modal>
-    </>
+    </div>
   );
 }
 

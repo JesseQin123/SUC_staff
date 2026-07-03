@@ -279,23 +279,23 @@ function Shell({
               <Route path="/enterprise/platform/:kind" element={<OpenPlatformPage currentUser={auth.user} isAdmin={isAdmin} />} />
               <Route path="/enterprise/dashboard" element={<DashboardPage currentUser={auth.user} isAdmin={isAdmin} onLogout={onLogout} />} />
               <Route path="/enterprise/agents" element={<AgentsPage currentUser={auth.user} isAdmin={isAdmin} onCreateAgent={openCreateAgentModal} onLogout={onLogout} />} />
-              <Route path="/enterprise/memories" element={<MemoriesPage />} />
-              <Route path="/enterprise/knowledge" element={<KnowledgeManagePage />} />
+              <Route path="/enterprise/memories" element={<MemoriesPage currentUser={auth.user} onLogout={onLogout} />} />
+              <Route path="/enterprise/knowledge" element={<KnowledgeManagePage currentUser={auth.user} onLogout={onLogout} />} />
               <Route path="/enterprise/knowledge/new" element={<KnowledgeAddPage />} />
-              <Route path="/enterprise/feedback" element={<FeedbackPage />} />
-              <Route path="/enterprise/scheduled-tasks" element={<ScheduledTasksPage />} />
-              <Route path="/enterprise/scheduled-tasks/new" element={<ScheduledTaskNewPage />} />
-              <Route path="/enterprise/scheduled-tasks/:taskId/edit" element={<ScheduledTaskEditPage />} />
-              <Route path="/enterprise/skills" element={<SkillsPage />} />
-              <Route path="/enterprise/general-skills" element={<GeneralSkillsPage />} />
-              <Route path="/enterprise/general-skills/new" element={<GeneralSkillNewPage />} />
-              <Route path="/enterprise/general-skills/:slug/edit" element={<GeneralSkillEditPage />} />
-              <Route path="/enterprise/accounts" element={isAdmin ? <AccountsPage /> : <Navigate to={EnterpriseRoute.Dashboard} replace />} />
-              <Route path="/enterprise/models" element={isAdmin ? <ModelsPage /> : <Navigate to={EnterpriseRoute.Dashboard} replace />} />
-              <Route path="/enterprise/tools" element={<ToolsPage />} />
-              <Route path="/enterprise/tools/new" element={<ToolNewPage />} />
-              <Route path="/enterprise/tools/:toolId/edit" element={<ToolEditPage />} />
-              <Route path="/enterprise/tools/:toolId/test" element={<ToolTestPage />} />
+              <Route path="/enterprise/feedback" element={<FeedbackPage currentUser={auth.user} onLogout={onLogout} />} />
+              <Route path="/enterprise/scheduled-tasks" element={<ScheduledTasksPage currentUser={auth.user} onLogout={onLogout} />} />
+              <Route path="/enterprise/scheduled-tasks/new" element={<ScheduledTaskNewPage currentUser={auth.user} onLogout={onLogout} />} />
+              <Route path="/enterprise/scheduled-tasks/:taskId/edit" element={<ScheduledTaskEditPage currentUser={auth.user} onLogout={onLogout} />} />
+              <Route path="/enterprise/skills" element={<SkillsPage currentUser={auth.user} onLogout={onLogout} />} />
+              <Route path="/enterprise/general-skills" element={<GeneralSkillsPage currentUser={auth.user} onLogout={onLogout} />} />
+              <Route path="/enterprise/general-skills/new" element={<GeneralSkillNewPage currentUser={auth.user} onLogout={onLogout} />} />
+              <Route path="/enterprise/general-skills/:slug/edit" element={<GeneralSkillEditPage currentUser={auth.user} onLogout={onLogout} />} />
+              <Route path="/enterprise/accounts" element={<AccountsPage currentUser={auth.user} onLogout={onLogout} />} />
+              <Route path="/enterprise/models" element={<ModelsPage currentUser={auth.user} onLogout={onLogout} />} />
+              <Route path="/enterprise/tools" element={<ToolsPage currentUser={auth.user} onLogout={onLogout} />} />
+              <Route path="/enterprise/tools/new" element={<ToolNewPage currentUser={auth.user} onLogout={onLogout} />} />
+              <Route path="/enterprise/tools/:toolId/edit" element={<ToolEditPage currentUser={auth.user} onLogout={onLogout} />} />
+              <Route path="/enterprise/tools/:toolId/test" element={<ToolTestPage currentUser={auth.user} onLogout={onLogout} />} />
               <Route path="/enterprise/persona" element={<Navigate to="/enterprise/dashboard" replace />} />
               <Route path="*" element={<Navigate to="/enterprise/dashboard" replace />} />
             </Routes>

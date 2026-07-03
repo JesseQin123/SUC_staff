@@ -15,8 +15,15 @@ import type { ColumnsType } from 'antd/es/table';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, TENANT_ID } from '../api/client';
+import type { EnterpriseAuthUser } from '../auth';
+import AppHeader from '@/components/AppHeader';
 import CodeBlock from '../components/CodeBlock';
 import type { AgentProfileRead, ToolRead } from '../types';
+
+type ToolPageProps = {
+  currentUser?: EnterpriseAuthUser;
+  onLogout?: () => void;
+};
 
 const ENTERPRISE_AGENT_STORAGE_KEY = 'ultrarag_enterprise_agent_scope';
 const TOOL_FORM_INITIAL_VALUES = {
@@ -39,7 +46,7 @@ type ToolFormValues = typeof TOOL_FORM_INITIAL_VALUES & {
   url?: string;
 };
 
-export default function ToolsPage() {
+export default function ToolsPage({ currentUser, onLogout }: ToolPageProps = {}) {
   const [rows, setRows] = useState<ToolRead[]>([]);
   const [agentId, setAgentId] = useState(() => window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '');
   const [isOverallAgent, setIsOverallAgent] = useState(true);
@@ -183,14 +190,14 @@ export default function ToolsPage() {
   }
 
   return (
-    <>
-      <div className="page-title">
-        <div>
-          <Typography.Title level={3}>{isOverallAgent ? '工具广场' : '工具'}</Typography.Title>
-        </div>
-      </div>
+    <div className="min-h-full box-border px-[48px] pt-[32px] pb-[43px] max-[900px]:px-[16px]">
+      <AppHeader
+        onLogout={onLogout}
+        userName={currentUser?.username}
+        left={<Typography.Title level={3} style={{ marginBottom: 0 }}>{isOverallAgent ? '工具广场' : '工具'}</Typography.Title>}
+      />
       <Card
-        className="data-card tools-list-card"
+        className="data-card tools-list-card mt-[20px]"
         title={isOverallAgent ? '工具广场列表' : '员工工具'}
         extra={(
           <Space>
@@ -254,19 +261,19 @@ export default function ToolsPage() {
           size="middle"
         />
       </Card>
-    </>
+    </div>
   );
 }
 
-export function ToolNewPage() {
-  return <ToolEditorPage mode="new" />;
+export function ToolNewPage(props: ToolPageProps = {}) {
+  return <ToolEditorPage mode="new" {...props} />;
 }
 
-export function ToolEditPage() {
-  return <ToolEditorPage mode="edit" />;
+export function ToolEditPage(props: ToolPageProps = {}) {
+  return <ToolEditorPage mode="edit" {...props} />;
 }
 
-function ToolEditorPage({ mode }: { mode: 'new' | 'edit' }) {
+function ToolEditorPage({ mode, currentUser, onLogout }: { mode: 'new' | 'edit' } & ToolPageProps) {
   const [form] = Form.useForm<ToolFormValues>();
   const [tool, setTool] = useState<ToolRead | null>(null);
   const [loading, setLoading] = useState(false);
@@ -327,14 +334,20 @@ function ToolEditorPage({ mode }: { mode: 'new' | 'edit' }) {
   }
 
   return (
-    <>
-      <div className="page-title">
-        <div>
-          <Typography.Title level={3}>{isEdit ? '编辑工具' : '新建空白工具'}</Typography.Title>
-          <Typography.Text type="secondary">
-            {isEdit ? '修改工具定义，并在右侧验证当前配置或已保存版本。' : '填写工具定义后，可先用右侧探测区测试请求与返回结构。'}
-          </Typography.Text>
-        </div>
+    <div className="min-h-full box-border px-[48px] pt-[32px] pb-[43px] max-[900px]:px-[16px]">
+      <AppHeader
+        onLogout={onLogout}
+        userName={currentUser?.username}
+        left={(
+          <div>
+            <Typography.Title level={3} style={{ marginBottom: 4 }}>{isEdit ? '编辑工具' : '新建空白工具'}</Typography.Title>
+            <Typography.Text type="secondary">
+              {isEdit ? '修改工具定义，并在右侧验证当前配置或已保存版本。' : '填写工具定义后，可先用右侧探测区测试请求与返回结构。'}
+            </Typography.Text>
+          </div>
+        )}
+      />
+      <div className="page-title mt-1" style={{ justifyContent: 'flex-end' }}>
         <Space>
           <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/enterprise/tools')}>返回工具</Button>
           {isEdit && tool && (
@@ -354,11 +367,11 @@ function ToolEditorPage({ mode }: { mode: 'new' | 'edit' }) {
           {isEdit && tool && <SavedToolTestCard tool={tool} />}
         </Space>
       </div>
-    </>
+    </div>
   );
 }
 
-export function ToolTestPage() {
+export function ToolTestPage({ currentUser, onLogout }: ToolPageProps = {}) {
   const [tool, setTool] = useState<ToolRead | null>(null);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
@@ -376,14 +389,20 @@ export function ToolTestPage() {
   }, [toolId]);
 
   return (
-    <>
-      <div className="page-title">
-        <div>
-          <Typography.Title level={3}>工具测试</Typography.Title>
-          <Typography.Text type="secondary">
-            用测试参数直接调用已保存工具，检查员工后续调用时的实际返回。
-          </Typography.Text>
-        </div>
+    <div className="min-h-full box-border px-[48px] pt-[32px] pb-[43px] max-[900px]:px-[16px]">
+      <AppHeader
+        onLogout={onLogout}
+        userName={currentUser?.username}
+        left={(
+          <div>
+            <Typography.Title level={3} style={{ marginBottom: 4 }}>工具测试</Typography.Title>
+            <Typography.Text type="secondary">
+              用测试参数直接调用已保存工具，检查员工后续调用时的实际返回。
+            </Typography.Text>
+          </div>
+        )}
+      />
+      <div className="page-title mt-1" style={{ justifyContent: 'flex-end' }}>
         <Space>
           <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/enterprise/tools')}>返回工具</Button>
           {tool && <Button onClick={() => navigate(`/enterprise/tools/${tool.id}/edit`)}>编辑工具</Button>}
@@ -445,7 +464,7 @@ export function ToolTestPage() {
         </Card>
         {tool && <SavedToolTestCard tool={tool} standalone />}
       </div>
-    </>
+    </div>
   );
 }
 

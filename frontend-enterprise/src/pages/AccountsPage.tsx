@@ -3,6 +3,8 @@ import { Button, Card, Input, Modal, Space, Table, Typography, message } from 'a
 import type { ColumnsType } from 'antd/es/table';
 import { useEffect, useState } from 'react';
 import { api, TENANT_ID } from '../api/client';
+import type { EnterpriseAuthUser } from '../auth';
+import AppHeader from '@/components/AppHeader';
 
 type EmployeeAccount = {
   id: string;
@@ -24,7 +26,13 @@ type AccountCreateDraft = {
   password: string;
 };
 
-export default function AccountsPage() {
+export default function AccountsPage({
+  currentUser,
+  onLogout,
+}: {
+  currentUser?: EnterpriseAuthUser;
+  onLogout?: () => void;
+} = {}) {
   const [rows, setRows] = useState<EmployeeAccount[]>([]);
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState<EmployeeAccount | null>(null);
@@ -155,11 +163,13 @@ export default function AccountsPage() {
   ];
 
   return (
-    <div className="page accounts-page">
-      <div className="page-title">
-        <div>
-          <Typography.Title level={3}>账号管理</Typography.Title>
-        </div>
+    <div className="min-h-full box-border px-[48px] pt-[32px] pb-[43px] max-[900px]:px-[16px]" aria-busy={loading}>
+      <AppHeader
+        onLogout={onLogout}
+        userName={currentUser?.username}
+        left={<Typography.Title level={3} style={{ marginBottom: 0 }}>账号管理</Typography.Title>}
+      />
+      <div className="page-title mt-1" style={{ justifyContent: 'flex-end' }}>
         <Button icon={<ReloadOutlined />} onClick={() => void load()} loading={loading}>刷新</Button>
       </div>
       <Card

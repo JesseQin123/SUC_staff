@@ -12,6 +12,8 @@ import type { ColumnsType } from 'antd/es/table';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, TENANT_ID } from '../api/client';
+import type { EnterpriseAuthUser } from '../auth';
+import AppHeader from '@/components/AppHeader';
 import type {
   EnterpriseChatSessionRead,
   EnterpriseSessionDetailRead,
@@ -52,7 +54,13 @@ const FILTER_OPTIONS = [
   { label: 'SOP 问题', value: 'sop' },
 ];
 
-export default function FeedbackPage() {
+export default function FeedbackPage({
+  currentUser,
+  onLogout,
+}: {
+  currentUser?: EnterpriseAuthUser;
+  onLogout?: () => void;
+} = {}) {
   const [searchParams] = useSearchParams();
   const [scopedAgentId, setScopedAgentId] = useState(() => window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '');
   const agentId = searchParams.get('agent_id') || scopedAgentId;
@@ -241,12 +249,14 @@ export default function FeedbackPage() {
   ];
 
   return (
-    <>
-      <div className="page-title">
-        <Typography.Title level={3}>对话日志</Typography.Title>
-      </div>
+    <div className="min-h-full box-border px-[48px] pt-[32px] pb-[43px] max-[900px]:px-[16px] grid grid-rows-[auto_1fr] gap-[20px]" aria-busy={loading}>
+      <AppHeader
+        onLogout={onLogout}
+        userName={currentUser?.username}
+        left={<Typography.Title level={3} style={{ marginBottom: 0 }}>对话日志</Typography.Title>}
+      />
       <Card
-        className="conversation-log-card"
+        className="conversation-log-card mt-[20px]"
         title={<><MessageOutlined /> 对话记录与质量分析</>}
         extra={<Button icon={<ReloadOutlined />} onClick={() => void load()} loading={loading}>刷新</Button>}
       >
@@ -339,7 +349,7 @@ export default function FeedbackPage() {
           </div>
         ) : null}
       </Drawer>
-    </>
+    </div>
   );
 }
 

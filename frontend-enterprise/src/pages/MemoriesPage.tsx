@@ -3,6 +3,8 @@ import { Button, Card, Descriptions, Drawer, Empty, Form, Input, Space, Table, T
 import type { ColumnsType } from 'antd/es/table';
 import { useEffect, useMemo, useState } from 'react';
 import { api, TENANT_ID } from '../api/client';
+import type { EnterpriseAuthUser } from '../auth';
+import AppHeader from '@/components/AppHeader';
 import type { MemoryRead } from '../types';
 
 const ENTERPRISE_AGENT_STORAGE_KEY = 'ultrarag_enterprise_agent_scope';
@@ -23,7 +25,13 @@ type MemoryUserGroup = {
   preview: string;
 };
 
-export default function MemoriesPage() {
+export default function MemoriesPage({
+  currentUser,
+  onLogout,
+}: {
+  currentUser?: EnterpriseAuthUser;
+  onLogout?: () => void;
+} = {}) {
   const [rows, setRows] = useState<MemoryRead[]>([]);
   const [detail, setDetail] = useState<MemoryUserGroup | null>(null);
   const [loading, setLoading] = useState(false);
@@ -101,11 +109,13 @@ export default function MemoriesPage() {
   ];
 
   return (
-    <>
-      <div className="page-title">
-        <Typography.Title level={3}>员工记忆</Typography.Title>
-      </div>
-      <Card className="data-card" title={<><DatabaseOutlined /> 员工记忆查询</>}>
+    <div className="min-h-full box-border px-[48px] pt-[32px] pb-[43px] max-[900px]:px-[16px]" aria-busy={loading}>
+      <AppHeader
+        onLogout={onLogout}
+        userName={currentUser?.username}
+        left={<Typography.Title level={3} style={{ marginBottom: 0 }}>员工记忆</Typography.Title>}
+      />
+      <Card className="data-card mt-[20px]" title={<><DatabaseOutlined /> 员工记忆查询</>}>
         <Form form={form} layout="inline" className="toolbar-form" onFinish={load}>
           <Form.Item name="username" label="用户名">
             <Input allowClear placeholder="如 user_demo" />
@@ -178,7 +188,7 @@ export default function MemoriesPage() {
           </div>
         ) : null}
       </Drawer>
-    </>
+    </div>
   );
 }
 

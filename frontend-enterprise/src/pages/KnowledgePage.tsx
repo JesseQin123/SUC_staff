@@ -23,6 +23,8 @@ import { Button, Card, Col, Collapse, Dropdown, Empty, Input, Modal, Progress, R
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api, TENANT_ID } from '../api/client';
+import type { EnterpriseAuthUser } from '../auth';
+import AppHeader from '@/components/AppHeader';
 import type {
   KnowledgeBaseRead,
   KnowledgeBucketRead,
@@ -79,7 +81,12 @@ const DEFAULT_INGEST_STEPS: IngestStepView[] = [
   { key: 'done', label: '完成入库', progress: 1, status: 'pending' },
 ];
 
-export default function KnowledgeManagePage() {
+type KnowledgePageProps = {
+  currentUser?: EnterpriseAuthUser;
+  onLogout?: () => void;
+};
+
+export default function KnowledgeManagePage({ currentUser, onLogout }: KnowledgePageProps = {}) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [documents, setDocuments] = useState<KnowledgeDocumentRead[]>([]);
@@ -717,11 +724,13 @@ export default function KnowledgeManagePage() {
   }
 
   return (
-    <div className="knowledge-page knowledge-manage-page">
-      <div className="knowledge-hero">
-        <div>
-          <Typography.Title level={3}>{isOverallAgent ? '知识库广场' : '知识库'}</Typography.Title>
-        </div>
+    <div className="min-h-full box-border px-[48px] pt-[32px] pb-[43px] max-[900px]:px-[16px]" aria-busy={loading}>
+      <AppHeader
+        onLogout={onLogout}
+        userName={currentUser?.username}
+        left={<Typography.Title level={3} style={{ marginBottom: 0 }}>{isOverallAgent ? '知识库广场' : '知识库'}</Typography.Title>}
+      />
+      <div className="page-title mt-1" style={{ justifyContent: 'flex-end' }}>
         <Space className="page-actions">
           <Button icon={<ReloadOutlined />} onClick={() => refresh()} loading={loading}>刷新</Button>
           <Dropdown

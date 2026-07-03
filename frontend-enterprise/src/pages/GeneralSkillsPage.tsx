@@ -23,6 +23,8 @@ import type { ChangeEvent, DragEvent } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, streamPost, TENANT_ID } from '../api/client';
+import type { EnterpriseAuthUser } from '../auth';
+import AppHeader from '@/components/AppHeader';
 import CodeBlock, { renderCodeTokens } from '../components/CodeBlock';
 import type { AgentProfileRead, GeneralSkillRead, GeneralSkillRunResponse } from '../types';
 
@@ -158,15 +160,20 @@ function RunCodePanel({
   );
 }
 
-export function GeneralSkillNewPage() {
-  return <GeneralSkillEditorPage mode="new" />;
+type GeneralSkillPageProps = {
+  currentUser?: EnterpriseAuthUser;
+  onLogout?: () => void;
+};
+
+export function GeneralSkillNewPage(props: GeneralSkillPageProps = {}) {
+  return <GeneralSkillEditorPage mode="new" {...props} />;
 }
 
-export function GeneralSkillEditPage() {
-  return <GeneralSkillEditorPage mode="edit" />;
+export function GeneralSkillEditPage(props: GeneralSkillPageProps = {}) {
+  return <GeneralSkillEditorPage mode="edit" {...props} />;
 }
 
-export default function GeneralSkillsPage({ embedded = false }: { embedded?: boolean }) {
+export default function GeneralSkillsPage({ embedded = false, currentUser, onLogout }: { embedded?: boolean } & GeneralSkillPageProps) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [rows, setRows] = useState<GeneralSkillRead[]>([]);
@@ -499,12 +506,15 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
   ];
 
   return (
-    <>
+    <div className={embedded ? undefined : 'min-h-full box-border px-[48px] pt-[32px] pb-[43px] max-[900px]:px-[16px]'}>
       {!embedded && (
-        <div className="page-title">
-          <div>
-            <Typography.Title level={3}>{pageTitle}</Typography.Title>
-          </div>
+        <>
+          <AppHeader
+            onLogout={onLogout}
+            userName={currentUser?.username}
+            left={<Typography.Title level={3} style={{ marginBottom: 0 }}>{pageTitle}</Typography.Title>}
+          />
+          <div className="page-title mt-1" style={{ justifyContent: 'flex-end' }}>
           <Space wrap className="page-actions">
             <Button icon={<ReloadOutlined />} onClick={() => void load()}>刷新</Button>
             <Dropdown
@@ -524,7 +534,8 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
               </Button>
             </Dropdown>
           </Space>
-        </div>
+          </div>
+        </>
       )}
 
       <div className="general-skill-list-page">
@@ -629,7 +640,7 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
           />
         </Space>
       </Modal>
-    </>
+    </div>
   );
 }
 
@@ -800,7 +811,7 @@ function normalizedSkillFiles(files: GeneralSkillFile[] = []): string {
   );
 }
 
-function GeneralSkillEditorPage({ mode }: { mode: 'new' | 'edit' }) {
+function GeneralSkillEditorPage({ mode, currentUser, onLogout }: { mode: 'new' | 'edit' } & GeneralSkillPageProps) {
   const navigate = useNavigate();
   const { slug: routeSlug } = useParams();
   const [rows, setRows] = useState<GeneralSkillRead[]>([]);
@@ -1568,16 +1579,22 @@ function GeneralSkillEditorPage({ mode }: { mode: 'new' | 'edit' }) {
   const editorTitle = editingSlug ? `编辑技能：${editingSlug}` : '新增技能';
 
   return (
-    <>
-      <div className="page-title">
-        <div>
-          <Typography.Title level={3}>{mode === 'new' ? '新建技能' : '编辑技能'}</Typography.Title>
-          <Typography.Text type="secondary">
-            {isOverallAgent
-              ? '维护技能广场中的技能定义、文件包和运行测试。'
-              : '维护当前数字员工技能的技能定义、文件包和运行测试。'}
-          </Typography.Text>
-        </div>
+    <div className="min-h-full box-border px-[48px] pt-[32px] pb-[43px] max-[900px]:px-[16px]">
+      <AppHeader
+        onLogout={onLogout}
+        userName={currentUser?.username}
+        left={(
+          <div>
+            <Typography.Title level={3} style={{ marginBottom: 4 }}>{mode === 'new' ? '新建技能' : '编辑技能'}</Typography.Title>
+            <Typography.Text type="secondary">
+              {isOverallAgent
+                ? '维护技能广场中的技能定义、文件包和运行测试。'
+                : '维护当前数字员工技能的技能定义、文件包和运行测试。'}
+            </Typography.Text>
+          </div>
+        )}
+      />
+      <div className="page-title mt-1" style={{ justifyContent: 'flex-end' }}>
         <Space>
           <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/enterprise/general-skills')}>返回列表</Button>
           {mode === 'edit' && <Button icon={<PlusOutlined />} onClick={() => navigate('/enterprise/general-skills/new')}>新建技能</Button>}
@@ -1934,6 +1951,6 @@ function GeneralSkillEditorPage({ mode }: { mode: 'new' | 'edit' }) {
           />
         </Space>
       </Modal>
-    </>
+    </div>
   );
 }

@@ -35,6 +35,8 @@ import type { ColumnsType } from 'antd/es/table';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, TENANT_ID } from '../api/client';
+import type { EnterpriseAuthUser } from '../auth';
+import AppHeader from '@/components/AppHeader';
 import { employeeDisplayName } from '../employee';
 import type { AgentProfileRead, ScheduledTaskRead, ScheduledTaskRunRead } from '../types';
 
@@ -146,7 +148,13 @@ const SCHEDULE_FORMATTERS: Record<
   daily: (_row, schedule) => `每天 ${schedule.time || '09:00'}`,
 };
 
-export default function ScheduledTasksPage() {
+export default function ScheduledTasksPage({
+  currentUser,
+  onLogout,
+}: {
+  currentUser?: EnterpriseAuthUser;
+  onLogout?: () => void;
+} = {}) {
   const [rows, setRows] = useState<ScheduledTaskRead[]>([]);
   const [agents, setAgents] = useState<AgentProfileRead[]>([]);
   const [agentId, setAgentId] = useState(() => window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '');
@@ -420,14 +428,20 @@ export default function ScheduledTasksPage() {
   ];
 
   return (
-    <div className="page scheduled-task-page sd1-scheduled-page">
-      <div className="page-title">
-        <div>
-          <Typography.Title level={3}>定时任务</Typography.Title>
-          <Typography.Paragraph type="secondary">
-            为当前员工设置周期或一次性任务，到点后会新建独立执行记录，并按员工已有 SOP、技能、资料和工具执行。
-          </Typography.Paragraph>
-        </div>
+    <div className="min-h-full box-border px-[48px] pt-[32px] pb-[43px] max-[900px]:px-[16px] grid grid-rows-[auto_1fr] gap-[20px]" aria-busy={loading}>
+      <AppHeader
+        onLogout={onLogout}
+        userName={currentUser?.username}
+        left={(
+          <div>
+            <Typography.Title level={3} style={{ marginBottom: 4 }}>定时任务</Typography.Title>
+            <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+              为当前员工设置周期或一次性任务，到点后会新建独立执行记录，并按员工已有 SOP、技能、资料和工具执行。
+            </Typography.Paragraph>
+          </div>
+        )}
+      />
+      <div className="page-title" style={{ justifyContent: 'flex-end' }}>
         <Space className="scheduled-task-page-actions">
           <Button icon={<ReloadOutlined />} onClick={() => void load()} loading={loading}>刷新</Button>
           <Dropdown
@@ -587,15 +601,20 @@ export default function ScheduledTasksPage() {
   );
 }
 
-export function ScheduledTaskNewPage() {
-  return <ScheduledTaskEditorPage mode="new" />;
+type ScheduledTaskPageProps = {
+  currentUser?: EnterpriseAuthUser;
+  onLogout?: () => void;
+};
+
+export function ScheduledTaskNewPage(props: ScheduledTaskPageProps = {}) {
+  return <ScheduledTaskEditorPage mode="new" {...props} />;
 }
 
-export function ScheduledTaskEditPage() {
-  return <ScheduledTaskEditorPage mode="edit" />;
+export function ScheduledTaskEditPage(props: ScheduledTaskPageProps = {}) {
+  return <ScheduledTaskEditorPage mode="edit" {...props} />;
 }
 
-function ScheduledTaskEditorPage({ mode }: { mode: 'new' | 'edit' }) {
+function ScheduledTaskEditorPage({ mode, currentUser, onLogout }: { mode: 'new' | 'edit' } & ScheduledTaskPageProps) {
   const [form] = Form.useForm<TaskFormValues>();
   const [loading, setLoading] = useState(false);
   const [task, setTask] = useState<ScheduledTaskRead | null>(null);
@@ -677,14 +696,20 @@ function ScheduledTaskEditorPage({ mode }: { mode: 'new' | 'edit' }) {
   }
 
   return (
-    <div className="page scheduled-task-editor-page">
-      <div className="page-title">
-        <div>
-          <Typography.Title level={3}>{isEdit ? '编辑定时任务' : '新建空白定时任务'}</Typography.Title>
-          <Typography.Text type="secondary">
-            保存后到点会拉起一个新的执行记录，并交给当前员工按 SOP、技能、资料和工具执行。
-          </Typography.Text>
-        </div>
+    <div className="min-h-full box-border px-[48px] pt-[32px] pb-[43px] max-[900px]:px-[16px]" aria-busy={loading}>
+      <AppHeader
+        onLogout={onLogout}
+        userName={currentUser?.username}
+        left={(
+          <div>
+            <Typography.Title level={3} style={{ marginBottom: 4 }}>{isEdit ? '编辑定时任务' : '新建空白定时任务'}</Typography.Title>
+            <Typography.Text type="secondary">
+              保存后到点会拉起一个新的执行记录，并交给当前员工按 SOP、技能、资料和工具执行。
+            </Typography.Text>
+          </div>
+        )}
+      />
+      <div className="page-title mt-1" style={{ justifyContent: 'flex-end' }}>
         <Space>
           <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/enterprise/scheduled-tasks')}>返回定时任务</Button>
           <Button type="primary" icon={<SaveOutlined />} loading={loading} onClick={() => void save()}>保存</Button>

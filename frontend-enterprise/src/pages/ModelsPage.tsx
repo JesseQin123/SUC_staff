@@ -3,9 +3,17 @@ import { Button, Card, Form, Input, InputNumber, Space, Switch, Table, Tag, Typo
 import type { ColumnsType } from 'antd/es/table';
 import { useEffect, useState } from 'react';
 import { api, TENANT_ID } from '../api/client';
+import type { EnterpriseAuthUser } from '../auth';
+import AppHeader from '@/components/AppHeader';
 import type { ModelConfigRead } from '../types';
 
-export default function ModelsPage() {
+export default function ModelsPage({
+  currentUser,
+  onLogout,
+}: {
+  currentUser?: EnterpriseAuthUser;
+  onLogout?: () => void;
+} = {}) {
   const [rows, setRows] = useState<ModelConfigRead[]>([]);
   const [selected, setSelected] = useState<ModelConfigRead | null>(null);
   const [form] = Form.useForm();
@@ -108,12 +116,18 @@ export default function ModelsPage() {
   const providerCount = new Set(rows.map((item) => item.provider).filter(Boolean)).size;
 
   return (
-    <div className="page model-config-page">
-      <div className="page-title">
-        <div>
-          <Typography.Title level={3}>模型</Typography.Title>
-          <Typography.Text type="secondary">配置平台使用的 AI 模型，支持接入任何 OpenAI 兼容接口。</Typography.Text>
-        </div>
+    <div className="min-h-full box-border px-[48px] pt-[32px] pb-[43px] max-[900px]:px-[16px]">
+      <AppHeader
+        onLogout={onLogout}
+        userName={currentUser?.username}
+        left={(
+          <div>
+            <Typography.Title level={3} style={{ marginBottom: 4 }}>模型</Typography.Title>
+            <Typography.Text type="secondary">配置平台使用的 AI 模型，支持接入任何 OpenAI 兼容接口。</Typography.Text>
+          </div>
+        )}
+      />
+      <div className="page-title mt-1" style={{ justifyContent: 'flex-end' }}>
         <Space className="page-actions">
           <Button icon={<ReloadOutlined />} onClick={() => load()}>刷新</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={createBlank}>新建模型</Button>
