@@ -53,7 +53,7 @@ import {
 import { Button as UIButton } from '@/components/ui/button';
 import { notify } from '@/components/ui/app-toast';
 import { cn } from '@/lib/utils';
-import { MENU_CONTENT_CLASS, MENU_ITEM_CLASS, MENU_ITEM_DANGER_CLASS, MOBILE_CARD_CLASS, SELECT_TRIGGER_CLASS } from '@/lib/enterprise-ui';
+import { DIALOG_CANCEL_BUTTON_CLASS, DIALOG_FOOTER_CLASS, DIALOG_PRIMARY_BUTTON_CLASS, MENU_CONTENT_CLASS, MENU_ITEM_CLASS, MENU_ITEM_DANGER_CLASS, MOBILE_CARD_CLASS, OUTLINE_ACTION_BUTTON_CLASS, OUTLINE_ACTION_BUTTON_SM_CLASS, SEARCH_COMBO_BUTTON_CLASS, SEARCH_COMBO_CLASS, SEARCH_COMBO_INPUT_CLASS, SELECT_TRIGGER_CLASS } from '@/lib/enterprise-ui';
 import IconAdd from '../assets/icons/add.svg?react';
 import IconChevronDown from '../assets/icons/chevron-down.svg?react';
 import IconClear from '../assets/icons/field-clear.svg?react';
@@ -926,7 +926,7 @@ export default function KnowledgeManagePage({ currentUser, onLogout }: Knowledge
           variant="outline"
           onClick={() => void refresh()}
           disabled={loading}
-          className="h-[34px] gap-[4px] rounded-[10px] border-[0.5px] border-[#e3e7f1] bg-white px-[20px] text-[12px] font-normal text-[#757f9c] hover:border-[#cbd3e6] hover:bg-white hover:text-[#18181a] dark:border-border dark:bg-(--surface) dark:text-muted-foreground dark:hover:bg-(--surface)"
+          className={OUTLINE_ACTION_BUTTON_CLASS}
         >
           <IconRefresh className={cn('size-[14px]', loading && 'animate-spin')} />
           刷新
@@ -1045,9 +1045,9 @@ export default function KnowledgeManagePage({ currentUser, onLogout }: Knowledge
 
         <KCard title="渐进检索调试">
           <div className="flex w-full flex-col gap-[14px]">
-            <div className="flex flex-wrap items-center gap-[8px]">
-              <Input
-                className="min-w-[240px] flex-1"
+            <label className={cn(SEARCH_COMBO_CLASS, 'w-full max-w-[480px]')}>
+              <input
+                className={SEARCH_COMBO_INPUT_CLASS}
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
                 onKeyDown={(event) => {
@@ -1058,8 +1058,15 @@ export default function KnowledgeManagePage({ currentUser, onLogout }: Knowledge
                 }}
                 placeholder="输入知识问题"
               />
-              <UIButton disabled={searchLoading} onClick={() => void runKnowledgeSearch()}>检索</UIButton>
-            </div>
+              <button
+                type="button"
+                className={SEARCH_COMBO_BUTTON_CLASS}
+                disabled={searchLoading}
+                onClick={() => void runKnowledgeSearch()}
+              >
+                {searchLoading ? '检索中…' : '检索'}
+              </button>
+            </label>
           <KnowledgeSearchDebug result={searchResult} loading={searchLoading} />
         </div>
       </KCard>
@@ -1118,7 +1125,7 @@ export default function KnowledgeManagePage({ currentUser, onLogout }: Knowledge
         title={okfLintKnowledgeBase ? `知识图谱检查：${okfLintKnowledgeBase.name}` : '知识图谱检查'}
         width={820}
         onClose={() => setOkfLintReportOpen(false)}
-        footer={<UIButton variant="outline" onClick={() => setOkfLintReportOpen(false)}>关闭</UIButton>}
+        footer={<KDialogCancelButton onClick={() => setOkfLintReportOpen(false)}>关闭</KDialogCancelButton>}
       >
         <div className="flex flex-col gap-[14px]">
           <p className="text-[13px] leading-[1.6] text-[#858b9c] dark:text-muted-foreground">
@@ -1158,11 +1165,11 @@ export default function KnowledgeManagePage({ currentUser, onLogout }: Knowledge
         onClose={() => setViewingConcept(null)}
         footer={(
           <>
-            <UIButton variant="outline" onClick={() => setViewingConcept(null)}>关闭</UIButton>
-            <UIButton onClick={editViewingConcept}>
+            <KDialogCancelButton onClick={() => setViewingConcept(null)}>关闭</KDialogCancelButton>
+            <KDialogPrimaryButton onClick={editViewingConcept}>
               <EditOutlined />
               编辑知识图谱
-            </UIButton>
+            </KDialogPrimaryButton>
           </>
         )}
       >
@@ -1186,8 +1193,8 @@ export default function KnowledgeManagePage({ currentUser, onLogout }: Knowledge
         onClose={() => setEditingConcept(null)}
         footer={(
           <>
-            <UIButton variant="outline" onClick={() => setEditingConcept(null)}>取消</UIButton>
-            <UIButton onClick={() => void saveConcept()}>保存</UIButton>
+            <KDialogCancelButton onClick={() => setEditingConcept(null)} />
+            <KDialogPrimaryButton onClick={() => void saveConcept()}>保存</KDialogPrimaryButton>
           </>
         )}
       >
@@ -1272,8 +1279,8 @@ export default function KnowledgeManagePage({ currentUser, onLogout }: Knowledge
         onClose={() => setEditingKnowledgeBase(null)}
         footer={(
           <>
-            <UIButton variant="outline" onClick={() => setEditingKnowledgeBase(null)}>取消</UIButton>
-            <UIButton onClick={() => void saveKnowledgeBase()}>保存</UIButton>
+            <KDialogCancelButton onClick={() => setEditingKnowledgeBase(null)} />
+            <KDialogPrimaryButton onClick={() => void saveKnowledgeBase()}>保存</KDialogPrimaryButton>
           </>
         )}
       >
@@ -1308,7 +1315,7 @@ export default function KnowledgeManagePage({ currentUser, onLogout }: Knowledge
         title={versionKnowledgeBase ? `版本管理：${versionKnowledgeBase.name}` : '版本管理'}
         width={840}
         onClose={() => setVersionKnowledgeBase(null)}
-        footer={<UIButton variant="outline" onClick={() => setVersionKnowledgeBase(null)}>关闭</UIButton>}
+        footer={<KDialogCancelButton onClick={() => setVersionKnowledgeBase(null)}>关闭</KDialogCancelButton>}
       >
         <DataTable
           aria-label="版本列表"
@@ -1341,8 +1348,8 @@ export default function KnowledgeManagePage({ currentUser, onLogout }: Knowledge
         onClose={() => setEditingDocument(null)}
         footer={(
           <>
-            <UIButton variant="outline" onClick={() => setEditingDocument(null)}>取消</UIButton>
-            <UIButton onClick={() => void saveDocument()}>保存</UIButton>
+            <KDialogCancelButton onClick={() => setEditingDocument(null)} />
+            <KDialogPrimaryButton onClick={() => void saveDocument()}>保存</KDialogPrimaryButton>
           </>
         )}
       >
@@ -1375,8 +1382,8 @@ export default function KnowledgeManagePage({ currentUser, onLogout }: Knowledge
         onClose={() => setEditingBucket(null)}
         footer={(
           <>
-            <UIButton variant="outline" disabled={contentSaving} onClick={() => setEditingBucket(null)}>取消</UIButton>
-            <UIButton disabled={contentSaving} onClick={() => void saveBucketAndChunks()}>保存</UIButton>
+            <KDialogCancelButton disabled={contentSaving} onClick={() => setEditingBucket(null)} />
+            <KDialogPrimaryButton disabled={contentSaving} onClick={() => void saveBucketAndChunks()}>保存</KDialogPrimaryButton>
           </>
         )}
       >
@@ -1867,7 +1874,7 @@ function 目录索引Overview({
           <p className="m-0 line-clamp-3 text-[13px] text-foreground">{documentSummary}</p>
         </div>
         <div className="knowledge-pageindex-actions">
-          <UIButton variant="outline" size="sm" onClick={() => openDetail('document')}>
+          <UIButton variant="outline" className={OUTLINE_ACTION_BUTTON_SM_CLASS} onClick={() => openDetail('document')}>
             <EditOutlined />
             详情
           </UIButton>
@@ -1978,7 +1985,7 @@ function 目录索引Overview({
                 <h4 className="my-[4px] text-[16px] font-semibold text-foreground">{documentTitle}</h4>
                 <p className="m-0 text-[13px] text-foreground">{documentSummary}</p>
               </div>
-              <UIButton variant="outline" onClick={() => onEditDocument(document)}>
+              <UIButton variant="outline" className={OUTLINE_ACTION_BUTTON_SM_CLASS} onClick={() => onEditDocument(document)}>
                 <EditOutlined />
                 修改
               </UIButton>
@@ -2630,6 +2637,30 @@ function KCard({
   );
 }
 
+function KDialogCancelButton({
+  children = '取消',
+  className,
+  ...props
+}: React.ComponentProps<typeof UIButton>) {
+  return (
+    <UIButton variant="outline" className={cn(DIALOG_CANCEL_BUTTON_CLASS, className)} {...props}>
+      {children}
+    </UIButton>
+  );
+}
+
+function KDialogPrimaryButton({
+  children,
+  className,
+  ...props
+}: React.ComponentProps<typeof UIButton>) {
+  return (
+    <UIButton className={cn(DIALOG_PRIMARY_BUTTON_CLASS, className)} {...props}>
+      {children}
+    </UIButton>
+  );
+}
+
 function KDialog({
   open,
   title,
@@ -2653,15 +2684,15 @@ function KDialog({
         aria-describedby={undefined}
         style={width ? { maxWidth: typeof width === 'number' ? `${width}px` : width } : undefined}
         className={cn(
-          'flex max-h-[calc(100dvh-4rem)] w-[calc(100%-2rem)] flex-col gap-[16px] overflow-hidden rounded-[14px] px-[20px] py-[16px] sm:max-w-[560px]',
+          'flex max-h-[calc(100dvh-4rem)] w-[calc(100%-2rem)] flex-col gap-0 overflow-hidden rounded-[16px] p-0 sm:max-w-[560px]',
           className,
         )}
       >
-        <DialogTitle className="px-[12px] text-[14px] font-medium text-foreground" asChild={typeof title !== 'string'}>
+        <DialogTitle className="px-[24px] py-[16px] text-[16px] font-semibold text-foreground" asChild={typeof title !== 'string'}>
           {typeof title === 'string' ? title : <div>{title}</div>}
         </DialogTitle>
-        <div className="min-h-0 flex-1 overflow-y-auto px-[12px]">{children}</div>
-        {footer ? <div className="flex items-center justify-end gap-[8px] px-[12px]">{footer}</div> : null}
+        <div className="min-h-0 flex-1 overflow-y-auto px-[24px] pb-[16px]">{children}</div>
+        {footer ? <div className={DIALOG_FOOTER_CLASS}>{footer}</div> : null}
       </DialogContent>
     </Dialog>
   );
