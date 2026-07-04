@@ -1,4 +1,5 @@
 export { Alert, AlertDescription, AlertTitle } from './alert';
+export { notify, type AppToastOptions } from './app-toast';
 export {
   AlertDialog,
   AlertDialogAction,
@@ -43,6 +44,15 @@ export {
 } from './dropdown-menu';
 export { Input } from './input';
 export { Label } from './label';
+export {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from './pagination';
 export { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from './popover';
 export { RadioGroup, RadioGroupItem } from './radio-group';
 export { ScrollArea, ScrollBar } from './scroll-area';
@@ -83,6 +93,11 @@ export {
   TableRow,
 } from './table';
 export { Tabs, TabsContent, TabsList, TabsTrigger } from './tabs';
-export { UnderlineTabs, type UnderlineTabItem, type UnderlineTabsProps } from './underline-tabs';
+export {
+  UnderlineTabs,
+  type UnderlineTabItem,
+  type UnderlineTabsProps,
+  type UnderlineTabsVariant,
+} from './underline-tabs';
 export { Textarea } from './textarea';
 export { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './tooltip';

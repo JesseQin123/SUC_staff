@@ -39,7 +39,7 @@ import ToolsPage, { ToolEditPage, ToolNewPage, ToolTestPage } from './pages/Tool
 import { useIsMobile } from './hooks/use-mobile';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { toast } from 'sonner';
+import { notify } from '@/components/ui/app-toast';
 import type { AgentProfileRead } from './types';
 
 const { Header, Sider, Content } = Layout;
@@ -245,9 +245,9 @@ function Shell({
       await loadAgents();
       changeAgentScope(created.id);
       setAgentCreateOpen(false);
-      toast.success('数字员工创建成功');
+      notify.success('数字员工创建成功');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '创建数字员工失败');
+      notify.error(error instanceof Error ? error.message : '创建数字员工失败');
     }
   }
 
@@ -440,7 +440,7 @@ export default function App() {
             <LoginPage onLogin={setAuth} />
           )}
         </BrowserRouter>
-        <Toaster richColors closeButton position="top-right" />
+        <Toaster richColors closeButton position="top-center" />
       </TooltipProvider>
     </ConfigProvider>
   );

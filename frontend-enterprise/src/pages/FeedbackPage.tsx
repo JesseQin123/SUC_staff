@@ -1,19 +1,31 @@
-import {
-  BranchesOutlined,
-  CloudSyncOutlined,
-  EyeOutlined,
-  FileSearchOutlined,
-  MessageOutlined,
-  ReloadOutlined,
-  ToolOutlined,
-} from '../icons';
-import { Button, Card, Descriptions, Drawer, Empty, Segmented, Space, Table, Tag, Typography, message } from 'antd';
-import type { ColumnsType } from 'antd/es/table';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { api, TENANT_ID } from '../api/client';
-import type { EnterpriseAuthUser } from '../auth';
+import {
+  Clock,
+  FileSearch,
+  GitBranch,
+  RefreshCw,
+  Workflow,
+  Wrench,
+} from 'lucide-react';
+
 import AppHeader from '@/components/AppHeader';
+import { DataTable, type DataTableColumn } from '@/components/DataTable';
+import { DetailField } from '@/components/DetailField';
+import { Paginator } from '@/components/Paginator';
+import { StatCard } from '@/components/StatCard';
+import { Button as UIButton } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogTitle, UnderlineTabs, type UnderlineTabItem } from '@/components/ui';
+import { notify } from '@/components/ui/app-toast';
+import { cn } from '@/lib/utils';
+import { formatDateTime } from '@/lib/enterprise-ui';
+
+import { api, TENANT_ID } from '../api/client';
+import IconRefresh from '../assets/icons/refresh.svg?react';
+import type { EnterpriseAuthUser } from '../auth';
+import { useClientPagination } from '../hooks/useClientPagination';
+import { StatusBadge } from './scheduled-tasks/StatusBadge';
+import type { BadgeTone } from './scheduled-tasks/shared';
 import type {
   EnterpriseChatSessionRead,
   EnterpriseSessionDetailRead,
@@ -27,6 +39,7 @@ import type {
 } from '../types';
 
 const ENTERPRISE_AGENT_STORAGE_KEY = 'ultrarag_enterprise_agent_scope';
+const FEEDBACK_PAGE_SIZE = 10;
 
 type LogFilter = 'all' | 'up' | 'down' | 'unrated' | 'ability' | 'tool' | 'knowledge' | 'sop';
 
@@ -43,7 +56,7 @@ type ConversationDetail = {
   traces: TurnTraceRead[];
 };
 
-const FILTER_OPTIONS = [
+const FILTER_TABS: UnderlineTabItem<LogFilter>[] = [
   { label: '全部', value: 'all' },
   { label: '好评', value: 'up' },
   { label: '差评', value: 'down' },
@@ -54,6 +67,9 @@ const FILTER_OPTIONS = [
   { label: 'SOP 问题', value: 'sop' },
 ];
 
+const MOBILE_CARD_CLASS =
+  'min-w-0 rounded-[8px] border border-[#eceef1] bg-white p-[14px] dark:border-white/10 dark:bg-[#26272d]';
+
 export default function FeedbackPage({
   currentUser,
   onLogout,
@@ -62,7 +78,9 @@ export default function FeedbackPage({
   onLogout?: () => void;
 } = {}) {
   const [searchParams] = useSearchParams();
-  const [scopedAgentId, setScopedAgentId] = useState(() => window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '');
+  const [scopedAgentId, setScopedAgentId] = useState(
+    () => window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '',
+  );
   const agentId = searchParams.get('agent_id') || scopedAgentId;
   const [sessions, setSessions] = useState<EnterpriseChatSessionRead[]>([]);
   const [downRows, setDownRows] = useState<FeedbackSessionRead[]>([]);
@@ -76,7 +94,11 @@ export default function FeedbackPage({
 
   useEffect(() => {
     const onScopeChange = (event: Event) => {
-      setScopedAgentId((event as CustomEvent<{ agentId?: string }>).detail?.agentId || window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '');
+      setScopedAgentId(
+        (event as CustomEvent<{ agentId?: string }>).detail?.agentId ||
+          window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) ||
+          '',
+      );
     };
     window.addEventListener('ultrarag-enterprise-agent-scope-change', onScopeChange);
     return () => window.removeEventListener('ultrarag-enterprise-agent-scope-change', onScopeChange);
@@ -87,9 +109,7 @@ export default function FeedbackPage({
     try {
       const agentQuery = agentId ? `&agent_id=${encodeURIComponent(agentId)}` : '';
       const [sessionResult, downResult, upResult, summaryResult] = await Promise.all([
-        api.get<EnterpriseChatSessionRead[]>(
-          `/api/enterprise/sessions?tenant_id=${TENANT_ID}${agentQuery}`,
-        ),
+        api.get<EnterpriseChatSessionRead[]>(`/api/enterprise/sessions?tenant_id=${TENANT_ID}${agentQuery}`),
         api.get<FeedbackSessionRead[]>(`/api/enterprise/feedback/sessions?tenant_id=${TENANT_ID}&rating=down${agentQuery}`),
         api.get<FeedbackSessionRead[]>(`/api/enterprise/feedback/sessions?tenant_id=${TENANT_ID}&rating=up${agentQuery}`),
         api.get<FeedbackSummaryRead>(`/api/enterprise/feedback/summary?tenant_id=${TENANT_ID}${agentQuery}`),
@@ -99,7 +119,7 @@ export default function FeedbackPage({
       setUpRows(upResult);
       setSummary(summaryResult);
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '查询对话日志失败');
+      notify.error(error instanceof Error ? error.message : '查询对话日志失败');
     } finally {
       setLoading(false);
     }
@@ -107,6 +127,7 @@ export default function FeedbackPage({
 
   useEffect(() => {
     void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentId]);
 
   const rows = useMemo<ConversationLogRow[]>(() => {
@@ -121,26 +142,30 @@ export default function FeedbackPage({
       }));
   }, [agentId, downRows, sessions, upRows]);
 
-  const filteredRows = useMemo(() => rows.filter((row) => {
-    if (filter === 'all') return true;
-    if (filter === 'up') return Boolean(row.upFeedback);
-    if (filter === 'down') return Boolean(row.downFeedback);
-    if (filter === 'unrated') return !row.upFeedback && !row.downFeedback;
-    if (filter === 'ability') return row.downFeedback?.primary_bucket === 'model_issue';
-    if (filter === 'tool') return row.downFeedback?.primary_bucket === 'tool_or_system_issue';
-    if (filter === 'sop') return row.downFeedback?.primary_bucket === 'skill_issue';
-    if (filter === 'knowledge') return row.downFeedback?.primary_bucket === 'unknown';
-    return true;
-  }), [filter, rows]);
+  const filteredRows = useMemo(
+    () =>
+      rows.filter((row) => {
+        if (filter === 'up') return Boolean(row.upFeedback);
+        if (filter === 'down') return Boolean(row.downFeedback);
+        if (filter === 'unrated') return !row.upFeedback && !row.downFeedback;
+        if (filter === 'ability') return row.downFeedback?.primary_bucket === 'model_issue';
+        if (filter === 'tool') return row.downFeedback?.primary_bucket === 'tool_or_system_issue';
+        if (filter === 'sop') return row.downFeedback?.primary_bucket === 'skill_issue';
+        if (filter === 'knowledge') return row.downFeedback?.primary_bucket === 'unknown';
+        return true;
+      }),
+    [filter, rows],
+  );
+
+  const pagination = useClientPagination(filteredRows, FEEDBACK_PAGE_SIZE, filter);
 
   const openDetail = async (row: ConversationLogRow) => {
     setDetailLoading(true);
     try {
       const [sessionDetail, traces] = await Promise.all([
-        api.get<EnterpriseSessionDetailRead>(
-          `/api/enterprise/sessions/${row.id}?tenant_id=${TENANT_ID}`,
-        ),
-        api.get<TurnTraceRead[]>(`/api/chat/sessions/${row.id}/trace?tenant_id=${TENANT_ID}`)
+        api.get<EnterpriseSessionDetailRead>(`/api/enterprise/sessions/${row.id}?tenant_id=${TENANT_ID}`),
+        api
+          .get<TurnTraceRead[]>(`/api/chat/sessions/${row.id}/trace?tenant_id=${TENANT_ID}`)
           .catch(() => [] as TurnTraceRead[]),
       ]);
       let feedbackDetail: FeedbackSessionDetailRead | null = null;
@@ -161,7 +186,7 @@ export default function FeedbackPage({
         traces,
       });
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '加载对话详情失败');
+      notify.error(error instanceof Error ? error.message : '加载对话详情失败');
     } finally {
       setDetailLoading(false);
     }
@@ -178,178 +203,314 @@ export default function FeedbackPage({
     setReanalyzingId(feedbackId);
     try {
       await api.post(`/api/enterprise/feedback/${feedbackId}/reanalyze?tenant_id=${TENANT_ID}`);
-      message.success('已重新提交后台分析');
+      notify.success('已重新提交后台分析');
       await reloadCurrentDetail();
       await load();
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '重新分析失败');
+      notify.error(error instanceof Error ? error.message : '重新分析失败');
     } finally {
       setReanalyzingId(null);
     }
   };
 
-  const columns: ColumnsType<ConversationLogRow> = [
+  const columns: DataTableColumn<ConversationLogRow>[] = [
     {
+      key: 'title',
       title: '对话任务',
-      dataIndex: 'id',
-      width: 240,
-      ellipsis: true,
-      render: (_, row) => row.title || row.summary || row.last_agent_question || row.id,
-    },
-    {
-      title: '数字员工',
-      dataIndex: 'agent_id',
-      width: 180,
-      ellipsis: true,
-      render: (value) => value || '-',
-    },
-    {
-      title: '状态',
-      width: 150,
-      render: (_, row) => (
-        <Space size={4} wrap>
-          {row.upFeedback && <Tag color="green">好评</Tag>}
-          {row.downFeedback && <Tag color="red">差评</Tag>}
-          {!row.upFeedback && !row.downFeedback && <Tag>未评价</Tag>}
-        </Space>
-      ),
-    },
-    {
-      title: '问题归因',
-      width: 160,
-      render: (_, row) => row.downFeedback
-        ? <FeedbackBucketTag label={row.downFeedback.primary_bucket_label} bucket={row.downFeedback.primary_bucket} />
-        : <Tag>暂无缺口</Tag>,
-    },
-    {
-      title: '最近内容',
-      ellipsis: true,
-      render: (_, row) => (
-        <span className="muted-cell">
-          {row.downFeedback?.latest_message || row.upFeedback?.latest_message || row.summary || row.last_agent_question || '-'}
+      width: 200,
+      className: 'whitespace-normal text-[#18181a] dark:text-white',
+      render: (row) => (
+        <span className="line-clamp-1 wrap-break-word">
+          {row.title || row.summary || row.last_agent_question || row.id}
         </span>
       ),
     },
     {
-      title: '更新时间',
-      dataIndex: 'updated_at',
-      width: 180,
-      render: (value) => new Date(value).toLocaleString(),
+      key: 'agent',
+      title: '数字员工',
+      width: 160,
+      render: (row) => <span className="block truncate">{row.agent_id || '-'}</span>,
     },
     {
+      key: 'status',
+      title: '状态',
+      width: 120,
+      render: (row) => (
+        <div className="flex flex-wrap gap-[4px]">
+          {row.downFeedback && <StatusBadge tone="red">差评</StatusBadge>}
+          {row.upFeedback && <StatusBadge tone="green">好评</StatusBadge>}
+          {!row.upFeedback && !row.downFeedback && <StatusBadge tone="blue">未评价</StatusBadge>}
+        </div>
+      ),
+    },
+    {
+      key: 'attribution',
+      title: '问题归因',
+      width: 130,
+      render: (row) => (
+        <span>
+          {row.downFeedback
+            ? row.downFeedback.primary_bucket_label || row.downFeedback.primary_bucket || '待分析'
+            : '暂无缺口'}
+        </span>
+      ),
+    },
+    {
+      key: 'latest',
+      title: '最近内容',
+      className: 'whitespace-normal',
+      render: (row) => (
+        <span className="line-clamp-1 wrap-break-word">
+          {row.downFeedback?.latest_message ||
+            row.upFeedback?.latest_message ||
+            row.summary ||
+            row.last_agent_question ||
+            '-'}
+        </span>
+      ),
+    },
+    {
+      key: 'updated',
+      title: '时间',
+      width: 170,
+      render: (row) => formatDateTime(row.updated_at),
+    },
+    {
+      key: 'actions',
       title: '操作',
-      width: 110,
-      fixed: 'right',
-      render: (_, row) => (
-        <Button icon={<EyeOutlined />} onClick={() => openDetail(row)} loading={detailLoading}>
-          详情
-        </Button>
+      width: 90,
+      render: (row) => (
+        <UIButton
+          variant="link"
+          disabled={detailLoading}
+          onClick={() => void openDetail(row)}
+          className="h-auto p-0 text-[12px] font-normal text-[#1a71ff] hover:text-[#4a8dff] hover:no-underline disabled:text-[#c0c6d4]"
+        >
+          查看
+        </UIButton>
       ),
     },
   ];
 
+  const renderMobileCard = (row: ConversationLogRow) => (
+    <article className={MOBILE_CARD_CLASS} key={row.id}>
+      <div className="flex min-w-0 items-start justify-between gap-[10px]">
+        <strong className="min-w-0 wrap-break-word text-[14px] font-semibold text-[#18181a] dark:text-white">
+          {row.title || row.summary || row.last_agent_question || row.id}
+        </strong>
+        <div className="flex shrink-0 flex-wrap justify-end gap-[4px]">
+          {row.downFeedback && <StatusBadge tone="red">差评</StatusBadge>}
+          {row.upFeedback && <StatusBadge tone="green">好评</StatusBadge>}
+          {!row.upFeedback && !row.downFeedback && <StatusBadge tone="blue">未评价</StatusBadge>}
+        </div>
+      </div>
+      <p className="mt-[8px] line-clamp-2 text-[12px] leading-[1.55] text-[#858b9c]">
+        {row.downFeedback?.latest_message ||
+          row.upFeedback?.latest_message ||
+          row.summary ||
+          row.last_agent_question ||
+          '-'}
+      </p>
+      <div className="mt-[10px] flex items-center justify-between gap-[10px] text-[12px] text-[#858b9c]">
+        <span className="truncate">{row.agent_id || '-'}</span>
+        <span className="shrink-0">{formatDateTime(row.updated_at)}</span>
+      </div>
+      <div className="mt-[10px] flex justify-end">
+        <UIButton
+          variant="link"
+          disabled={detailLoading}
+          onClick={() => void openDetail(row)}
+          className="h-auto p-0 text-[12px] font-normal text-[#1a71ff] hover:text-[#4a8dff] hover:no-underline disabled:text-[#c0c6d4]"
+        >
+          查看
+        </UIButton>
+      </div>
+    </article>
+  );
+
   return (
-    <div className="min-h-full box-border px-[48px] pt-[32px] pb-[43px] max-[900px]:px-[16px] grid grid-rows-[auto_1fr] gap-[20px]" aria-busy={loading}>
-      <AppHeader
-        onLogout={onLogout}
-        userName={currentUser?.username}
-        left={<Typography.Title level={3} style={{ marginBottom: 0 }}>对话日志</Typography.Title>}
-      />
-      <Card
-        className="conversation-log-card mt-[20px]"
-        title={<><MessageOutlined /> 对话记录与质量分析</>}
-        extra={<Button icon={<ReloadOutlined />} onClick={() => void load()} loading={loading}>刷新</Button>}
-      >
-        {summary && (
-          <div className="feedback-summary-panel">
-            <div className="feedback-summary-text">{summary.summary}</div>
-            <Space wrap>
-              <Tag>对话 {rows.length}</Tag>
-              <Tag>反馈 {summary.total_feedback}</Tag>
-              <Tag color="green">好评 {summary.up_count}</Tag>
-              <Tag color="red">差评 {summary.down_count}</Tag>
-              {summary.bucket_counts.map((item) => (
-                <Tag key={item.bucket} color={bucketColor(item.bucket)}>
-                  {item.label} {item.count}
-                </Tag>
-              ))}
-            </Space>
+    <div
+      className="min-h-full box-border px-[48px] pt-[32px] pb-[43px] max-[900px]:px-[16px]"
+      aria-busy={loading}
+    >
+      <AppHeader onLogout={onLogout} userName={currentUser?.username} title="对话日志" />
+
+      <div className="mt-[20px] mb-[16px] flex justify-end">
+        <UIButton
+          variant="outline"
+          onClick={() => void load()}
+          disabled={loading}
+          className="h-8 w-[100px] gap-1 rounded-[10px] border-[0.5px] border-[#e3e7f1] bg-white px-5 text-[12px] font-normal text-[#757f9c] hover:border-[#cbd3e6] hover:bg-white hover:text-[#18181a] dark:border-border dark:bg-(--surface) dark:text-muted-foreground dark:hover:bg-(--surface)"
+        >
+          <IconRefresh className={cn('size-3.5', loading && 'animate-spin')} />
+          刷新
+        </UIButton>
+      </div>
+
+      <div className="flex flex-col gap-[24px] rounded-[20px_20px_0_0] bg-white p-[18px_18px_0_18px] shadow-[0_-4px_16px_0_rgba(0,0,0,0.05)] dark:bg-(--surface)">
+        <div className="flex items-center gap-[6px] px-[12px] text-[#757f9c] dark:text-muted-foreground">
+          <Clock className="size-[14px] shrink-0" />
+          <span className="text-[14px] font-normal leading-none">对话记录</span>
+        </div>
+
+        <div className="flex flex-wrap items-stretch gap-[20px]" aria-label="对话反馈统计">
+          <StatCard value={rows.length} label="对话" />
+          <StatCard value={summary?.total_feedback ?? 0} label="反馈" />
+          <StatCard value={summary?.up_count ?? 0} label="好评" tone="green" />
+          <StatCard value={summary?.down_count ?? 0} label="差评" tone="red" />
+        </div>
+
+        {summary && (summary.summary || summary.bucket_counts.length > 0) && (
+          <div className="flex flex-col gap-[12px] rounded-[14px] border border-[#eef0f4] bg-[#fafbfc] px-[20px] py-[16px] dark:border-white/10 dark:bg-white/5">
+            {summary.summary && (
+              <p className="wrap-break-word text-[13px] leading-[1.7] text-[#464c5e] dark:text-[#c9cdd6]">
+                {summary.summary}
+              </p>
+            )}
+            {summary.bucket_counts.length > 0 && (
+              <div className="flex flex-wrap gap-[6px]">
+                {summary.bucket_counts.map((item) => (
+                  <StatusBadge key={item.bucket} tone={bucketTone(item.bucket)}>
+                    {item.label} {item.count}
+                  </StatusBadge>
+                ))}
+              </div>
+            )}
           </div>
         )}
-        <div className="conversation-log-filter-wrap">
-          <Segmented
-            className="conversation-log-filter"
+
+        <div className="overflow-x-auto">
+          <UnderlineTabs
+            aria-label="对话日志筛选"
+            variant="line"
+            tabClassName="w-auto"
             value={filter}
-            options={FILTER_OPTIONS}
-            onChange={(value) => setFilter(value as LogFilter)}
+            onChange={setFilter}
+            items={FILTER_TABS}
           />
         </div>
-        <Table
-          rowKey="id"
-          columns={columns}
-          dataSource={filteredRows}
-          loading={loading}
-          pagination={{ pageSize: 10 }}
-          locale={{ emptyText: <Empty description="暂无对话日志" /> }}
-          scroll={{ x: 1120 }}
-        />
-      </Card>
-      <Drawer
-        title="对话日志详情"
-        open={Boolean(detail)}
-        width={920}
+
+        <div className="grid gap-[10px] md:hidden">
+          {filteredRows.length ? (
+            pagination.pagedItems.map(renderMobileCard)
+          ) : (
+            <div className="py-[40px] text-center text-[13px] text-[#858b9c]">暂无对话日志</div>
+          )}
+        </div>
+
+        <div className="hidden md:block">
+          <DataTable
+            aria-label="对话日志"
+            columns={columns}
+            data={pagination.pagedItems}
+            rowKey={(row) => row.id}
+            loading={loading}
+            emptyText="暂无对话日志"
+          />
+        </div>
+
+        {filteredRows.length > 0 && (
+          <Paginator
+            aria-label="对话日志分页"
+            className="mt-0 mb-[6px]"
+            page={pagination.page}
+            pageCount={pagination.pageCount}
+            onChange={pagination.setPage}
+          />
+        )}
+      </div>
+
+      <FeedbackDetailDialog
+        detail={detail}
         onClose={() => setDetail(null)}
-        destroyOnClose
+        onReanalyze={reanalyzeFeedback}
+        reanalyzingId={reanalyzingId}
+      />
+    </div>
+  );
+}
+
+function FeedbackDetailDialog({
+  detail,
+  onClose,
+  onReanalyze,
+  reanalyzingId,
+}: {
+  detail: ConversationDetail | null;
+  onClose: () => void;
+  onReanalyze: (feedbackId: string) => void;
+  reanalyzingId: string | null;
+}) {
+  return (
+    <Dialog open={Boolean(detail)} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent
+        aria-describedby={undefined}
+        className="flex max-h-[calc(100dvh-4rem)] w-[calc(100%-2rem)] flex-col gap-[16px] overflow-hidden rounded-[14px] px-[20px] py-[16px] sm:max-w-[900px]"
       >
-        {detail ? (
-          <div className="feedback-detail">
-            <Descriptions bordered size="small" column={1}>
-              <Descriptions.Item label="任务 ID">{String(detail.session.session_id || detail.session.id || '-')}</Descriptions.Item>
-              <Descriptions.Item label="数字员工">{String(detail.session.agent_id || '-')}</Descriptions.Item>
-              <Descriptions.Item label="用户">{displayUser(detail.session)}</Descriptions.Item>
-              <Descriptions.Item label="状态">{String(detail.session.status || '-')}</Descriptions.Item>
-              <Descriptions.Item label="反馈">
-                <Space wrap>
-                  <Tag color="green">好评 {detail.feedback.filter((item) => item.rating === 'up').length}</Tag>
-                  <Tag color="red">差评 {detail.feedback.filter((item) => item.rating === 'down').length}</Tag>
+        <div className="flex items-center gap-[6px] px-[12px] text-[#757f9c] dark:text-muted-foreground">
+          <Clock className="size-[14px] shrink-0" />
+          <DialogTitle className="text-[14px] font-normal leading-none text-[#757f9c] dark:text-muted-foreground">
+            对话日志详情
+          </DialogTitle>
+        </div>
+
+        {detail && (
+          <div className="flex min-h-0 flex-1 flex-col gap-[16px] overflow-y-auto px-[12px]">
+            <div className="grid grid-cols-2 gap-[10px] max-[520px]:grid-cols-1">
+              <DetailField label="任务 ID">
+                {String(detail.session.session_id || detail.session.id || '-')}
+              </DetailField>
+              <DetailField label="数字员工">{String(detail.session.agent_id || '-')}</DetailField>
+              <DetailField label="用户">{displayUser(detail.session)}</DetailField>
+              <DetailField label="状态">{String(detail.session.status || '-')}</DetailField>
+              <DetailField label="反馈" className="col-span-2 max-[520px]:col-span-1">
+                <div className="flex flex-wrap gap-[6px]">
+                  <StatusBadge tone="green">
+                    好评 {detail.feedback.filter((item) => item.rating === 'up').length}
+                  </StatusBadge>
+                  <StatusBadge tone="red">
+                    差评 {detail.feedback.filter((item) => item.rating === 'down').length}
+                  </StatusBadge>
                   {detail.feedback
                     .filter((item) => item.rating === 'down')
                     .map((item) => item.analysis as FeedbackAnalysisRead | undefined)
                     .filter(Boolean)
                     .map((analysis, index) => (
-                      <FeedbackBucketTag
+                      <StatusBadge
                         key={`${analysis?.bucket || 'unknown'}_${index}`}
-                        label={analysis?.bucket_label}
-                        bucket={analysis?.bucket}
-                      />
+                        tone={bucketTone(analysis?.bucket)}
+                      >
+                        {analysis?.bucket_label || analysis?.bucket || '待分析'}
+                      </StatusBadge>
                     ))}
-                </Space>
-              </Descriptions.Item>
-            </Descriptions>
+                </div>
+              </DetailField>
+            </div>
+
             <div className="feedback-conversation">
               {conversationItems(detail).map(({ message: item, trace }) => (
                 <FeedbackMessage
                   key={item.id}
                   item={item}
                   trace={trace}
-                  onReanalyze={reanalyzeFeedback}
+                  onReanalyze={onReanalyze}
                   reanalyzing={Boolean(item.feedback_id && item.feedback_id === reanalyzingId)}
                 />
               ))}
-              {detail.messages.length === 0 && detail.traces.length > 0 ? (
-                detail.traces.map((trace) => (
-                  <div key={trace.turn_id} className="feedback-message-row assistant">
-                    <div className="feedback-message-bubble trace-only">
-                      <FeedbackTraceBlock trace={trace} />
+              {detail.messages.length === 0 && detail.traces.length > 0
+                ? detail.traces.map((trace) => (
+                    <div key={trace.turn_id} className="feedback-message-row assistant">
+                      <div className="feedback-message-bubble trace-only">
+                        <FeedbackTraceBlock trace={trace} />
+                      </div>
                     </div>
-                  </div>
-                ))
-              ) : null}
+                  ))
+                : null}
             </div>
           </div>
-        ) : null}
-      </Drawer>
-    </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -372,38 +533,52 @@ function FeedbackMessage({
       <div className="feedback-message-bubble">
         <div className="feedback-message-meta">
           <span>{isUser ? '用户' : isAssistant ? '员工' : item.role}</span>
-          <span>{new Date(item.created_at).toLocaleString()}</span>
-          {item.feedback_rating === 'down' && <Tag color="red">差评</Tag>}
-          {item.feedback_rating === 'up' && <Tag color="green">好评</Tag>}
-          {item.feedback_analysis && (
-            analysisFailed
-              ? <Tag color="red">分析失败</Tag>
-              : <FeedbackBucketTag label={item.feedback_analysis.bucket_label} bucket={item.feedback_analysis.bucket} />
-          )}
+          <span>{formatDateTime(item.created_at)}</span>
+          {item.feedback_rating === 'down' && <StatusBadge tone="red">差评</StatusBadge>}
+          {item.feedback_rating === 'up' && <StatusBadge tone="green">好评</StatusBadge>}
+          {item.feedback_analysis &&
+            (analysisFailed ? (
+              <StatusBadge tone="red">分析失败</StatusBadge>
+            ) : (
+              <StatusBadge tone={bucketTone(item.feedback_analysis.bucket)}>
+                {item.feedback_analysis.bucket_label || item.feedback_analysis.bucket || '待分析'}
+              </StatusBadge>
+            ))}
         </div>
         {trace && <FeedbackTraceBlock trace={trace} />}
-        <Typography.Paragraph className="feedback-message-content">
-          {item.content}
-        </Typography.Paragraph>
+        <p className="feedback-message-content">{item.content}</p>
         {item.feedback_analysis && item.feedback_rating === 'down' && (
           <div className="feedback-analysis-box">
             <div>
-              <strong>状态：</strong>{analysisStatusLabel(item.feedback_analysis.status)}
-              {item.feedback_analysis.status !== 'failed' && typeof item.feedback_analysis.confidence === 'number' && (
-                <span> · 置信度 {(item.feedback_analysis.confidence * 100).toFixed(0)}%</span>
-              )}
+              <strong>状态：</strong>
+              {analysisStatusLabel(item.feedback_analysis.status)}
+              {item.feedback_analysis.status !== 'failed' &&
+                typeof item.feedback_analysis.confidence === 'number' && (
+                  <span> · 置信度 {(item.feedback_analysis.confidence * 100).toFixed(0)}%</span>
+                )}
             </div>
-            {item.feedback_analysis.summary && <div><strong>改进项：</strong>{item.feedback_analysis.summary}</div>}
-            {item.feedback_analysis.reason && <div><strong>原因：</strong>{item.feedback_analysis.reason}</div>}
+            {item.feedback_analysis.summary && (
+              <div>
+                <strong>改进项：</strong>
+                {item.feedback_analysis.summary}
+              </div>
+            )}
+            {item.feedback_analysis.reason && (
+              <div>
+                <strong>原因：</strong>
+                {item.feedback_analysis.reason}
+              </div>
+            )}
             {item.feedback_analysis.status === 'failed' && item.feedback_id && (
-              <Button
-                size="small"
-                icon={<ReloadOutlined />}
-                loading={reanalyzing}
+              <UIButton
+                variant="outline"
+                disabled={reanalyzing}
                 onClick={() => onReanalyze(item.feedback_id as string)}
+                className="mt-[8px] h-[30px] gap-[4px] rounded-[10px] border-[0.5px] border-[#e3e7f1] bg-white px-[14px] text-[12px] font-normal text-[#757f9c] hover:border-[#cbd3e6] hover:text-[#18181a]"
               >
+                <RefreshCw className={cn('size-3.5', reanalyzing && 'animate-spin')} />
                 重新分析
-              </Button>
+              </UIButton>
             )}
           </div>
         )}
@@ -412,7 +587,9 @@ function FeedbackMessage({
   );
 }
 
-function conversationItems(detail: ConversationDetail): Array<{ message: FeedbackMessageRead; trace?: TurnTraceRead }> {
+function conversationItems(
+  detail: ConversationDetail,
+): Array<{ message: FeedbackMessageRead; trace?: TurnTraceRead }> {
   const tracesByUserMessage = new Map<string, TurnTraceRead>();
   const tracesByTurn = new Map<string, TurnTraceRead>();
   detail.traces.forEach((trace) => {
@@ -426,9 +603,10 @@ function conversationItems(detail: ConversationDetail): Array<{ message: Feedbac
       currentUserMessageId = messageItem.id;
       return { message: messageItem };
     }
-    const trace = messageItem.role === 'assistant'
-      ? tracesByUserMessage.get(currentUserMessageId) || tracesByTurn.get(currentUserMessageId)
-      : undefined;
+    const trace =
+      messageItem.role === 'assistant'
+        ? tracesByUserMessage.get(currentUserMessageId) || tracesByTurn.get(currentUserMessageId)
+        : undefined;
     return { message: messageItem, trace };
   });
 }
@@ -439,7 +617,7 @@ function FeedbackTraceBlock({ trace }: { trace: TurnTraceRead }) {
   return (
     <div className="feedback-trace-block">
       <div className="feedback-trace-header">
-        <CloudSyncOutlined />
+        <Workflow className="size-[14px]" />
         <span>执行记录</span>
         <span>{trace.completed_at ? '已完成' : '执行中'}</span>
       </div>
@@ -480,29 +658,23 @@ function traceDetails(lines: TraceLineRead[]): TraceLineRead[] {
 }
 
 function traceLineIcon(kind: TraceLineRead['kind']) {
-  if (kind === 'skill') return <BranchesOutlined />;
-  if (kind === 'tool') return <ToolOutlined />;
-  if (kind === 'knowledge') return <FileSearchOutlined />;
-  return <CloudSyncOutlined />;
+  if (kind === 'skill') return <GitBranch className="size-[13px]" />;
+  if (kind === 'tool') return <Wrench className="size-[13px]" />;
+  if (kind === 'knowledge') return <FileSearch className="size-[13px]" />;
+  return <Workflow className="size-[13px]" />;
 }
 
 function displayUser(session: Record<string, unknown>): string {
   return String(session.display_name || session.username || session.user_id || '-');
 }
 
-function FeedbackBucketTag({ label, bucket }: { label?: string; bucket?: string }) {
-  if (!label && !bucket) return <Tag>待分析</Tag>;
-  return <Tag color={bucketColor(bucket)}>{label || bucket}</Tag>;
-}
-
-function bucketColor(bucket?: string): string {
-  if (bucket === 'model_issue') return 'volcano';
+function bucketTone(bucket?: string): BadgeTone {
+  if (bucket === 'model_issue') return 'red';
   if (bucket === 'skill_issue') return 'orange';
-  if (bucket === 'tool_or_system_issue') return 'purple';
-  if (bucket === 'user_random_or_unclear') return 'default';
+  if (bucket === 'tool_or_system_issue') return 'blue';
   if (bucket === 'positive_or_resolved') return 'green';
   if (bucket === 'needs_model_analysis') return 'blue';
-  return 'default';
+  return 'gray';
 }
 
 function analysisStatusLabel(status?: string): string {

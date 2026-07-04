@@ -9,24 +9,74 @@ import {
   FileTextOutlined,
   FolderOpenOutlined,
   GithubOutlined,
-  MoreOutlined,
   PlayCircleOutlined,
   PlusOutlined,
-  ReloadOutlined,
   TeamOutlined,
   UploadOutlined,
   DownOutlined,
 } from '../icons';
-import { Button, Card, Dropdown, Empty, Input, Modal, Select, Space, Table, Tag, Typography, message } from 'antd';
-import type { ColumnsType } from 'antd/es/table';
+import { Button, Card, Dropdown, Empty, Input, Modal, Select, Space, Tag, Typography, message } from 'antd';
 import type { ChangeEvent, DragEvent } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Ban, CircleCheck, Copy, Users } from 'lucide-react';
+
 import { api, streamPost, TENANT_ID } from '../api/client';
 import type { EnterpriseAuthUser } from '../auth';
 import AppHeader from '@/components/AppHeader';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { DataTable, type DataTableColumn } from '@/components/DataTable';
+import { Paginator } from '@/components/Paginator';
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  Select as UISelect,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui';
+import { Button as UIButton } from '@/components/ui/button';
+import { notify } from '@/components/ui/app-toast';
+import { cn } from '@/lib/utils';
+import {
+  MENU_CONTENT_CLASS,
+  MENU_ITEM_CLASS,
+  MENU_ITEM_DANGER_CLASS,
+  MOBILE_CARD_CLASS,
+  SELECT_TRIGGER_CLASS,
+  formatDateTime,
+} from '@/lib/enterprise-ui';
+import { StatCard } from '@/components/StatCard';
+import { ResourceImportDialog } from '@/components/ResourceImportDialog';
 import CodeBlock, { renderCodeTokens } from '../components/CodeBlock';
+import IconAdd from '../assets/icons/add.svg?react';
+import IconChevronDown from '../assets/icons/chevron-down.svg?react';
+import IconClear from '../assets/icons/field-clear.svg?react';
+import IconEdit from '../assets/icons/edit.svg?react';
+import IconMore from '../assets/icons/more.svg?react';
+import IconRefresh from '../assets/icons/refresh.svg?react';
+import IconSearch from '../assets/icons/search.svg?react';
+import IconSkill from '../assets/icons/plaza-skill.svg?react';
+import IconTrash from '../assets/icons/trash.svg?react';
+import { useClientPagination } from '../hooks/useClientPagination';
+import { StatusBadge } from './scheduled-tasks/StatusBadge';
+import type { BadgeTone } from './scheduled-tasks/shared';
 import type { AgentProfileRead, GeneralSkillRead, GeneralSkillRunResponse } from '../types';
+
+const GENERAL_SKILL_PAGE_SIZE = 10;
+
+const STATUS_BADGE: Record<GeneralSkillRead['status'], { tone: BadgeTone; text: string }> = {
+  draft: { tone: 'blue', text: '草稿' },
+  published: { tone: 'green', text: '已启用' },
+  archived: { tone: 'gray', text: '已停用' },
+};
 
 const DEFAULT_MARKDOWN = `# 技能说明
 
@@ -177,6 +227,7 @@ export default function GeneralSkillsPage({ embedded = false, currentUser, onLog
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [rows, setRows] = useState<GeneralSkillRead[]>([]);
+  const [loading, setLoading] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | GeneralSkillRead['status']>('all');
   const [agentId, setAgentId] = useState(() => window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '');
@@ -193,19 +244,25 @@ export default function GeneralSkillsPage({ embedded = false, currentUser, onLog
   const [agentImportSourceSkills, setAgentImportSourceSkills] = useState<GeneralSkillRead[]>([]);
   const [agentImportSelectedSkillIds, setAgentImportSelectedSkillIds] = useState<string[]>([]);
   const [agentScopeLoaded, setAgentScopeLoaded] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<GeneralSkillRead | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const pageTitle = isOverallAgent ? '技能广场' : '技能';
+  const listLabel = isOverallAgent ? '技能广场列表' : '技能列表';
 
   const load = () => {
     const agentSuffix = agentId ? `&agent_id=${encodeURIComponent(agentId)}` : '';
+    setLoading(true);
     return api
       .get<GeneralSkillRead[]>(`/api/enterprise/general-skills?tenant_id=${TENANT_ID}${agentSuffix}`)
       .then(setRows)
-      .catch((error) => message.error(error.message));
+      .catch((error) => notify.error(error.message))
+      .finally(() => setLoading(false));
   };
 
   useEffect(() => {
     void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentId]);
 
   useEffect(() => {
@@ -226,7 +283,7 @@ export default function GeneralSkillsPage({ embedded = false, currentUser, onLog
     if (!agentScopeLoaded) return;
     const resourceId = searchParams.get('resourceId') || undefined;
     if (isOverallAgent) {
-      message.warning('请先选择一个数字员工，再从广场复制技能');
+      notify.warning('请先选择一个数字员工，再从广场复制技能');
     } else {
       void requestAgentImport('plaza', resourceId);
     }
@@ -234,6 +291,7 @@ export default function GeneralSkillsPage({ embedded = false, currentUser, onLog
     next.delete('add');
     next.delete('resourceId');
     setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentScopeLoaded, isOverallAgent, searchParams, setSearchParams]);
 
   useEffect(() => {
@@ -254,6 +312,8 @@ export default function GeneralSkillsPage({ embedded = false, currentUser, onLog
     });
   }, [rows, searchText, statusFilter]);
 
+  const pagination = useClientPagination(filteredRows, GENERAL_SKILL_PAGE_SIZE, `${searchText}|${statusFilter}`);
+
   const stats = useMemo(() => ({
     total: rows.length,
     published: rows.filter((row) => row.status === 'published').length,
@@ -268,33 +328,28 @@ export default function GeneralSkillsPage({ embedded = false, currentUser, onLog
         `/api/enterprise/general-skills/${row.slug}/${published ? 'publish' : 'archive'}?tenant_id=${TENANT_ID}${agentSuffix}`,
       );
       setRows((current) => current.map((item) => (item.id === next.id ? next : item)));
-      message.success(published ? '已启用技能' : '已停用技能');
+      notify.success(published ? '已启用技能' : '已停用技能');
     } catch (error) {
-      message.error(error instanceof Error ? error.message : published ? '启用失败' : '停用失败');
+      notify.error(error instanceof Error ? error.message : published ? '启用失败' : '停用失败');
     }
   }
 
-  function confirmDeleteSkill(row: GeneralSkillRead) {
+  async function confirmDeleteSkill() {
+    const row = deleteTarget;
+    if (!row) return;
     const branchMode = !isOverallAgent;
-    Modal.confirm({
-      title: branchMode ? `移除技能：${row.name}` : `删除技能：${row.name}`,
-      content: branchMode
-        ? '这只会在当前数字员工中隐藏该技能；开放广场和其他数字员工仍然保留。'
-        : '删除后该技能不会再出现在技能广场中，此操作不可撤销。',
-      okText: branchMode ? '移除' : '删除',
-      okButtonProps: { danger: true },
-      cancelText: '取消',
-      async onOk() {
-        try {
-          const agentSuffix = agentId ? `&agent_id=${encodeURIComponent(agentId)}` : '';
-          await api.delete(`/api/enterprise/general-skills/${row.slug}?tenant_id=${TENANT_ID}${agentSuffix}`);
-          setRows((current) => current.filter((item) => item.id !== row.id));
-          message.success(branchMode ? '已移除技能' : '已删除技能');
-        } catch (error) {
-          message.error(error instanceof Error ? error.message : '删除失败');
-        }
-      },
-    });
+    setDeleting(true);
+    try {
+      const agentSuffix = agentId ? `&agent_id=${encodeURIComponent(agentId)}` : '';
+      await api.delete(`/api/enterprise/general-skills/${row.slug}?tenant_id=${TENANT_ID}${agentSuffix}`);
+      setRows((current) => current.filter((item) => item.id !== row.id));
+      notify.success(branchMode ? '已移除技能' : '已删除技能');
+      setDeleteTarget(null);
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : branchMode ? '移除失败' : '删除失败');
+    } finally {
+      setDeleting(false);
+    }
   }
 
   function requestClawHubImport() {
@@ -310,24 +365,6 @@ export default function GeneralSkillsPage({ embedded = false, currentUser, onLog
     clawhubAbortRef.current = null;
     setClawhubLoading(false);
     setClawhubModalOpen(false);
-  }
-
-  function handleCreateAction(key: string) {
-    if (key === 'blank') {
-      navigate('/enterprise/general-skills/new');
-      return;
-    }
-    if (key === 'plaza') {
-      void requestAgentImport('plaza');
-      return;
-    }
-    if (key === 'opensource') {
-      requestClawHubImport();
-      return;
-    }
-    if (key === 'employee') {
-      void requestAgentImport('employee');
-    }
   }
 
   async function requestAgentImport(mode: GeneralSkillImportMode, selectedResourceId?: string) {
@@ -351,7 +388,7 @@ export default function GeneralSkillsPage({ embedded = false, currentUser, onLog
         setAgentImportSourceSkills([]);
       }
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '加载员工列表失败');
+      notify.error(error instanceof Error ? error.message : '加载员工列表失败');
     }
   }
 
@@ -368,22 +405,22 @@ export default function GeneralSkillsPage({ embedded = false, currentUser, onLog
       setAgentImportSourceSkills(publishedRows);
       return publishedRows;
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '加载来源技能失败');
+      notify.error(error instanceof Error ? error.message : '加载来源技能失败');
       return [];
     }
   }
 
   async function submitAgentImportSkills() {
     if (!agentId) {
-      message.warning('请先选择一个数字员工');
+      notify.warning('请先选择一个数字员工');
       return;
     }
     if (!agentImportSourceAgentId) {
-      message.warning(agentImportMode === 'plaza' ? '请选择技能广场' : '请选择复制来源');
+      notify.warning(agentImportMode === 'plaza' ? '请选择技能广场' : '请选择复制来源');
       return;
     }
     if (!agentImportSelectedSkillIds.length) {
-      message.warning('请选择要复制的技能');
+      notify.warning('请选择要复制的技能');
       return;
     }
     setAgentImportLoading(true);
@@ -394,11 +431,11 @@ export default function GeneralSkillsPage({ embedded = false, currentUser, onLog
         resource_type: 'general_skill',
         resource_ids: agentImportSelectedSkillIds,
       });
-      message.success(`已复制 ${agentImportSelectedSkillIds.length} 个技能`);
+      notify.success(`已复制 ${agentImportSelectedSkillIds.length} 个技能`);
       setAgentImportOpen(false);
       await load();
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '复制技能失败');
+      notify.error(error instanceof Error ? error.message : '复制技能失败');
     } finally {
       setAgentImportLoading(false);
     }
@@ -406,7 +443,7 @@ export default function GeneralSkillsPage({ embedded = false, currentUser, onLog
 
   async function importClawHubSource() {
     if (!clawhubSource.trim()) {
-      message.warning('请输入开源平台地址、GitHub 仓库或 SKILL.md 链接');
+      notify.warning('请输入开源平台地址、GitHub 仓库或 SKILL.md 链接');
       return;
     }
     const controller = new AbortController();
@@ -421,16 +458,16 @@ export default function GeneralSkillsPage({ embedded = false, currentUser, onLog
         status: 'published',
       }, controller.signal);
       if (controller.signal.aborted) return;
-      message.success(`已新增 ${row.name}`);
+      notify.success(`已新增 ${row.name}`);
       setRows((current) => [row, ...current.filter((item) => item.id !== row.id && item.slug !== row.slug)]);
       setClawhubModalOpen(false);
       navigate(`/enterprise/general-skills/${encodeURIComponent(row.slug)}/edit`);
     } catch (error) {
       if (isAbortError(error)) {
-        message.info('已取消导入');
+        notify.info('已取消导入');
         return;
       }
-      message.error(error instanceof Error ? error.message : '从开源平台导入失败');
+      notify.error(error instanceof Error ? error.message : '从开源平台导入失败');
     } finally {
       if (clawhubAbortRef.current === controller) {
         clawhubAbortRef.current = null;
@@ -439,217 +476,374 @@ export default function GeneralSkillsPage({ embedded = false, currentUser, onLog
     }
   }
 
-  const columns: ColumnsType<GeneralSkillRead> = [
+  function renderActions(row: GeneralSkillRead) {
+    const published = row.status === 'published';
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          aria-label="技能操作"
+          className="ml-auto grid size-7 place-items-center rounded-[8px] text-[#1a71ff] transition-colors outline-none hover:bg-black/5 hover:text-[#4a8dff] focus-visible:bg-black/5 dark:hover:bg-white/10"
+        >
+          <IconMore className="size-3.5" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className={MENU_CONTENT_CLASS}>
+          <DropdownMenuItem
+            className={MENU_ITEM_CLASS}
+            onSelect={() => navigate(`/enterprise/general-skills/${encodeURIComponent(row.slug)}/edit`)}
+          >
+            <IconEdit />
+            {isOverallAgent ? '编辑' : '编辑本地版本'}
+          </DropdownMenuItem>
+          {published ? (
+            <DropdownMenuItem className={MENU_ITEM_CLASS} onSelect={() => void setSkillPublished(row, false)}>
+              <Ban />
+              停用
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem className={MENU_ITEM_CLASS} onSelect={() => void setSkillPublished(row, true)}>
+              <CircleCheck />
+              启用
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuSeparator className="my-[2px] bg-[#eef0f4] dark:bg-white/10" />
+          <DropdownMenuItem
+            variant="destructive"
+            className={MENU_ITEM_DANGER_CLASS}
+            onSelect={() => setDeleteTarget(row)}
+          >
+            <IconTrash />
+            {isOverallAgent ? '删除' : '移除'}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  }
+
+  const columns: DataTableColumn<GeneralSkillRead>[] = [
     {
-      title: '技能',
-      dataIndex: 'name',
-      render: (_, row) => (
-        <Space direction="vertical" size={2}>
-          <Typography.Text strong>{row.name}</Typography.Text>
-          <Typography.Text type="secondary">{row.slug}</Typography.Text>
-        </Space>
+      key: 'name',
+      title: '名称',
+      width: 200,
+      className: 'text-[#18181a] dark:text-white',
+      render: (row) => (
+        <div className="flex min-w-0 flex-col gap-[2px]">
+          <span className="truncate font-medium leading-[18px] text-[#18181a] dark:text-white" title={row.name}>
+            {row.name}
+          </span>
+          <span className="truncate text-[#858b9c]" title={row.slug}>
+            {row.slug}
+          </span>
+        </div>
       ),
     },
     {
+      key: 'description',
       title: '描述',
-      dataIndex: 'description',
-      ellipsis: true,
-      render: (value) => value || '暂无描述',
+      className: 'whitespace-normal',
+      render: (row) => <span className="line-clamp-2 wrap-break-word">{row.description || '暂无描述'}</span>,
     },
     {
+      key: 'files',
       title: '文件',
-      width: 96,
-      render: (_, row) => `${row.skill_files?.length || 1} 个`,
+      width: 90,
+      render: (row) => `${row.skill_files?.length || 1} 个`,
     },
     {
+      key: 'status',
       title: '状态',
-      dataIndex: 'status',
-      width: 110,
-      render: (value) => <Tag color={statusColor(value)}>{statusLabel(value)}</Tag>,
+      width: 100,
+      render: (row) => {
+        const preset = STATUS_BADGE[row.status] || { tone: 'gray' as BadgeTone, text: row.status };
+        return <StatusBadge tone={preset.tone}>{preset.text}</StatusBadge>;
+      },
     },
     {
+      key: 'updated',
       title: '更新时间',
-      dataIndex: 'updated_at',
-      width: 180,
-      render: (value) => value ? new Date(value).toLocaleString() : '-',
+      width: 170,
+      render: (row) => formatDateTime(row.updated_at),
     },
     {
+      key: 'actions',
       title: '操作',
-      width: 250,
-      render: (_, row) => (
-        <span className="table-actions">
-          <Button size="small" icon={<EditOutlined />} onClick={() => navigate(`/enterprise/general-skills/${encodeURIComponent(row.slug)}/edit`)}>
-            编辑
-          </Button>
-          <Button
-            size="small"
-            onClick={() => void setSkillPublished(row, row.status !== 'published')}
-          >
-            {row.status === 'published' ? '停用' : '启用'}
-          </Button>
-          <Dropdown
-            trigger={['click']}
-            menu={{
-              items: [
-                { key: 'delete', icon: <DeleteOutlined />, label: isOverallAgent ? '删除' : '移除', danger: true },
-              ],
-              onClick: ({ key }) => {
-                if (key === 'delete') confirmDeleteSkill(row);
-              },
-            }}
-          >
-            <Button size="small" icon={<MoreOutlined />} />
-          </Dropdown>
-        </span>
-      ),
+      width: 70,
+      align: 'right',
+      render: (row) => renderActions(row),
     },
   ];
+
+  const renderMobileCard = (row: GeneralSkillRead) => {
+    const preset = STATUS_BADGE[row.status] || { tone: 'gray' as BadgeTone, text: row.status };
+    return (
+      <article className={MOBILE_CARD_CLASS} key={row.id}>
+        <div className="flex min-w-0 items-start justify-between gap-[10px]">
+          <div className="min-w-0">
+            <strong className="block truncate text-[14px] font-semibold text-[#18181a] dark:text-white">{row.name}</strong>
+            <span className="mt-[2px] block truncate text-[12px] text-[#858b9c]">{row.slug}</span>
+          </div>
+          {renderActions(row)}
+        </div>
+        {row.description && (
+          <p className="mt-[8px] line-clamp-2 text-[12px] leading-[1.55] text-[#858b9c]">{row.description}</p>
+        )}
+        <div className="mt-[10px] flex items-center justify-between gap-[10px] text-[12px] text-[#858b9c]">
+          <StatusBadge tone={preset.tone}>{preset.text}</StatusBadge>
+          <span>{row.skill_files?.length || 1} 个文件 · {formatDateTime(row.updated_at)}</span>
+        </div>
+      </article>
+    );
+  };
+
+  const listEmptyText = isOverallAgent ? '暂无技能，点击「新增」创建一个吧' : '当前员工暂无技能';
 
   return (
     <div className={embedded ? undefined : 'min-h-full box-border px-[48px] pt-[32px] pb-[43px] max-[900px]:px-[16px]'}>
       {!embedded && (
         <>
-          <AppHeader
-            onLogout={onLogout}
-            userName={currentUser?.username}
-            left={<Typography.Title level={3} style={{ marginBottom: 0 }}>{pageTitle}</Typography.Title>}
-          />
-          <div className="page-title mt-1" style={{ justifyContent: 'flex-end' }}>
-          <Space wrap className="page-actions">
-            <Button icon={<ReloadOutlined />} onClick={() => void load()}>刷新</Button>
-            <Dropdown
-              trigger={['click']}
-              menu={{
-                items: [
-                  { key: 'blank', icon: <PlusOutlined />, label: '新建技能' },
-                  ...(!isOverallAgent ? [{ key: 'plaza', icon: <UploadOutlined />, label: '从广场复制' }] : []),
-                  { key: 'opensource', icon: <GithubOutlined />, label: '从开源平台导入' },
-                  ...(!isOverallAgent ? [{ key: 'employee', icon: <TeamOutlined />, label: '从数字员工复制技能' }] : []),
-                ],
-                onClick: ({ key }) => handleCreateAction(key),
-              }}
+          <AppHeader onLogout={onLogout} userName={currentUser?.username} title={pageTitle} />
+          <div className="mt-[20px] mb-[16px] flex items-center justify-end gap-[12px]">
+            <UIButton
+              variant="outline"
+              onClick={() => void load()}
+              disabled={loading}
+              className="h-[34px] gap-[4px] rounded-[10px] border-[0.5px] border-[#e3e7f1] bg-white px-[20px] text-[12px] font-normal text-[#757f9c] hover:border-[#cbd3e6] hover:bg-white hover:text-[#18181a] dark:border-border dark:bg-(--surface) dark:text-muted-foreground dark:hover:bg-(--surface)"
             >
-              <Button type="primary" className="create-dropdown-button">
-                新增 <DownOutlined />
-              </Button>
-            </Dropdown>
-          </Space>
+              <IconRefresh className={cn('size-[14px]', loading && 'animate-spin')} />
+              刷新
+            </UIButton>
+            <DropdownMenu>
+              <DropdownMenuTrigger className="flex h-[34px] items-center gap-[4px] rounded-[10px] bg-[#18181a] px-[20px] text-[12px] font-normal text-white outline-none transition-colors hover:bg-[#303030] dark:bg-white dark:text-[#18181a] dark:hover:bg-white/90">
+                <IconAdd className="size-[14px]" />
+                新增
+                <IconChevronDown className="size-[12px]" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className={MENU_CONTENT_CLASS}>
+                <DropdownMenuItem className={MENU_ITEM_CLASS} onSelect={() => navigate('/enterprise/general-skills/new')}>
+                  <IconAdd />
+                  新建技能
+                </DropdownMenuItem>
+                {!isOverallAgent && (
+                  <DropdownMenuItem className={MENU_ITEM_CLASS} onSelect={() => void requestAgentImport('plaza')}>
+                    <Copy />
+                    从广场复制
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem className={MENU_ITEM_CLASS} onSelect={() => requestClawHubImport()}>
+                  <GithubOutlined />
+                  从开源平台导入
+                </DropdownMenuItem>
+                {!isOverallAgent && (
+                  <DropdownMenuItem className={MENU_ITEM_CLASS} onSelect={() => void requestAgentImport('employee')}>
+                    <Users />
+                    从数字员工复制
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </>
       )}
 
-      <div className="general-skill-list-page">
-        <div className="compact-metric-strip general-skill-stats">
-          <MetricItem label="技能总数" value={stats.total} />
-          <MetricItem label="已启用" value={stats.published} />
-          <MetricItem label="草稿" value={stats.draft} />
-          <MetricItem label="已停用" value={stats.archived} />
+      <div className="flex flex-col gap-[24px] rounded-[20px_20px_0_0] bg-white p-[18px_18px_24px_18px] shadow-[0_-4px_16px_0_rgba(0,0,0,0.05)] dark:bg-(--surface)">
+        <div className="flex flex-wrap items-stretch gap-[20px]" aria-label="技能统计">
+          <StatCard label="技能总数" value={stats.total} />
+          <StatCard label="已启用" value={stats.published} tone="green" />
+          <StatCard label="草稿" value={stats.draft} />
+          <StatCard label="已停用" value={stats.archived} />
         </div>
 
-        <Card className="data-card general-skill-list-table-card" title="技能列表">
-          <div className="general-skill-table-toolbar">
-            <Input.Search
-              allowClear
-              placeholder="搜索技能名称、Slug、描述或主页"
-              value={searchText}
-              onChange={(event) => setSearchText(event.target.value)}
-            />
-            <Select
-              value={statusFilter}
-              onChange={setStatusFilter}
-              options={[
-                { label: '全部', value: 'all' },
-                { label: '已启用', value: 'published' },
-                { label: '草稿', value: 'draft' },
-                { label: '已停用', value: 'archived' },
-              ]}
-            />
-            <Typography.Text type="secondary">当前显示 {filteredRows.length} / {rows.length} 个技能</Typography.Text>
+        <div className="flex flex-col gap-[18px]">
+          <div className="flex items-center gap-[6px] px-[12px] text-[#757f9c] dark:text-muted-foreground">
+            <IconSkill className="size-[14px] shrink-0" />
+            <span className="text-[14px] font-normal leading-none">{listLabel}</span>
           </div>
-          <Table
-            rowKey="id"
-            columns={columns}
-            dataSource={filteredRows}
-            pagination={{ pageSize: 8 }}
-            scroll={{ x: 980 }}
-          />
-        </Card>
+
+          <div className="flex flex-wrap items-center gap-[16px]">
+            <label className="flex h-[34px] w-[300px] items-center gap-[8px] overflow-hidden rounded-[10px] border-[0.5px] border-[#e3e7f1] bg-white px-[12px] transition-colors focus-within:border-[#18181a] max-[900px]:w-full dark:border-border dark:bg-(--surface) dark:focus-within:border-white/40">
+              <IconSearch className="size-[14px] shrink-0 text-[#858b9c]" />
+              <input
+                value={searchText}
+                placeholder="搜索技能名称、Slug、描述或主页"
+                onChange={(event) => setSearchText(event.target.value)}
+                className="h-full min-w-0 flex-1 bg-transparent text-[12px] text-[#17191f] outline-none placeholder:text-[#c0c6d4] dark:text-white dark:placeholder:text-muted-foreground"
+              />
+              {searchText && (
+                <button
+                  type="button"
+                  aria-label="清除搜索"
+                  onClick={() => setSearchText('')}
+                  className="grid size-[16px] shrink-0 place-items-center text-[#c0c6d4] hover:text-[#858b9c]"
+                >
+                  <IconClear className="size-[14px]" />
+                </button>
+              )}
+            </label>
+            <UISelect value={statusFilter} onValueChange={(value) => setStatusFilter(value as 'all' | GeneralSkillRead['status'])}>
+              <SelectTrigger className={cn(SELECT_TRIGGER_CLASS, 'w-[130px]')} aria-label="状态筛选">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">全部状态</SelectItem>
+                <SelectItem value="published">已启用</SelectItem>
+                <SelectItem value="draft">草稿</SelectItem>
+                <SelectItem value="archived">已停用</SelectItem>
+              </SelectContent>
+            </UISelect>
+          </div>
+
+          <div className="grid gap-[10px] md:hidden">
+            {filteredRows.length ? (
+              pagination.pagedItems.map(renderMobileCard)
+            ) : (
+              <div className="py-[40px] text-center text-[13px] text-[#858b9c]">{listEmptyText}</div>
+            )}
+          </div>
+
+          <div className="hidden md:block">
+            <DataTable
+              aria-label="技能列表"
+              columns={columns}
+              data={pagination.pagedItems}
+              rowKey={(row) => row.id}
+              loading={loading}
+              emptyText={listEmptyText}
+            />
+          </div>
+
+          {filteredRows.length > 0 && (
+            <Paginator
+              aria-label="技能分页"
+              className="mt-0 mb-[6px]"
+              page={pagination.page}
+              pageCount={pagination.pageCount}
+              onChange={pagination.setPage}
+            />
+          )}
+        </div>
       </div>
 
-      <Modal
-        title="从开源平台导入技能"
+      <ClawHubDialog
         open={clawhubModalOpen}
-        onOk={importClawHubSource}
-        confirmLoading={clawhubLoading}
-        onCancel={cancelClawHubImport}
-        okText="新增"
-        cancelText="取消"
-      >
-        <Space direction="vertical" size={10} style={{ width: '100%' }}>
-          <Typography.Text type="secondary">
-            支持开源平台地址、GitHub repo/tree/raw SKILL.md 或 owner/repo 形式。本地 zip 或 Markdown 文件请在编辑页使用“导入 &gt; 选择文件”。
-          </Typography.Text>
-          <Input
-            value={clawhubSource}
-            onChange={(event) => setClawhubSource(event.target.value)}
-            placeholder="例如 alchaincyf/nuwa-skill 或 https://github.com/owner/repo/tree/main/skill"
-          />
-        </Space>
-      </Modal>
+        loading={clawhubLoading}
+        source={clawhubSource}
+        onSourceChange={setClawhubSource}
+        onClose={cancelClawHubImport}
+        onSubmit={() => void importClawHubSource()}
+      />
 
-      <Modal
-        title={agentImportMode === 'plaza' ? '从广场复制技能' : '从数字员工复制技能'}
+      <ResourceImportDialog
         open={agentImportOpen}
-        okText="复制"
-        cancelText="取消"
-        confirmLoading={agentImportLoading}
-        onOk={() => void submitAgentImportSkills()}
-        onCancel={() => setAgentImportOpen(false)}
-      >
-        <Space direction="vertical" size={14} style={{ width: '100%' }}>
-          <Typography.Text type="secondary">
-            {agentImportMode === 'plaza'
-              ? '从广场复制可用技能。'
-              : '从数字员工复制可用技能。'}
-          </Typography.Text>
-          <Select
-            value={agentImportSourceAgentId || undefined}
-            placeholder={agentImportMode === 'plaza' ? '选择技能广场' : '选择复制来源'}
-            onChange={(value) => {
-              setAgentImportSourceAgentId(value);
-              void loadAgentImportSourceSkills(value);
-            }}
-            options={agentImportAgents.map((item) => ({
-              value: item.id,
-              label: item.is_overall ? '技能广场' : item.name,
-            }))}
-            style={{ width: '100%' }}
-          />
-          <Select
-            mode="multiple"
-            value={agentImportSelectedSkillIds}
-            placeholder="选择一个或多个技能"
-            onChange={setAgentImportSelectedSkillIds}
-            options={agentImportSourceSkills.map((item) => ({
-              value: item.id,
-              label: `${item.name} · ${item.slug}`,
-            }))}
-            optionFilterProp="label"
-            notFoundContent={agentImportSourceAgentId ? '没有可复制的技能' : '请先选择复制来源'}
-            style={{ width: '100%' }}
-          />
-        </Space>
-      </Modal>
+        loading={agentImportLoading}
+        icon={<IconSkill className="size-[14px] shrink-0" />}
+        title={agentImportMode === 'plaza' ? '从广场复制技能' : '从数字员工复制技能'}
+        sourcePlaceholder={agentImportMode === 'plaza' ? '选择技能广场' : '选择复制来源'}
+        sources={agentImportAgents.map((item) => ({
+          value: item.id,
+          label: item.is_overall ? '技能广场' : item.name,
+        }))}
+        sourceId={agentImportSourceAgentId}
+        itemsLabel="选择技能"
+        items={agentImportSourceSkills.map((item) => ({
+          id: item.id,
+          label: (
+            <>
+              {item.name}
+              <span className="text-[#858b9c]"> · {item.slug}</span>
+            </>
+          ),
+        }))}
+        selectedIds={agentImportSelectedSkillIds}
+        emptyText="没有可复制的技能"
+        note={
+          agentImportMode === 'plaza'
+            ? '从广场复制可用技能；不可复制内容不会出现在列表。'
+            : '从数字员工复制可用技能；不可见内容不会出现在列表。'
+        }
+        onSourceChange={(value) => {
+          setAgentImportSourceAgentId(value);
+          void loadAgentImportSourceSkills(value);
+        }}
+        onSelectedChange={setAgentImportSelectedSkillIds}
+        onClose={() => setAgentImportOpen(false)}
+        onSubmit={() => void submitAgentImportSkills()}
+      />
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        loading={deleting}
+        title={deleteTarget ? `${isOverallAgent ? '删除' : '移除'}技能「${deleteTarget.name}」？` : ''}
+        description={
+          isOverallAgent
+            ? '删除后该技能不会再出现在技能广场中，此操作不可撤销。'
+            : '这只会在当前数字员工中隐藏该技能；开放广场和其他数字员工仍然保留。'
+        }
+        confirmText={isOverallAgent ? '删除' : '移除'}
+        onConfirm={() => void confirmDeleteSkill()}
+      />
     </div>
   );
 }
 
-function MetricItem({ label, value }: { label: string; value: number | string }) {
+function ClawHubDialog({
+  open,
+  loading,
+  source,
+  onSourceChange,
+  onClose,
+  onSubmit,
+}: {
+  open: boolean;
+  loading: boolean;
+  source: string;
+  onSourceChange: (value: string) => void;
+  onClose: () => void;
+  onSubmit: () => void;
+}) {
   return (
-    <div className="compact-metric">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent
+        aria-describedby={undefined}
+        className="flex w-[calc(100%-2rem)] flex-col gap-[16px] overflow-hidden rounded-[14px] px-[20px] py-[16px] sm:max-w-[560px]"
+      >
+        <div className="flex items-center gap-[6px] px-[12px] text-[#757f9c] dark:text-muted-foreground">
+          <IconSkill className="size-[14px] shrink-0" />
+          <DialogTitle className="text-[14px] font-normal leading-none text-[#757f9c] dark:text-muted-foreground">
+            从开源平台导入技能
+          </DialogTitle>
+        </div>
+
+        <div className="flex flex-col gap-[12px] px-[12px]">
+          <p className="text-[12px] leading-[1.6] text-[#858b9c]">
+            支持开源平台地址、GitHub repo/tree/raw SKILL.md 或 owner/repo 形式。本地 zip 或 Markdown 文件请在编辑页使用「导入 &gt; 选择文件」。
+          </p>
+          <input
+            value={source}
+            onChange={(event) => onSourceChange(event.target.value)}
+            placeholder="例如 alchaincyf/nuwa-skill 或 https://github.com/owner/repo/tree/main/skill"
+            className="h-[34px] w-full rounded-[10px] border-[0.5px] border-[#e3e7f1] bg-white px-[12px] text-[12px] text-[#17191f] outline-none transition-colors placeholder:text-[#c0c6d4] focus:border-[#18181a] dark:border-border dark:bg-(--surface) dark:text-white dark:placeholder:text-muted-foreground dark:focus:border-white/40"
+          />
+        </div>
+
+        <div className="flex items-center justify-end gap-[8px] px-[12px]">
+          <UIButton
+            variant="outline"
+            disabled={loading}
+            onClick={onClose}
+            className="h-[32px] w-[80px] rounded-[10px] border-[#e3e7f1] bg-white px-[12px] text-[14px] font-normal text-[#464c5e] hover:border-[#e3e7f1] hover:bg-[#f6f6f6] hover:text-[#18181a] dark:border-border dark:bg-transparent dark:text-muted-foreground dark:hover:bg-input/50 dark:hover:text-white"
+          >
+            取消
+          </UIButton>
+          <UIButton
+            disabled={loading}
+            onClick={onSubmit}
+            className="h-[32px] w-[80px] rounded-[10px] bg-[#18181a] px-[12px] text-[14px] font-normal text-white hover:bg-[#303030]"
+          >
+            新增
+          </UIButton>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -679,18 +873,6 @@ function resultSucceeded(result: Partial<GeneralSkillRunResponse> | null): boole
 function isAbortError(error: unknown): boolean {
   if (error instanceof DOMException && error.name === 'AbortError') return true;
   return error instanceof Error && (error.name === 'AbortError' || error.message.toLowerCase().includes('abort'));
-}
-
-function statusLabel(status: GeneralSkillRead['status']): string {
-  if (status === 'published') return '已启用';
-  if (status === 'archived') return '已停用';
-  return '草稿';
-}
-
-function statusColor(status: GeneralSkillRead['status']): string {
-  if (status === 'published') return 'green';
-  if (status === 'archived') return 'default';
-  return 'gold';
 }
 
 function languageFromFilePath(path?: string): string {

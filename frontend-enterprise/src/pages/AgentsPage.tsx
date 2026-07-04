@@ -1,16 +1,5 @@
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  UnderlineTabs,
-  type UnderlineTabItem,
-} from '@/components/ui';
-import { toast } from 'sonner';
+import { UnderlineTabs, type UnderlineTabItem } from '@/components/ui';
+import { notify } from '@/components/ui/app-toast';
 import { cn } from '@/lib/utils';
 
 import IconPlus from '../assets/icons/plus.svg?react';
@@ -23,6 +12,7 @@ import { api, TENANT_ID } from '../api/client';
 import { isEmployeeOwnedBy, isGalleryEmployee, type EnterpriseAuthUser } from '../auth';
 
 import AppHeader from '../components/AppHeader';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import EmployeeAvatarEditor from '../components/EmployeeAvatarEditor';
 import EmployeeCard from '../components/EmployeeCard';
 import EmployeeProfileEditor from '../components/EmployeeProfileEditor';
@@ -47,6 +37,7 @@ export default function AgentsPage({
   const [avatarAgent, setAvatarAgent] = useState<AgentProfileRead | null>(null);
   const [profileAgent, setProfileAgent] = useState<AgentProfileRead | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AgentProfileRead | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [employeeFilter, setEmployeeFilter] = useState<'all' | 'online' | 'offline' | 'pending'>('all');
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(
@@ -60,7 +51,7 @@ export default function AgentsPage({
       const rows = await api.get<AgentProfileRead[]>(`/api/enterprise/agents?tenant_id=${TENANT_ID}`);
       setAgents(rows);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '加载员工失败');
+      notify.error(error instanceof Error ? error.message : '加载员工失败');
     } finally {
       setLoading(false);
     }
@@ -133,11 +124,11 @@ export default function AgentsPage({
         status,
         metadata: row.metadata || {},
       });
-      toast.success(status === 'active' ? '员工已上线' : '员工已下线');
+      notify.success(status === 'active' ? '员工已上线' : '员工已下线');
       await load();
       window.dispatchEvent(new Event('ultrarag-enterprise-agent-scope-refresh'));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '更新员工状态失败');
+      notify.error(error instanceof Error ? error.message : '更新员工状态失败');
     }
   }
 
@@ -153,30 +144,32 @@ export default function AgentsPage({
         tenant_id: TENANT_ID,
         metadata,
       });
-      toast.success(published ? '已发布到广场' : '已从广场下架');
+      notify.success(published ? '已发布到广场' : '已从广场下架');
       await load();
       window.dispatchEvent(new Event('ultrarag-enterprise-agent-scope-refresh'));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '更新广场状态失败');
+      notify.error(error instanceof Error ? error.message : '更新广场状态失败');
     }
   }
 
   async function confirmDelete() {
     const row = deleteTarget;
     if (!row) return;
+    setDeleting(true);
     try {
       await api.delete(`/api/enterprise/agents/${row.id}?tenant_id=${TENANT_ID}`);
       if (window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) === row.id && overallAgent) {
         window.localStorage.setItem(ENTERPRISE_AGENT_STORAGE_KEY, overallAgent.id);
         window.dispatchEvent(new CustomEvent('ultrarag-enterprise-agent-scope-change', { detail: { agentId: overallAgent.id } }));
       }
-      toast.success('员工已删除');
+      notify.success('员工已删除');
+      setDeleteTarget(null);
       await load();
       window.dispatchEvent(new Event('ultrarag-enterprise-agent-scope-refresh'));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '删除员工失败');
+      notify.error(error instanceof Error ? error.message : '删除员工失败');
     } finally {
-      setDeleteTarget(null);
+      setDeleting(false);
     }
   }
 
@@ -296,29 +289,16 @@ export default function AgentsPage({
         onClose={() => setProfileAgent(null)}
         onSaved={updateAgentInList}
       />
-      <AlertDialog
+      <ConfirmDialog
         open={Boolean(deleteTarget)}
         onOpenChange={(open) => {
           if (!open) setDeleteTarget(null);
         }}
-      >
-        <AlertDialogContent className="gap-5 rounded-[16px] p-6 sm:max-w-[400px]">
-          <AlertDialogHeader className="gap-2">
-            <AlertDialogTitle className=" text-[#18181a]">
-              {`删除员工「${deleteTarget ? employeeDisplayName(deleteTarget) : ''}」？`}
-            </AlertDialogTitle>
-            <AlertDialogDescription className="text-[#757f9c]">
-              删除后该员工的所有配置将一并移除，操作不可撤销。
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="mx-0 mb-0 gap-3 border-t-0 bg-transparent p-0 pt-1 sm:justify-end">
-            <AlertDialogCancel className="h-[32px] rounded-[10px] px-[20px] text-[#464c5e] hover:border-[#d7dce6] hover:bg-white hover:text-[#18181a] focus-visible:border-[#e3e7f1]! focus-visible:ring-0!">取消</AlertDialogCancel>
-            <AlertDialogAction className="h-[32px] rounded-[10px] border-transparent bg-[#f54a45]! px-[20px] text-white! hover:bg-[#f54a45]/70! focus-visible:border-transparent! focus-visible:ring-0!" onClick={() => void confirmDelete()}>
-              删除
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        loading={deleting}
+        title={`删除员工「${deleteTarget ? employeeDisplayName(deleteTarget) : ''}」？`}
+        description="删除后该员工的所有配置将一并移除，操作不可撤销。"
+        onConfirm={() => void confirmDelete()}
+      />
     </div>
   );
 }

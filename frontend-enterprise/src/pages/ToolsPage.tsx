@@ -1,23 +1,52 @@
-import {
-  ArrowLeftOutlined,
-  DeleteOutlined,
-  DownOutlined,
-  ExperimentOutlined,
-  PlusOutlined,
-  ReloadOutlined,
-  SaveOutlined,
-  TeamOutlined,
-  ToolOutlined,
-} from '../icons';
-import { AutoComplete, Button, Card, Dropdown, Form, Input, Modal, Select, Space, Switch, Table, Tag, Typography, message } from 'antd';
+import { ArrowLeftOutlined, ExperimentOutlined, SaveOutlined, ToolOutlined } from '../icons';
+import { AutoComplete, Button, Card, Form, Input, Select, Space, Switch, Tag, Typography, message } from 'antd';
 import type { FormInstance } from 'antd';
-import type { ColumnsType } from 'antd/es/table';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { FlaskConical } from 'lucide-react';
+
 import { api, TENANT_ID } from '../api/client';
 import type { EnterpriseAuthUser } from '../auth';
 import AppHeader from '@/components/AppHeader';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { DataTable, type DataTableColumn } from '@/components/DataTable';
+import { Paginator } from '@/components/Paginator';
+import { StatCard } from '@/components/StatCard';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  Select as UISelect,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui';
+import { Button as UIButton } from '@/components/ui/button';
+import { notify } from '@/components/ui/app-toast';
+import { cn } from '@/lib/utils';
+import {
+  MENU_CONTENT_CLASS,
+  MENU_ITEM_CLASS,
+  MENU_ITEM_DANGER_CLASS,
+  MOBILE_CARD_CLASS,
+  SELECT_TRIGGER_CLASS,
+  formatDateTime,
+} from '@/lib/enterprise-ui';
 import CodeBlock from '../components/CodeBlock';
+import IconAdd from '../assets/icons/add.svg?react';
+import IconChevronDown from '../assets/icons/chevron-down.svg?react';
+import IconClear from '../assets/icons/field-clear.svg?react';
+import IconEdit from '../assets/icons/edit.svg?react';
+import IconMore from '../assets/icons/more.svg?react';
+import IconRefresh from '../assets/icons/refresh.svg?react';
+import IconSearch from '../assets/icons/search.svg?react';
+import IconTool from '../assets/icons/plaza-tool.svg?react';
+import IconTrash from '../assets/icons/trash.svg?react';
+import { useClientPagination } from '../hooks/useClientPagination';
+import { StatusBadge } from './scheduled-tasks/StatusBadge';
 import type { AgentProfileRead, ToolRead } from '../types';
 
 type ToolPageProps = {
@@ -26,6 +55,7 @@ type ToolPageProps = {
 };
 
 const ENTERPRISE_AGENT_STORAGE_KEY = 'ultrarag_enterprise_agent_scope';
+const TOOL_PAGE_SIZE = 10;
 const TOOL_FORM_INITIAL_VALUES = {
   tool_type: 'http',
   method: 'POST',
@@ -53,18 +83,28 @@ export default function ToolsPage({ currentUser, onLogout }: ToolPageProps = {})
   const [agentScopeLoaded, setAgentScopeLoaded] = useState(false);
   const [bucketFilter, setBucketFilter] = useState('__all__');
   const [searchText, setSearchText] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<ToolRead | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
+  const pageTitle = isOverallAgent ? '工具广场' : '工具';
+  const listLabel = isOverallAgent ? '工具广场列表' : '员工工具';
+
   const agentQuery = agentId ? `&agent_id=${encodeURIComponent(agentId)}` : '';
-  const load = () =>
-    api
+  const load = () => {
+    setLoading(true);
+    return api
       .get<ToolRead[]>(`/api/enterprise/tools?tenant_id=${TENANT_ID}${agentQuery}`)
       .then(setRows)
-      .catch((error) => message.error(error.message));
+      .catch((error) => notify.error(error instanceof Error ? error.message : '加载工具失败'))
+      .finally(() => setLoading(false));
+  };
 
   useEffect(() => {
-    load();
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentQuery]);
 
   useEffect(() => {
@@ -95,70 +135,25 @@ export default function ToolsPage({ currentUser, onLogout }: ToolPageProps = {})
     if (searchParams.get('add') !== 'plaza') return;
     if (!agentScopeLoaded) return;
     if (isOverallAgent) {
-      message.warning('请先选择一个数字员工，再从广场复制工具');
+      notify.warning('请先选择一个数字员工，再从广场复制工具');
     } else {
       handleCreateAction('plaza');
     }
     const next = new URLSearchParams(searchParams);
     next.delete('add');
     setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentScopeLoaded, isOverallAgent, searchParams, setSearchParams]);
-
-  async function remove(row: ToolRead) {
-    const title = isOverallAgent ? '删除工具？' : '从当前员工移除工具？';
-    const content = isOverallAgent
-      ? `确认删除「${row.display_name || row.name}」？删除后，引用该工具的技能将无法继续调用它。`
-      : `确认从当前员工移除「${row.display_name || row.name}」？工具广场中的原始工具不会被删除。`;
-    Modal.confirm({
-      title,
-      content,
-      okText: isOverallAgent ? '删除' : '移除',
-      okButtonProps: { danger: true },
-      cancelText: '取消',
-      onOk: async () => {
-        const agentQuery = agentId ? `&agent_id=${encodeURIComponent(agentId)}` : '';
-        await api.delete(`/api/enterprise/tools/${row.id}?tenant_id=${TENANT_ID}${agentQuery}`);
-        message.success(isOverallAgent ? '已删除' : '已从当前员工移除');
-        load();
-      },
-    });
-  }
-
-  const columns: ColumnsType<ToolRead> = [
-    { title: '工具名称', dataIndex: 'name', width: 170, ellipsis: true },
-    { title: '展示名称', dataIndex: 'display_name', width: 160, ellipsis: true },
-    {
-      title: '分桶',
-      dataIndex: 'bucket',
-      width: 130,
-      render: (value) => <Tag className="tool-bucket-tag">{value || '未分桶'}</Tag>,
-    },
-    {
-      title: '类型',
-      dataIndex: 'tool_type',
-      width: 88,
-      render: (value) => <Tag color={value === 'mcp' ? 'geekblue' : undefined}>{value === 'mcp' ? 'MCP' : 'HTTP'}</Tag>,
-    },
-    { title: 'Method', dataIndex: 'method', width: 96 },
-    { title: 'URL', dataIndex: 'url', width: 280, ellipsis: true },
-    { title: '启用', dataIndex: 'enabled', width: 80, render: (value) => (value ? '是' : '否') },
-    {
-      title: '操作',
-      width: 244,
-      render: (_, row) => (
-        <span className="table-actions">
-          <Button size="small" onClick={() => navigate(`/enterprise/tools/${row.id}/edit`)}>编辑</Button>
-          <Button size="small" icon={<ExperimentOutlined />} onClick={() => navigate(`/enterprise/tools/${row.id}/test`)}>测试</Button>
-          <Button size="small" danger icon={<DeleteOutlined />} onClick={() => void remove(row)}>
-            {isOverallAgent ? '删除' : '移除'}
-          </Button>
-        </span>
-      ),
-    },
-  ];
 
   const visibleRows = useMemo(() => (isOverallAgent ? rows : rows.filter((row) => row.enabled)), [isOverallAgent, rows]);
   const bucketStats = useMemo(() => buildBucketStats(visibleRows), [visibleRows]);
+  const bucketSelectOptions = useMemo(
+    () => [
+      { value: '__all__', label: '全部分桶' },
+      ...bucketStats.map((item) => ({ value: item.bucket, label: `${item.bucket} (${item.total})` })),
+    ],
+    [bucketStats],
+  );
   const filteredRows = useMemo(() => {
     const text = searchText.trim().toLowerCase();
     return visibleRows.filter((row) => {
@@ -175,92 +170,291 @@ export default function ToolsPage({ currentUser, onLogout }: ToolPageProps = {})
     });
   }, [bucketFilter, searchText, visibleRows]);
 
+  const pagination = useClientPagination(filteredRows, TOOL_PAGE_SIZE, `${searchText}|${bucketFilter}|${isOverallAgent}`);
+
+  const stats = useMemo(
+    () => ({
+      total: visibleRows.length,
+      enabled: visibleRows.filter((row) => row.enabled).length,
+      buckets: bucketStats.length,
+    }),
+    [visibleRows, bucketStats],
+  );
+
+  async function confirmDelete() {
+    const row = deleteTarget;
+    if (!row) return;
+    setDeleting(true);
+    try {
+      const agentSuffix = agentId ? `&agent_id=${encodeURIComponent(agentId)}` : '';
+      await api.delete(`/api/enterprise/tools/${row.id}?tenant_id=${TENANT_ID}${agentSuffix}`);
+      notify.success(isOverallAgent ? '已删除工具' : '已从当前员工移除');
+      setDeleteTarget(null);
+      await load();
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : isOverallAgent ? '删除失败' : '移除失败');
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   function handleCreateAction(key: string) {
     if (key === 'blank') {
       navigate('/enterprise/tools/new');
       return;
     }
     if (key === 'plaza') {
-      message.warning('请先选择一个数字员工，再从广场复制工具');
+      notify.warning('请先选择一个数字员工，再从广场复制工具');
       return;
     }
     if (key === 'employee') {
-      message.info('从数字员工复制工具会在后续版本接入。');
+      notify.info('从数字员工复制工具会在后续版本接入。');
     }
   }
 
+  function renderActions(row: ToolRead) {
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          aria-label="工具操作"
+          className="ml-auto grid size-7 place-items-center rounded-[8px] text-[#1a71ff] transition-colors outline-none hover:bg-black/5 hover:text-[#4a8dff] focus-visible:bg-black/5 dark:hover:bg-white/10"
+        >
+          <IconMore className="size-3.5" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className={MENU_CONTENT_CLASS}>
+          <DropdownMenuItem className={MENU_ITEM_CLASS} onSelect={() => navigate(`/enterprise/tools/${row.id}/edit`)}>
+            <IconEdit />
+            编辑
+          </DropdownMenuItem>
+          <DropdownMenuItem className={MENU_ITEM_CLASS} onSelect={() => navigate(`/enterprise/tools/${row.id}/test`)}>
+            <FlaskConical />
+            测试
+          </DropdownMenuItem>
+          <DropdownMenuSeparator className="my-[2px] bg-[#eef0f4] dark:bg-white/10" />
+          <DropdownMenuItem
+            variant="destructive"
+            className={MENU_ITEM_DANGER_CLASS}
+            onSelect={() => setDeleteTarget(row)}
+          >
+            <IconTrash />
+            {isOverallAgent ? '删除' : '移除'}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  }
+
+  const columns: DataTableColumn<ToolRead>[] = [
+    {
+      key: 'name',
+      title: '工具名称',
+      width: 200,
+      className: 'text-[#18181a] dark:text-white',
+      render: (row) => (
+        <div className="flex min-w-0 flex-col gap-[2px]">
+          <span className="truncate font-medium leading-[18px] text-[#18181a] dark:text-white" title={row.display_name || row.name}>
+            {row.display_name || row.name}
+          </span>
+          <span className="truncate text-[#858b9c]" title={row.name}>
+            {row.name}
+          </span>
+        </div>
+      ),
+    },
+    {
+      key: 'bucket',
+      title: '分桶',
+      width: 130,
+      render: (row) => <StatusBadge tone="gray">{row.bucket || '未分桶'}</StatusBadge>,
+    },
+    {
+      key: 'type',
+      title: '类型',
+      width: 90,
+      render: (row) => (
+        <StatusBadge tone={row.tool_type === 'mcp' ? 'blue' : 'gray'}>{row.tool_type === 'mcp' ? 'MCP' : 'HTTP'}</StatusBadge>
+      ),
+    },
+    { key: 'method', title: 'Method', width: 96, render: (row) => row.method },
+    {
+      key: 'url',
+      title: 'URL',
+      className: 'whitespace-normal',
+      render: (row) => <span className="line-clamp-1 wrap-break-word text-[#858b9c]">{row.url}</span>,
+    },
+    {
+      key: 'enabled',
+      title: '启用',
+      width: 90,
+      render: (row) => (
+        <StatusBadge tone={row.enabled ? 'green' : 'gray'}>{row.enabled ? '已启用' : '已停用'}</StatusBadge>
+      ),
+    },
+    {
+      key: 'actions',
+      title: '操作',
+      width: 70,
+      align: 'right',
+      render: (row) => renderActions(row),
+    },
+  ];
+
+  const renderMobileCard = (row: ToolRead) => (
+    <article className={MOBILE_CARD_CLASS} key={row.id}>
+      <div className="flex min-w-0 items-start justify-between gap-[10px]">
+        <div className="min-w-0">
+          <strong className="block truncate text-[14px] font-semibold text-[#18181a] dark:text-white">
+            {row.display_name || row.name}
+          </strong>
+          <span className="mt-[2px] block truncate text-[12px] text-[#858b9c]">{row.name}</span>
+        </div>
+        {renderActions(row)}
+      </div>
+      <div className="mt-[8px] flex flex-wrap items-center gap-[6px]">
+        <StatusBadge tone="gray">{row.bucket || '未分桶'}</StatusBadge>
+        <StatusBadge tone={row.tool_type === 'mcp' ? 'blue' : 'gray'}>{row.tool_type === 'mcp' ? 'MCP' : 'HTTP'}</StatusBadge>
+        <StatusBadge tone={row.enabled ? 'green' : 'gray'}>{row.enabled ? '已启用' : '已停用'}</StatusBadge>
+      </div>
+      <p className="mt-[8px] line-clamp-1 wrap-break-word text-[12px] text-[#858b9c]">
+        {row.method} · {row.url}
+      </p>
+    </article>
+  );
+
+  const listEmptyText = isOverallAgent ? '暂无工具，点击「新增」创建一个吧' : '当前员工暂无工具';
+
   return (
     <div className="min-h-full box-border px-[48px] pt-[32px] pb-[43px] max-[900px]:px-[16px]">
-      <AppHeader
-        onLogout={onLogout}
-        userName={currentUser?.username}
-        left={<Typography.Title level={3} style={{ marginBottom: 0 }}>{isOverallAgent ? '工具广场' : '工具'}</Typography.Title>}
+      <AppHeader onLogout={onLogout} userName={currentUser?.username} title={pageTitle} />
+
+      <div className="mt-[20px] mb-[16px] flex items-center justify-end gap-[12px]">
+        <UIButton
+          variant="outline"
+          onClick={() => void load()}
+          disabled={loading}
+          className="h-[34px] gap-[4px] rounded-[10px] border-[0.5px] border-[#e3e7f1] bg-white px-[20px] text-[12px] font-normal text-[#757f9c] hover:border-[#cbd3e6] hover:bg-white hover:text-[#18181a] dark:border-border dark:bg-(--surface) dark:text-muted-foreground dark:hover:bg-(--surface)"
+        >
+          <IconRefresh className={cn('size-[14px]', loading && 'animate-spin')} />
+          刷新
+        </UIButton>
+        <DropdownMenu>
+          <DropdownMenuTrigger className="flex h-[34px] items-center gap-[4px] rounded-[10px] bg-[#18181a] px-[20px] text-[12px] font-normal text-white outline-none transition-colors hover:bg-[#303030] dark:bg-white dark:text-[#18181a] dark:hover:bg-white/90">
+            <IconAdd className="size-[14px]" />
+            新增
+            <IconChevronDown className="size-[12px]" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className={MENU_CONTENT_CLASS}>
+            <DropdownMenuItem className={MENU_ITEM_CLASS} onSelect={() => handleCreateAction('blank')}>
+              <IconAdd />
+              新建空白工具
+            </DropdownMenuItem>
+            {!isOverallAgent && (
+              <DropdownMenuItem className={MENU_ITEM_CLASS} onSelect={() => handleCreateAction('plaza')}>
+                <IconTool className="size-[14px]" />
+                从广场复制
+              </DropdownMenuItem>
+            )}
+            {!isOverallAgent && (
+              <DropdownMenuItem className={MENU_ITEM_CLASS} onSelect={() => handleCreateAction('employee')}>
+                <FlaskConical />
+                从数字员工复制
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      <div className="flex flex-col gap-[24px] rounded-[20px_20px_0_0] bg-white p-[18px_18px_24px_18px] shadow-[0_-4px_16px_0_rgba(0,0,0,0.05)] dark:bg-(--surface)">
+        <div className="flex flex-wrap items-stretch gap-[20px]" aria-label="工具统计">
+          <StatCard label="工具总数" value={stats.total} className="basis-[220px]" />
+          <StatCard label="已启用" value={stats.enabled} tone="green" className="basis-[220px]" />
+          <StatCard label="分桶" value={stats.buckets} className="basis-[220px]" />
+        </div>
+
+        <div className="flex flex-col gap-[18px]">
+          <div className="flex items-center gap-[6px] px-[12px] text-[#757f9c] dark:text-muted-foreground">
+            <IconTool className="size-[14px] shrink-0" />
+            <span className="text-[14px] font-normal leading-none">{listLabel}</span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-[16px]">
+            <label className="flex h-[34px] w-[300px] items-center gap-[8px] overflow-hidden rounded-[10px] border-[0.5px] border-[#e3e7f1] bg-white px-[12px] transition-colors focus-within:border-[#18181a] max-[900px]:w-full dark:border-border dark:bg-(--surface) dark:focus-within:border-white/40">
+              <IconSearch className="size-[14px] shrink-0 text-[#858b9c]" />
+              <input
+                value={searchText}
+                placeholder="搜索工具名称、描述、URL 或分桶"
+                onChange={(event) => setSearchText(event.target.value)}
+                className="h-full min-w-0 flex-1 bg-transparent text-[12px] text-[#17191f] outline-none placeholder:text-[#c0c6d4] dark:text-white dark:placeholder:text-muted-foreground"
+              />
+              {searchText && (
+                <button
+                  type="button"
+                  aria-label="清除搜索"
+                  onClick={() => setSearchText('')}
+                  className="grid size-[16px] shrink-0 place-items-center text-[#c0c6d4] hover:text-[#858b9c]"
+                >
+                  <IconClear className="size-[14px]" />
+                </button>
+              )}
+            </label>
+            <UISelect value={bucketFilter} onValueChange={setBucketFilter}>
+              <SelectTrigger className={cn(SELECT_TRIGGER_CLASS, 'w-[180px]')} aria-label="分桶筛选">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {bucketSelectOptions.map((item) => (
+                  <SelectItem key={item.value} value={item.value}>
+                    {item.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </UISelect>
+          </div>
+
+          <div className="grid gap-[10px] md:hidden">
+            {filteredRows.length ? (
+              pagination.pagedItems.map(renderMobileCard)
+            ) : (
+              <div className="py-[40px] text-center text-[13px] text-[#858b9c]">{listEmptyText}</div>
+            )}
+          </div>
+
+          <div className="hidden md:block">
+            <DataTable
+              aria-label="工具列表"
+              columns={columns}
+              data={pagination.pagedItems}
+              rowKey={(row) => row.id}
+              loading={loading}
+              emptyText={listEmptyText}
+            />
+          </div>
+
+          {filteredRows.length > 0 && (
+            <Paginator
+              aria-label="工具分页"
+              className="mt-0 mb-[6px]"
+              page={pagination.page}
+              pageCount={pagination.pageCount}
+              onChange={pagination.setPage}
+            />
+          )}
+        </div>
+      </div>
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        loading={deleting}
+        title={deleteTarget ? `${isOverallAgent ? '删除' : '移除'}工具「${deleteTarget.display_name || deleteTarget.name}」？` : ''}
+        description={
+          isOverallAgent
+            ? '删除后，引用该工具的技能将无法继续调用它，操作不可撤销。'
+            : '从当前员工移除后，工具广场中的原始工具不会被删除。'
+        }
+        confirmText={isOverallAgent ? '删除' : '移除'}
+        onConfirm={() => void confirmDelete()}
       />
-      <Card
-        className="data-card tools-list-card mt-[20px]"
-        title={isOverallAgent ? '工具广场列表' : '员工工具'}
-        extra={(
-          <Space>
-            <Button icon={<ReloadOutlined />} onClick={load}>刷新</Button>
-            <Dropdown
-              trigger={['click']}
-              menu={{
-                items: [
-                  { key: 'blank', icon: <PlusOutlined />, label: '新建空白工具' },
-                  ...(!isOverallAgent ? [{ key: 'plaza', icon: <ToolOutlined />, label: '从广场复制' }] : []),
-                  ...(!isOverallAgent ? [{ key: 'employee', icon: <TeamOutlined />, label: '从数字员工复制' }] : []),
-                ],
-                onClick: ({ key }) => handleCreateAction(key),
-              }}
-            >
-              <Button type="primary" className="create-dropdown-button">
-                新增 <DownOutlined />
-              </Button>
-            </Dropdown>
-          </Space>
-        )}
-      >
-        <div className="tool-bucket-strip">
-          <button
-            className={`tool-bucket-card ${bucketFilter === '__all__' ? 'active' : ''}`}
-            type="button"
-            onClick={() => setBucketFilter('__all__')}
-          >
-            <span className="tool-bucket-name">全部工具</span>
-            <strong>{visibleRows.length}</strong>
-            <span>{visibleRows.filter((row) => row.enabled).length} 个启用</span>
-          </button>
-          {bucketStats.map((item) => (
-            <button
-              className={`tool-bucket-card ${bucketFilter === item.bucket ? 'active' : ''}`}
-              key={item.bucket}
-              type="button"
-              onClick={() => setBucketFilter(item.bucket)}
-            >
-              <span className="tool-bucket-name">{item.bucket}</span>
-              <strong>{item.total}</strong>
-              <span>{item.enabled} 个启用 · {item.disabled} 个停用</span>
-            </button>
-          ))}
-        </div>
-        <div className="tool-filter-bar">
-          <Input.Search
-            allowClear
-            placeholder="搜索工具名称、描述、URL 或分桶"
-            value={searchText}
-            onChange={(event) => setSearchText(event.target.value)}
-          />
-          <Typography.Text type="secondary">当前显示 {filteredRows.length} / {visibleRows.length} 个工具</Typography.Text>
-        </div>
-        <Table
-          rowKey="id"
-          columns={columns}
-          dataSource={filteredRows}
-          pagination={{ pageSize: 8 }}
-          scroll={{ x: 1080 }}
-          size="middle"
-        />
-      </Card>
     </div>
   );
 }
@@ -756,13 +950,6 @@ function schemaPropertyCount(schema: Record<string, unknown>): string {
 
 function toolTypeLabel(tool: ToolRead): string {
   return tool.tool_type === 'mcp' ? 'MCP 服务' : 'HTTP 接口';
-}
-
-function formatDateTime(value: string): string {
-  if (!value) return '-';
-  const timestamp = new Date(value).getTime();
-  if (Number.isNaN(timestamp)) return value;
-  return new Date(timestamp).toLocaleString('zh-CN', { hour12: false });
 }
 
 function exampleFromSchema(schema: Record<string, unknown>): Record<string, unknown> {

@@ -10,7 +10,6 @@ import { cn } from '@/lib/utils';
 
 import IconChevronDown from '../assets/icons/chevron-down.svg?react';
 import IconLogout from '../assets/icons/logout.svg?react';
-import StaffdeckIcon from './StaffdeckIcon';
 
 export type AppHeaderProps = {
   /**
@@ -74,10 +73,10 @@ export default function AppHeader({
         <DropdownMenu>
           <DropdownMenuTrigger
             aria-label="账户菜单"
-            className="flex shrink-0 items-center gap-[10px] rounded-[10px] py-[4px] pl-[6px] pr-[10px] outline-none mt-[4px]"
+            className="flex shrink-0 items-center gap-[10px] rounded-[10px] py-[4px] pl-[6px] pr-[10px] outline-none"
           >
             <span className="grid size-[32px] shrink-0 place-items-center overflow-hidden rounded-full bg-[#eef1fb] text-[14px] font-medium text-[#7e96dc] dark:bg-white/10">
-              {initial ?? <StaffdeckIcon name="user" size={18} />}
+              {initial ?? '--'}
             </span>
             <IconChevronDown className="size-[14px] shrink-0 text-[#757F9C]" />
           </DropdownMenuTrigger>

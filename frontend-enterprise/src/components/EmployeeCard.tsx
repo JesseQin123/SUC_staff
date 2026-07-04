@@ -22,8 +22,11 @@ import EmployeeAvatar from './EmployeeAvatar';
 
 // Hover colors come from the scoped --accent / --accent-foreground overrides on
 // DropdownMenuContent (see below), so items only need layout + default color here.
+// Kept in sync with the ScheduledTasksPage action menu.
 const MENU_ITEM_CLASS =
-  'h-[32px] gap-2 rounded-[14px] px-[12px] cursor-pointer text-[12px] text-[#858B9C] dark:text-[#a8afbd]';
+  'cursor-pointer gap-[4px] rounded-[10px] px-[12px] py-[6px] text-[12px] text-[#858b9c] focus:text-[#18181a] dark:text-[#a8afbd] dark:focus:text-white';
+const MENU_ITEM_DANGER_CLASS =
+  'cursor-pointer gap-[4px] rounded-[10px] px-[12px] py-[6px] text-[12px] text-[#d20b0b] focus:bg-[#fce7e7] focus:text-[#d20b0b] focus:[&_svg]:text-[#d20b0b]! dark:text-[#ff6b6b] dark:focus:bg-[#d20b0b]/20 dark:focus:text-[#ff6b6b] dark:focus:[&_svg]:text-[#ff6b6b]!';
 
 export type EmployeeCardProps = {
   employee: AgentProfileRead;
@@ -148,7 +151,7 @@ export default function EmployeeCard({
           </DropdownMenuTrigger>
           <DropdownMenuContent
             align="end"
-            className="flex w-auto min-w-40 flex-col gap-[6px] rounded-[14px] border-0 bg-white p-[6px] shadow-[0px_16px_15px_rgba(0,0,0,0.1)] ring-0 [--accent:#F6F6F6] [--accent-foreground:#18181A] dark:bg-[#26272d] dark:[--accent:#2f3136] dark:[--accent-foreground:#ffffff]"
+            className="flex w-auto min-w-[128px] flex-col gap-[4px] rounded-[14px] border-0 bg-white p-[4px] shadow-[0px_0px_8px_rgba(0,0,0,0.1)] ring-0 [--accent:#F6F6F6] [--accent-foreground:#18181A] dark:bg-[#26272d] dark:[--accent:#2f3136] dark:[--accent-foreground:#ffffff]"
             onCloseAutoFocus={(event) => event.preventDefault()}
           >
             <DropdownMenuItem
@@ -208,13 +211,10 @@ export default function EmployeeCard({
               <IconImage className="size-[16px]" />
               设置头像
             </DropdownMenuItem>
-            <DropdownMenuSeparator />
+            <DropdownMenuSeparator className="my-[2px] bg-[#eef0f4] dark:bg-white/10" />
             <DropdownMenuItem
               variant="destructive"
-              className={cn(
-                MENU_ITEM_CLASS,
-                'text-destructive! [&_svg]:text-destructive! focus:text-[#b91c1c]! focus:[&_svg]:text-[#b91c1c]!',
-              )}
+              className={MENU_ITEM_DANGER_CLASS}
               disabled={!canManage}
               onClick={(event) => event.stopPropagation()}
               onSelect={() => onDelete()}

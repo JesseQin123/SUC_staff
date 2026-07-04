@@ -1,33 +1,64 @@
-import {
-  CheckCircleOutlined,
-  DeleteOutlined,
-  DownOutlined,
-  EditOutlined,
-  EyeOutlined,
-  HistoryOutlined,
-  MoreOutlined,
-  PlusOutlined,
-  RollbackOutlined,
-  StopOutlined,
-  SyncOutlined,
-  TeamOutlined,
-  UploadOutlined,
-} from '../icons';
-import { Button, Card, Col, Descriptions, Dropdown, Input, Modal, Row, Segmented, Select, Space, Table, Tag, Typography, message } from 'antd';
-import type { ColumnsType } from 'antd/es/table';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { api, TENANT_ID } from '../api/client';
-import type { EnterpriseAuthUser } from '../auth';
+import { Ban, CircleCheck, Copy, Eye, RotateCcw, Upload, Users } from 'lucide-react';
+
 import AppHeader from '@/components/AppHeader';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { DataTable, type DataTableColumn } from '@/components/DataTable';
+import { Paginator } from '@/components/Paginator';
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui';
+import { Button as UIButton } from '@/components/ui/button';
+import { notify } from '@/components/ui/app-toast';
+import { cn } from '@/lib/utils';
+import {
+  MENU_CONTENT_CLASS,
+  MENU_ITEM_CLASS,
+  MENU_ITEM_DANGER_CLASS,
+  MOBILE_CARD_CLASS,
+  SELECT_TRIGGER_CLASS,
+} from '@/lib/enterprise-ui';
+import { DetailField } from '@/components/DetailField';
+import { ResourceImportDialog } from '@/components/ResourceImportDialog';
+
+import { api, TENANT_ID } from '../api/client';
+import IconAdd from '../assets/icons/add.svg?react';
+import IconChevronDown from '../assets/icons/chevron-down.svg?react';
+import IconClear from '../assets/icons/field-clear.svg?react';
+import IconEdit from '../assets/icons/edit.svg?react';
+import IconHistory from '../assets/icons/profile-history.svg?react';
+import IconMore from '../assets/icons/more.svg?react';
+import IconRefresh from '../assets/icons/refresh.svg?react';
+import IconSearch from '../assets/icons/search.svg?react';
+import IconSkill from '../assets/icons/plaza-skill.svg?react';
+import IconTrash from '../assets/icons/trash.svg?react';
+import type { EnterpriseAuthUser } from '../auth';
+import { useClientPagination } from '../hooks/useClientPagination';
+import { StatusBadge } from './scheduled-tasks/StatusBadge';
+import type { BadgeTone } from './scheduled-tasks/shared';
 import type { AgentProfileRead, SkillRead, SkillVersionRead } from '../types';
 
 const ENTERPRISE_AGENT_STORAGE_KEY = 'ultrarag_enterprise_agent_scope';
+const SKILL_PAGE_SIZE = 10;
+const RANKING_PAGE_SIZE = 10;
 
-const STATUS_LABELS: Record<SkillRead['status'], { text: string; color: string }> = {
-  draft: { text: '草稿', color: 'blue' },
-  published: { text: '已启用', color: 'green' },
-  archived: { text: '已停用', color: 'default' },
+const STATUS_BADGE: Record<SkillRead['status'], { tone: BadgeTone; text: string }> = {
+  draft: { tone: 'blue', text: '草稿' },
+  published: { tone: 'green', text: '已启用' },
+  archived: { tone: 'gray', text: '已停用' },
 };
 
 type RankingMode = 'calls' | 'positive' | 'negative';
@@ -69,7 +100,6 @@ export default function SkillsPage({
   const [rankingModal, setRankingModal] = useState<RankingModalState | null>(null);
   const [positiveScope, setPositiveScope] = useState<RankingScope>('current');
   const [negativeScope, setNegativeScope] = useState<RankingScope>('current');
-  const [versionModalTitle, setVersionModalTitle] = useState('');
   const [versionModalOpen, setVersionModalOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [agentId, setAgentId] = useState(() => window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '');
@@ -87,6 +117,10 @@ export default function SkillsPage({
   const [importSourceSkills, setImportSourceSkills] = useState<SkillRead[]>([]);
   const [importSelectedSkillIds, setImportSelectedSkillIds] = useState<string[]>([]);
   const [importLoading, setImportLoading] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<SkillRead | null>(null);
+  const [rollbackTarget, setRollbackTarget] = useState<SkillVersionRead | null>(null);
+  const [promoteTarget, setPromoteTarget] = useState<SkillRead | null>(null);
+  const [confirmLoading, setConfirmLoading] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -98,14 +132,15 @@ export default function SkillsPage({
       setAgents(agentRows);
       setIsOverallAgent(Boolean(agentRows.find((item) => item.id === agentId)?.is_overall ?? true));
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '加载失败');
+      notify.error(error instanceof Error ? error.message : '加载失败');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    load();
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentId]);
 
   useEffect(() => {
@@ -113,7 +148,7 @@ export default function SkillsPage({
     if (agents.length === 0) return;
     const resourceId = searchParams.get('resourceId') || undefined;
     if (isOverallAgent) {
-      message.warning('请先选择一个数字员工，再从广场复制 SOP');
+      notify.warning('请先选择一个数字员工，再从广场复制 SOP');
     } else {
       void openImport('plaza', resourceId);
     }
@@ -121,6 +156,7 @@ export default function SkillsPage({
     next.delete('add');
     next.delete('resourceId');
     setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agents.length, isOverallAgent, searchParams, setSearchParams]);
 
   useEffect(() => {
@@ -135,13 +171,11 @@ export default function SkillsPage({
   const filteredRows = useMemo(() => {
     const keyword = searchText.trim().toLowerCase();
     return rows.filter((row) => {
-      const matchesKeyword = !keyword || [
-        row.name,
-        row.skill_id,
-        row.business_domain || '',
-        row.description || '',
-        row.version,
-      ].some((value) => value.toLowerCase().includes(keyword));
+      const matchesKeyword =
+        !keyword ||
+        [row.name, row.skill_id, row.business_domain || '', row.description || '', row.version].some((value) =>
+          value.toLowerCase().includes(keyword),
+        );
       const matchesStatus = statusFilter === 'all' || row.status === statusFilter;
       const branchState = row.branch_status === 'inactive' ? 'inactive' : row.branch_sync_state || 'synced';
       const matchesBranch = isOverallAgent || branchFilter === 'all' || branchState === branchFilter;
@@ -149,76 +183,7 @@ export default function SkillsPage({
     });
   }, [branchFilter, isOverallAgent, rows, searchText, statusFilter]);
 
-  const columns: ColumnsType<SkillRead> = useMemo(
-    () => [
-      { title: 'SOP 名称', dataIndex: 'name', width: 180, ellipsis: true },
-      { title: 'SOP ID', dataIndex: 'skill_id', width: 190, ellipsis: true },
-      { title: '业务域', dataIndex: 'business_domain', width: 140, ellipsis: true },
-      { title: '版本', dataIndex: 'version', width: 90 },
-      {
-        title: '本地版本',
-        width: 120,
-        render: (_, row) => {
-          if (isOverallAgent) return <Tag>广场版</Tag>;
-          if (row.branch_status === 'inactive') return <Tag>已停用</Tag>;
-          const state = row.branch_sync_state || 'synced';
-          return <Tag color={state === 'diverged' ? 'gold' : 'green'}>{state === 'diverged' ? '本地版本' : '已同步'}</Tag>;
-        },
-      },
-      {
-        title: '状态',
-        dataIndex: 'status',
-        width: 110,
-        render: (status: SkillRead['status']) => {
-          const option = STATUS_LABELS[status] || { text: status, color: 'default' };
-          return <Tag color={option.color}>{option.text}</Tag>;
-        },
-      },
-      { title: '调用次数', dataIndex: 'call_count', width: 100 },
-      {
-        title: '好评率',
-        dataIndex: 'positive_rate',
-        width: 100,
-        render: (value: number) => percent(value),
-      },
-      {
-        title: '差评率',
-        dataIndex: 'negative_rate',
-        width: 100,
-        render: (value: number) => percent(value),
-      },
-      {
-        title: '操作',
-        width: 80,
-        fixed: 'right',
-        render: (_, row) => (
-          <Dropdown
-            trigger={['click']}
-            menu={{
-              items: [
-                { key: 'edit', icon: <EditOutlined />, label: isOverallAgent ? '编辑' : '编辑本地版本' },
-                { key: 'versions', icon: <HistoryOutlined />, label: '版本管理' },
-                row.status === 'published'
-                  ? { key: 'archive', icon: <StopOutlined />, label: isOverallAgent ? '停用' : '停用本地版本' }
-                  : { key: 'publish', icon: <CheckCircleOutlined />, label: isOverallAgent ? '启用' : '启用本地版本' },
-                ...(!isOverallAgent
-                  ? [
-                      { key: 'sync', icon: <SyncOutlined />, label: '从广场同步' },
-                      { key: 'promote', icon: <UploadOutlined />, label: '发布到广场' },
-                      { key: 'delete', icon: <DeleteOutlined />, label: '移除', danger: true },
-                    ]
-                  : [{ key: 'delete', icon: <DeleteOutlined />, label: '删除', danger: true }]),
-              ] as any,
-              onClick: ({ key }) => handleAction(key, row),
-            }}
-          >
-            <Button type="text" icon={<MoreOutlined />} aria-label="SOP 操作" />
-          </Dropdown>
-        ),
-      },
-    ],
-    [agentId, isOverallAgent],
-  );
+  const pagination = useClientPagination(filteredRows, SKILL_PAGE_SIZE, `${searchText}|${statusFilter}|${branchFilter}`);
 
   const rankingRows = useMemo(
     () => ({
@@ -234,59 +199,155 @@ export default function SkillsPage({
   const positiveRankingRows = positiveScope === 'current' ? rankingRows.positiveCurrent : rankingRows.positiveTotal;
   const negativeRankingRows = negativeScope === 'current' ? rankingRows.negativeCurrent : rankingRows.negativeTotal;
   const rankingModalRows = rankingModal ? rankingRowsFor(rankingRows, rankingModal.mode, rankingModal.scope) : [];
-  const rankingModalTitle = rankingModal ? rankingTitle(rankingModal.mode, rankingModal.scope) : '完整排行';
-  const rankingModalColumns = useMemo<ColumnsType<RankedSkill>>(
-    () => [
-      { title: '排名', dataIndex: 'rank', width: 80 },
-      { title: 'SOP 名称', dataIndex: 'name', ellipsis: true },
-      { title: 'SOP ID', dataIndex: 'skill_id', ellipsis: true },
-      {
-        title: rankingModal?.scope === 'current' ? '版本' : '版本范围',
-        width: 130,
-        render: (_, row) => rankingVersionText(row, rankingModal?.scope || 'total'),
-      },
-      { title: '业务域', dataIndex: 'business_domain', width: 140, ellipsis: true },
-      {
-        title: rankingMetricTitle(rankingModal?.mode || 'calls', rankingModal?.scope || 'total'),
-        width: 130,
-        render: (_, row) => rankingMetricValue(row, rankingModal?.mode || 'calls', rankingModal?.scope || 'total'),
-      },
-      {
-        title: '调用次数',
-        width: 110,
-        render: (_, row) => `${rankingCalls(row, rankingModal?.scope || 'total')} 次`,
-      },
-      {
-        title: '好评率',
-        width: 110,
-        render: (_, row) => percent(rankingPositiveRate(row, rankingModal?.scope || 'total')),
-      },
-      {
-        title: '差评率',
-        width: 110,
-        render: (_, row) => percent(rankingNegativeRate(row, rankingModal?.scope || 'total')),
-      },
-      {
-        title: '反馈数',
-        width: 110,
-        render: (_, row) => rankingFeedbackText(row, rankingModal?.scope || 'total'),
-      },
-    ],
-    [rankingModal],
-  );
+  const rankingPagination = useClientPagination(rankingModalRows, RANKING_PAGE_SIZE, rankingModal);
 
-  function openCreate() {
-    navigate(`/enterprise/skills/distill?mode=create${agentId ? `&agent_id=${encodeURIComponent(agentId)}` : ''}`);
+  const columns: DataTableColumn<SkillRead>[] = [
+    {
+      key: 'name',
+      title: 'SOP 名称',
+      width: 170,
+      className: 'text-[#18181a] dark:text-white',
+      render: (row) => (
+        <span className="block truncate" title={row.name}>
+          {row.name}
+        </span>
+      ),
+    },
+    {
+      key: 'skill_id',
+      title: 'SOP ID',
+      width: 170,
+      render: (row) => (
+        <span className="block truncate" title={row.skill_id}>
+          {row.skill_id}
+        </span>
+      ),
+    },
+    {
+      key: 'business_domain',
+      title: '业务域',
+      width: 120,
+      render: (row) => <span className="block truncate">{row.business_domain || '-'}</span>,
+    },
+    { key: 'version', title: '版本', width: 80, render: (row) => row.version },
+    {
+      key: 'branch',
+      title: '本地版本',
+      width: 110,
+      render: (row) => renderBranchBadge(row, isOverallAgent),
+    },
+    {
+      key: 'status',
+      title: '状态',
+      width: 100,
+      render: (row) => {
+        const preset = STATUS_BADGE[row.status] || { tone: 'gray' as BadgeTone, text: row.status };
+        return <StatusBadge tone={preset.tone}>{preset.text}</StatusBadge>;
+      },
+    },
+    { key: 'call_count', title: '调用次数', width: 90, render: (row) => `${row.call_count || 0} 次` },
+    { key: 'positive_rate', title: '好评率', width: 90, render: (row) => percent(row.positive_rate) },
+    { key: 'negative_rate', title: '差评率', width: 90, render: (row) => percent(row.negative_rate) },
+    {
+      key: 'actions',
+      title: '操作',
+      width: 70,
+      align: 'right',
+      render: (row) => renderActions(row),
+    },
+  ];
+
+  function renderActions(row: SkillRead) {
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          aria-label="SOP 操作"
+          className="ml-auto grid size-7 place-items-center rounded-[8px] text-[#1a71ff] transition-colors outline-none hover:bg-black/5 hover:text-[#4a8dff] focus-visible:bg-black/5 dark:hover:bg-white/10"
+        >
+          <IconMore className="size-3.5" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className={MENU_CONTENT_CLASS}>
+          <DropdownMenuItem className={MENU_ITEM_CLASS} onSelect={() => openEdit(row)}>
+            <IconEdit />
+            {isOverallAgent ? '编辑' : '编辑本地版本'}
+          </DropdownMenuItem>
+          <DropdownMenuItem className={MENU_ITEM_CLASS} onSelect={() => void openVersions(row)}>
+            <IconHistory />
+            版本管理
+          </DropdownMenuItem>
+          {row.status === 'published' ? (
+            <DropdownMenuItem className={MENU_ITEM_CLASS} onSelect={() => void archive(row)}>
+              <Ban />
+              {isOverallAgent ? '停用' : '停用本地版本'}
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem className={MENU_ITEM_CLASS} onSelect={() => void publish(row)}>
+              <CircleCheck />
+              {isOverallAgent ? '启用' : '启用本地版本'}
+            </DropdownMenuItem>
+          )}
+          {!isOverallAgent && (
+            <>
+              <DropdownMenuItem className={MENU_ITEM_CLASS} onSelect={() => void syncFromOverall(row)}>
+                <IconRefresh />
+                从广场同步
+              </DropdownMenuItem>
+              <DropdownMenuItem className={MENU_ITEM_CLASS} onSelect={() => setPromoteTarget(row)}>
+                <Upload />
+                发布到广场
+              </DropdownMenuItem>
+            </>
+          )}
+          <DropdownMenuSeparator className="my-[2px] bg-[#eef0f4] dark:bg-white/10" />
+          <DropdownMenuItem
+            variant="destructive"
+            className={MENU_ITEM_DANGER_CLASS}
+            onSelect={() => setDeleteTarget(row)}
+          >
+            <IconTrash />
+            {isOverallAgent ? '删除' : '移除'}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
   }
+
+  const renderMobileCard = (row: SkillRead) => {
+    const preset = STATUS_BADGE[row.status] || { tone: 'gray' as BadgeTone, text: row.status };
+    return (
+      <article className={MOBILE_CARD_CLASS} key={row.id}>
+        <div className="flex min-w-0 items-start justify-between gap-[10px]">
+          <div className="min-w-0">
+            <strong className="block truncate text-[14px] font-semibold text-[#18181a] dark:text-white">{row.name}</strong>
+            <span className="mt-[2px] block truncate text-[12px] text-[#858b9c]">{row.skill_id}</span>
+          </div>
+          {renderActions(row)}
+        </div>
+        <div className="mt-[10px] flex flex-wrap items-center gap-[4px]">
+          <StatusBadge tone={preset.tone}>{preset.text}</StatusBadge>
+          {renderBranchBadge(row, isOverallAgent)}
+          {row.business_domain && <StatusBadge tone="gray">{row.business_domain}</StatusBadge>}
+        </div>
+        <div className="mt-[10px] flex items-center justify-between gap-[10px] text-[12px] text-[#858b9c]">
+          <span>调用 {row.call_count || 0} 次</span>
+          <span>
+            好评 {percent(row.positive_rate)} · 差评 {percent(row.negative_rate)}
+          </span>
+        </div>
+      </article>
+    );
+  };
 
   async function openImport(mode: 'plaza' | 'employee' = 'plaza', selectedResourceId?: string) {
     try {
-      const agentRows = agents.length ? agents : await api.get<AgentProfileRead[]>(`/api/enterprise/agents?tenant_id=${TENANT_ID}`);
+      const agentRows = agents.length
+        ? agents
+        : await api.get<AgentProfileRead[]>(`/api/enterprise/agents?tenant_id=${TENANT_ID}`);
       setAgents(agentRows);
       setImportMode(mode);
-      const candidates = agentRows.filter((item) => (
-        item.id !== agentId && (mode === 'plaza' ? item.is_overall : !item.is_overall)
-      ));
+      const candidates = agentRows.filter(
+        (item) => item.id !== agentId && (mode === 'plaza' ? item.is_overall : !item.is_overall),
+      );
       const firstSource = candidates[0]?.id || '';
       setImportSourceAgentId(firstSource);
       setImportSelectedSkillIds([]);
@@ -300,7 +361,7 @@ export default function SkillsPage({
         setImportSourceSkills([]);
       }
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '加载员工失败');
+      notify.error(error instanceof Error ? error.message : '加载员工失败');
     }
   }
 
@@ -314,22 +375,22 @@ export default function SkillsPage({
       setImportSourceSkills(publishedRows);
       return publishedRows;
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '加载来源 SOP 失败');
+      notify.error(error instanceof Error ? error.message : '加载来源 SOP 失败');
       return [];
     }
   }
 
   async function submitImportSkills() {
     if (!agentId) {
-      message.warning('请先选择一个数字员工');
+      notify.warning('请先选择一个数字员工');
       return;
     }
     if (!importSourceAgentId) {
-      message.warning(importMode === 'plaza' ? '请选择 SOP 广场' : '请选择复制来源员工');
+      notify.warning(importMode === 'plaza' ? '请选择 SOP 广场' : '请选择复制来源员工');
       return;
     }
     if (importSelectedSkillIds.length === 0) {
-      message.warning('请选择要复制的 SOP');
+      notify.warning('请选择要复制的 SOP');
       return;
     }
     setImportLoading(true);
@@ -345,14 +406,18 @@ export default function SkillsPage({
       );
       const importedCount = result.imported?.length || 0;
       const missingCount = result.missing?.length || 0;
-      message.success(`已复制 ${importedCount} 个 SOP${missingCount ? `，${missingCount} 个未复制` : ''}`);
+      notify.success(`已复制 ${importedCount} 个 SOP${missingCount ? `，${missingCount} 个未复制` : ''}`);
       setImportOpen(false);
       await load();
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '复制失败');
+      notify.error(error instanceof Error ? error.message : '复制失败');
     } finally {
       setImportLoading(false);
     }
+  }
+
+  function openCreate() {
+    navigate(`/enterprise/skills/distill?mode=create${agentId ? `&agent_id=${encodeURIComponent(agentId)}` : ''}`);
   }
 
   function openEdit(row: SkillRead) {
@@ -360,43 +425,37 @@ export default function SkillsPage({
     navigate(`/enterprise/skills/distill?skill_id=${encodeURIComponent(row.skill_id)}${suffix}`);
   }
 
-  function handleCreateAction(key: string) {
-    if (key === 'blank') {
-      openCreate();
-      return;
-    }
-    if (key === 'plaza') {
-      void openImport('plaza');
-      return;
-    }
-    if (key === 'employee') {
-      void openImport('employee');
-    }
-  }
-
   async function publish(row: SkillRead) {
-    await api.post(`/api/enterprise/skills/${row.skill_id}/publish?tenant_id=${TENANT_ID}${agentQuery()}`);
-    message.success('已启用');
-    load();
+    try {
+      await api.post(`/api/enterprise/skills/${row.skill_id}/publish?tenant_id=${TENANT_ID}${agentQuery()}`);
+      notify.success('已启用');
+      await load();
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : '启用失败');
+    }
   }
 
   async function archive(row: SkillRead) {
-    await api.post(`/api/enterprise/skills/${row.skill_id}/archive?tenant_id=${TENANT_ID}${agentQuery()}`);
-    message.success('已停用');
-    load();
+    try {
+      await api.post(`/api/enterprise/skills/${row.skill_id}/archive?tenant_id=${TENANT_ID}${agentQuery()}`);
+      notify.success('已停用');
+      await load();
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : '停用失败');
+    }
   }
 
   async function openVersions(row: SkillRead) {
     setVersionSkill(row);
-    setVersionModalTitle(`版本管理：${row.name}`);
     setVersionModalOpen(true);
+    setVersionRows([]);
     try {
       const result = await api.get<SkillVersionRead[]>(
         `/api/enterprise/skills/${encodeURIComponent(row.skill_id)}/versions?tenant_id=${TENANT_ID}${agentQuery()}`,
       );
       setVersionRows(result);
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '加载版本失败');
+      notify.error(error instanceof Error ? error.message : '加载版本失败');
     }
   }
 
@@ -407,164 +466,214 @@ export default function SkillsPage({
       );
       setDetailVersion(result);
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '加载版本详情失败');
+      notify.error(error instanceof Error ? error.message : '加载版本详情失败');
     }
-  }
-
-  function rollbackVersion(row: SkillVersionRead) {
-    Modal.confirm({
-      title: `回滚到版本 ${row.version}？`,
-      content: `当前 SOP 将切换为「${row.name}」的 ${row.version} 版本内容，历史对话和反馈数据不会被删除。`,
-      okText: '回滚',
-      cancelText: '取消',
-      onOk: async () => {
-        const result = await api.post<SkillRead>(
-          `/api/enterprise/skills/${encodeURIComponent(row.skill_id)}/versions/${encodeURIComponent(row.version)}/rollback?tenant_id=${TENANT_ID}${agentQuery()}`,
-        );
-        message.success(`已回滚到 ${row.version}`);
-        await load();
-        await openVersions(result);
-      },
-    });
-  }
-
-  function remove(row: SkillRead) {
-    const branchMode = !isOverallAgent;
-    Modal.confirm({
-      title: branchMode ? `移除 SOP「${row.name}」？` : `删除 SOP「${row.name}」？`,
-      content: branchMode
-        ? '这只会在当前数字员工中隐藏该 SOP；开放广场和其他数字员工仍然保留。'
-        : '删除后不会移除历史对话记录，但组织 SOP 列表中将不再显示该流程。',
-      okText: branchMode ? '移除' : '删除',
-      okButtonProps: { danger: true },
-      cancelText: '取消',
-      onOk: async () => {
-        await api.delete(`/api/enterprise/skills/${row.skill_id}?tenant_id=${TENANT_ID}${agentQuery()}`);
-        message.success(branchMode ? '已移除' : '已删除');
-        load();
-      },
-    });
-  }
-
-  function handleAction(key: string, row: SkillRead) {
-    if (key === 'edit') openEdit(row);
-    if (key === 'versions') void openVersions(row);
-    if (key === 'publish') void publish(row);
-    if (key === 'archive') void archive(row);
-    if (key === 'delete') remove(row);
-    if (key === 'sync') void syncFromOverall(row);
-    if (key === 'promote') void promoteToOverall(row);
   }
 
   async function syncFromOverall(row: SkillRead) {
     if (!agentId) return;
-    await api.post(`/api/enterprise/agents/${agentId}/skills/${encodeURIComponent(row.skill_id)}/sync-from-overall?tenant_id=${TENANT_ID}`);
-    message.success('已从广场同步');
-    load();
+    try {
+      await api.post(
+        `/api/enterprise/agents/${agentId}/skills/${encodeURIComponent(row.skill_id)}/sync-from-overall?tenant_id=${TENANT_ID}`,
+      );
+      notify.success('已从广场同步');
+      await load();
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : '同步失败');
+    }
   }
 
-  async function promoteToOverall(row: SkillRead) {
-    if (!agentId) return;
-    Modal.confirm({
-      title: `将「${row.name}」发布到广场？`,
-      content: '这会把当前数字员工的本地版本发布为广场可复用的 SOP 新版本。',
-      okText: '发布',
-      cancelText: '取消',
-      onOk: async () => {
-        await api.post(`/api/enterprise/agents/${agentId}/skills/${encodeURIComponent(row.skill_id)}/promote-to-overall?tenant_id=${TENANT_ID}`);
-        message.success('已发布到广场');
-        load();
-      },
-    });
+  async function confirmDelete() {
+    const row = deleteTarget;
+    if (!row) return;
+    const branchMode = !isOverallAgent;
+    setConfirmLoading(true);
+    try {
+      await api.delete(`/api/enterprise/skills/${row.skill_id}?tenant_id=${TENANT_ID}${agentQuery()}`);
+      notify.success(branchMode ? '已移除' : '已删除');
+      setDeleteTarget(null);
+      await load();
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : branchMode ? '移除失败' : '删除失败');
+    } finally {
+      setConfirmLoading(false);
+    }
+  }
+
+  async function confirmRollback() {
+    const row = rollbackTarget;
+    if (!row) return;
+    setConfirmLoading(true);
+    try {
+      const result = await api.post<SkillRead>(
+        `/api/enterprise/skills/${encodeURIComponent(row.skill_id)}/versions/${encodeURIComponent(row.version)}/rollback?tenant_id=${TENANT_ID}${agentQuery()}`,
+      );
+      notify.success(`已回滚到 ${row.version}`);
+      setRollbackTarget(null);
+      await load();
+      await openVersions(result);
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : '回滚失败');
+    } finally {
+      setConfirmLoading(false);
+    }
+  }
+
+  async function confirmPromote() {
+    const row = promoteTarget;
+    if (!row || !agentId) return;
+    setConfirmLoading(true);
+    try {
+      await api.post(
+        `/api/enterprise/agents/${agentId}/skills/${encodeURIComponent(row.skill_id)}/promote-to-overall?tenant_id=${TENANT_ID}`,
+      );
+      notify.success('已发布到广场');
+      setPromoteTarget(null);
+      await load();
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : '发布失败');
+    } finally {
+      setConfirmLoading(false);
+    }
   }
 
   function agentQuery() {
     return agentId ? `&agent_id=${encodeURIComponent(agentId)}` : '';
   }
 
+  const listEmptyText = isOverallAgent ? '暂无 SOP，点击「新增」创建一个吧' : '当前员工暂无本地 SOP';
+
   return (
     <div className="min-h-full box-border px-[48px] pt-[32px] pb-[43px] max-[900px]:px-[16px]" aria-busy={loading}>
-      <AppHeader
-        onLogout={onLogout}
-        userName={currentUser?.username}
-        left={<Typography.Title level={3} style={{ marginBottom: 0 }}>SOP</Typography.Title>}
-      />
-      <Card
-        className="data-card mt-[20px]"
-        title={isOverallAgent ? 'SOP 广场列表' : '本地 SOP'}
-        extra={(
-          <Dropdown
-            trigger={['click']}
-            menu={{
-              items: [
-                { key: 'blank', icon: <PlusOutlined />, label: '新建空白 SOP' },
-                ...(!isOverallAgent ? [{ key: 'plaza', icon: <UploadOutlined />, label: '从广场复制' }] : []),
-                ...(!isOverallAgent ? [{ key: 'employee', icon: <TeamOutlined />, label: '从数字员工复制 SOP' }] : []),
-              ],
-              onClick: ({ key }) => handleCreateAction(key),
-            }}
-          >
-            <Button type="primary" className="create-dropdown-button">
-              新增 <DownOutlined />
-            </Button>
-          </Dropdown>
-        )}
-      >
-        <div className="skill-table-toolbar">
-          <div className="skill-filter-combo">
-            <Input.Search
-              allowClear
-              placeholder="搜索 SOP 名称、ID、业务域"
-              value={searchText}
-              onChange={(event) => setSearchText(event.target.value)}
-              className="skill-filter-search"
-            />
-            <Select<SkillStatusFilter>
-              value={statusFilter}
-              onChange={setStatusFilter}
-              className="skill-filter-select skill-filter-select-status"
-              options={[
-                { label: '全部', value: 'all' },
-                { label: '已启用', value: 'published' },
-                { label: '草稿', value: 'draft' },
-                { label: '已停用', value: 'archived' },
-              ]}
-            />
+      <AppHeader onLogout={onLogout} userName={currentUser?.username} title="SOP" />
+
+      <div className="mt-[20px] mb-[16px] flex items-center justify-end gap-[12px]">
+        <UIButton
+          variant="outline"
+          onClick={() => void load()}
+          disabled={loading}
+          className="h-[34px] gap-[4px] rounded-[10px] border-[0.5px] border-[#e3e7f1] bg-white px-[20px] text-[12px] font-normal text-[#757f9c] hover:border-[#cbd3e6] hover:bg-white hover:text-[#18181a] dark:border-border dark:bg-(--surface) dark:text-muted-foreground dark:hover:bg-(--surface)"
+        >
+          <IconRefresh className={cn('size-[14px]', loading && 'animate-spin')} />
+          刷新
+        </UIButton>
+        <DropdownMenu>
+          <DropdownMenuTrigger className="flex h-[34px] items-center gap-[4px] rounded-[10px] bg-[#18181a] px-[20px] text-[12px] font-normal text-white outline-none transition-colors hover:bg-[#303030] dark:bg-white dark:text-[#18181a] dark:hover:bg-white/90">
+            <IconAdd className="size-[14px]" />
+            新增
+            <IconChevronDown className="size-[12px]" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className={MENU_CONTENT_CLASS}>
+            <DropdownMenuItem className={MENU_ITEM_CLASS} onSelect={() => openCreate()}>
+              <IconAdd />
+              新建空白 SOP
+            </DropdownMenuItem>
             {!isOverallAgent && (
-              <Select<BranchFilter>
-                value={branchFilter}
-                onChange={setBranchFilter}
-                className="skill-filter-select skill-filter-select-branch"
-                options={[
-                  { label: '全部版本', value: 'all' },
-                  { label: '已同步', value: 'synced' },
-                  { label: '本地版本', value: 'diverged' },
-                  { label: '已停用', value: 'inactive' },
-                ]}
+              <DropdownMenuItem className={MENU_ITEM_CLASS} onSelect={() => void openImport('plaza')}>
+                <Copy />
+                从广场复制
+              </DropdownMenuItem>
+            )}
+            {!isOverallAgent && (
+              <DropdownMenuItem className={MENU_ITEM_CLASS} onSelect={() => void openImport('employee')}>
+                <Users />
+                从数字员工复制
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      <div className="flex flex-col gap-[24px] rounded-[20px_20px_0_0] bg-white p-[18px_18px_24px_18px] shadow-[0_-4px_16px_0_rgba(0,0,0,0.05)] dark:bg-(--surface)">
+        <div className="flex flex-col gap-[18px]">
+          <div className="flex items-center gap-[6px] px-[12px] text-[#757f9c] dark:text-muted-foreground">
+            <IconSkill className="size-[14px] shrink-0" />
+            <span className="text-[14px] font-normal leading-none">{isOverallAgent ? 'SOP 广场列表' : '本地 SOP'}</span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-[16px]">
+            <label className="flex h-[34px] w-[260px] items-center gap-[8px] overflow-hidden rounded-[10px] border-[0.5px] border-[#e3e7f1] bg-white px-[12px] transition-colors focus-within:border-[#18181a] max-[900px]:w-full dark:border-border dark:bg-(--surface) dark:focus-within:border-white/40">
+              <IconSearch className="size-[14px] shrink-0 text-[#858b9c]" />
+              <input
+                value={searchText}
+                placeholder="搜索 SOP 名称、ID、业务域"
+                onChange={(event) => setSearchText(event.target.value)}
+                className="h-full min-w-0 flex-1 bg-transparent text-[12px] text-[#17191f] outline-none placeholder:text-[#c0c6d4] dark:text-white dark:placeholder:text-muted-foreground"
               />
+              {searchText && (
+                <button
+                  type="button"
+                  aria-label="清除搜索"
+                  onClick={() => setSearchText('')}
+                  className="grid size-[16px] shrink-0 place-items-center text-[#c0c6d4] hover:text-[#858b9c]"
+                >
+                  <IconClear className="size-[14px]" />
+                </button>
+              )}
+            </label>
+            <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as SkillStatusFilter)}>
+              <SelectTrigger className={cn(SELECT_TRIGGER_CLASS, 'w-[130px]')} aria-label="状态筛选">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">全部状态</SelectItem>
+                <SelectItem value="published">已启用</SelectItem>
+                <SelectItem value="draft">草稿</SelectItem>
+                <SelectItem value="archived">已停用</SelectItem>
+              </SelectContent>
+            </Select>
+            {!isOverallAgent && (
+              <Select value={branchFilter} onValueChange={(value) => setBranchFilter(value as BranchFilter)}>
+                <SelectTrigger className={cn(SELECT_TRIGGER_CLASS, 'w-[130px]')} aria-label="版本筛选">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部版本</SelectItem>
+                  <SelectItem value="synced">已同步</SelectItem>
+                  <SelectItem value="diverged">本地版本</SelectItem>
+                  <SelectItem value="inactive">已停用</SelectItem>
+                </SelectContent>
+              </Select>
             )}
           </div>
+
+          <div className="grid gap-[10px] md:hidden">
+            {filteredRows.length ? (
+              pagination.pagedItems.map(renderMobileCard)
+            ) : (
+              <div className="py-[40px] text-center text-[13px] text-[#858b9c]">{listEmptyText}</div>
+            )}
+          </div>
+
+          <div className="hidden md:block">
+            <DataTable
+              aria-label="SOP 列表"
+              columns={columns}
+              data={pagination.pagedItems}
+              rowKey={(row) => row.id}
+              loading={loading}
+              emptyText={listEmptyText}
+            />
+          </div>
+
+          {filteredRows.length > 0 && (
+            <Paginator
+              aria-label="SOP 分页"
+              className="mt-0 mb-[6px]"
+              page={pagination.page}
+              pageCount={pagination.pageCount}
+              onChange={pagination.setPage}
+            />
+          )}
         </div>
-        <Table
-          rowKey="id"
-          columns={columns}
-          dataSource={filteredRows}
-          loading={loading}
-          pagination={{ pageSize: 10 }}
-          scroll={{ x: 1080 }}
-          size="middle"
-        />
-      </Card>
-      <Row gutter={[16, 16]} className="skill-rank-row">
-        <Col xs={24} lg={8}>
+
+        <div className="grid grid-cols-1 gap-[16px] lg:grid-cols-3">
           <RankingCard
             title="调用排行"
             rows={rankingRows.calls.slice(0, 5)}
             value={(row) => `${row.total_call_count || 0} 次`}
             onMore={() => setRankingModal({ mode: 'calls', scope: 'total' })}
           />
-        </Col>
-        <Col xs={24} lg={8}>
           <RankingCard
             title="好评 SOP"
             rows={positiveRankingRows.slice(0, 5)}
@@ -574,8 +683,6 @@ export default function SkillsPage({
             onScopeChange={setPositiveScope}
             onMore={() => setRankingModal({ mode: 'positive', scope: positiveScope })}
           />
-        </Col>
-        <Col xs={24} lg={8}>
           <RankingCard
             title="待改进 SOP"
             rows={negativeRankingRows.slice(0, 5)}
@@ -585,146 +692,146 @@ export default function SkillsPage({
             onScopeChange={setNegativeScope}
             onMore={() => setRankingModal({ mode: 'negative', scope: negativeScope })}
           />
-        </Col>
-      </Row>
-      <Modal
+        </div>
+      </div>
+
+      <ResourceImportDialog
         open={importOpen}
+        loading={importLoading}
+        icon={<IconSkill className="size-[14px] shrink-0" />}
         title={importMode === 'plaza' ? '从广场复制 SOP' : '从数字员工复制 SOP'}
-        width={720}
-        okText="复制"
-        cancelText="取消"
-        confirmLoading={importLoading}
-        onOk={() => void submitImportSkills()}
-        onCancel={() => setImportOpen(false)}
-      >
-        <Space direction="vertical" size={16} style={{ width: '100%' }}>
-          <Select
-            value={importSourceAgentId || undefined}
-            placeholder={importMode === 'plaza' ? '选择 SOP 广场' : '选择复制来源'}
-            onChange={(value) => {
-              setImportSourceAgentId(value);
-              void loadImportSourceSkills(value);
-            }}
-            options={agents
-              .filter((item) => item.id !== agentId && (importMode === 'plaza' ? item.is_overall : !item.is_overall))
-              .map((item) => ({
-                value: item.id,
-                label: item.is_overall ? 'SOP 广场' : item.name,
-              }))}
-            style={{ width: '100%' }}
-          />
-          <Select
-            mode="multiple"
-            value={importSelectedSkillIds}
-            placeholder="选择一个或多个 SOP"
-            onChange={setImportSelectedSkillIds}
-            options={importSourceSkills.map((item) => ({
-              value: item.id,
-              label: `${item.name} · ${item.skill_id}`,
-            }))}
-            optionFilterProp="label"
-            notFoundContent={importSourceAgentId ? '没有可复制的 SOP' : '请先选择复制来源'}
-            style={{ width: '100%' }}
-          />
-          <Typography.Text type="secondary">
-            {importMode === 'plaza'
-              ? '从广场复制可用 SOP；不可复制内容不会出现在列表。'
-              : '从数字员工复制可用 SOP；不可见内容不会出现在列表。'}
-          </Typography.Text>
-        </Space>
-      </Modal>
-      <Modal
-        open={Boolean(rankingModal)}
-        title={rankingModalTitle}
-        width={1080}
-        footer={null}
-        onCancel={() => setRankingModal(null)}
-      >
-        <Table
-          rowKey="skill_id"
-          dataSource={rankingModalRows}
-          columns={rankingModalColumns}
-          pagination={{ pageSize: 10, pageSizeOptions: [10, 15], showSizeChanger: true }}
-          size="small"
-          scroll={{ x: 960 }}
-        />
-      </Modal>
-      <Modal
+        sourcePlaceholder={importMode === 'plaza' ? '选择 SOP 广场' : '选择复制来源'}
+        sources={agents
+          .filter((item) => item.id !== agentId && (importMode === 'plaza' ? item.is_overall : !item.is_overall))
+          .map((item) => ({ value: item.id, label: item.is_overall ? 'SOP 广场' : item.name }))}
+        sourceId={importSourceAgentId}
+        itemsLabel="选择 SOP"
+        items={importSourceSkills.map((item) => ({
+          id: item.id,
+          label: (
+            <>
+              {item.name}
+              <span className="text-[#858b9c]"> · {item.skill_id}</span>
+            </>
+          ),
+        }))}
+        selectedIds={importSelectedSkillIds}
+        emptyText="没有可复制的 SOP"
+        note={
+          importMode === 'plaza'
+            ? '从广场复制可用 SOP；不可复制内容不会出现在列表。'
+            : '从数字员工复制可用 SOP；不可见内容不会出现在列表。'
+        }
+        onSourceChange={(value) => {
+          setImportSourceAgentId(value);
+          void loadImportSourceSkills(value);
+        }}
+        onSelectedChange={setImportSelectedSkillIds}
+        onClose={() => setImportOpen(false)}
+        onSubmit={() => void submitImportSkills()}
+      />
+
+      <RankingDialog
+        modal={rankingModal}
+        rows={rankingPagination.pagedItems}
+        page={rankingPagination.page}
+        pageCount={rankingPagination.pageCount}
+        onPageChange={rankingPagination.setPage}
+        total={rankingModalRows.length}
+        onClose={() => setRankingModal(null)}
+      />
+
+      <VersionsDialog
         open={versionModalOpen}
-        title={versionModalTitle}
-        width={1080}
-        footer={null}
-        onCancel={() => {
+        skill={versionSkill}
+        rows={versionRows}
+        loading={loading}
+        onDetail={(row) => void showVersionDetail(row)}
+        onRollback={(row) => setRollbackTarget(row)}
+        onClose={() => {
           setVersionModalOpen(false);
           setVersionSkill(null);
         }}
-      >
-        <Table
-          rowKey="id"
-          dataSource={versionRows}
-          pagination={false}
-          size="small"
-          columns={[
-            { title: '版本', dataIndex: 'version', width: 100 },
-            { title: 'SOP 名称', dataIndex: 'name', ellipsis: true },
-            { title: '业务域', dataIndex: 'business_domain', width: 140, ellipsis: true },
-            { title: '调用次数', dataIndex: 'call_count', width: 100 },
-            { title: '好评率', dataIndex: 'positive_rate', width: 100, render: (value: number) => percent(value) },
-            { title: '差评率', dataIndex: 'negative_rate', width: 100, render: (value: number) => percent(value) },
-            { title: '更新时间', dataIndex: 'updated_at', width: 150, render: (value: string) => value.slice(0, 10) },
-            {
-              title: '操作',
-              width: 80,
-              fixed: 'right',
-              render: (_, row) => (
-                <Dropdown
-                  trigger={['click']}
-                  menu={{
-                    items: [
-                      { key: 'detail', icon: <EyeOutlined />, label: '查看详情' },
-                      {
-                        key: 'rollback',
-                        icon: <RollbackOutlined />,
-                        label: row.version === versionSkill?.version ? '当前版本' : '回滚到此版本',
-                        disabled: row.version === versionSkill?.version,
-                      },
-                    ],
-                    onClick: ({ key }) => {
-                      if (key === 'detail') void showVersionDetail(row);
-                      if (key === 'rollback') rollbackVersion(row);
-                    },
-                  }}
-                >
-                  <Button type="text" icon={<MoreOutlined />} aria-label="版本操作" />
-                </Dropdown>
-              ),
-            },
-          ]}
-        />
-      </Modal>
-      <Modal
-        open={Boolean(detailVersion)}
-        title={detailVersion ? `版本详情：${detailVersion.name} / ${detailVersion.version}` : '版本详情'}
-        width={920}
-        footer={null}
-        onCancel={() => setDetailVersion(null)}
-      >
-        {detailVersion && (
-          <div className="version-detail">
-            <Descriptions column={2} size="small" bordered>
-              <Descriptions.Item label="SOP ID">{detailVersion.skill_id}</Descriptions.Item>
-              <Descriptions.Item label="版本">{detailVersion.version}</Descriptions.Item>
-              <Descriptions.Item label="业务域">{detailVersion.business_domain || '-'}</Descriptions.Item>
-              <Descriptions.Item label="状态">{statusText(detailVersion.status)}</Descriptions.Item>
-              <Descriptions.Item label="调用次数">{detailVersion.call_count}</Descriptions.Item>
-              <Descriptions.Item label="好评率">{percent(detailVersion.positive_rate)}</Descriptions.Item>
-              <Descriptions.Item label="差评率">{percent(detailVersion.negative_rate)}</Descriptions.Item>
-              <Descriptions.Item label="更新时间">{detailVersion.updated_at.slice(0, 10)}</Descriptions.Item>
-            </Descriptions>
-            <pre className="version-detail-source">{skillSourceText(detailVersion)}</pre>
-          </div>
-        )}
-      </Modal>
+      />
+
+      <VersionDetailDialog detail={detailVersion} onClose={() => setDetailVersion(null)} />
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        loading={confirmLoading}
+        title={
+          deleteTarget
+            ? `${isOverallAgent ? '删除' : '移除'} SOP「${deleteTarget.name}」？`
+            : ''
+        }
+        description={
+          isOverallAgent
+            ? '删除后不会移除历史对话记录，但组织 SOP 列表中将不再显示该流程。'
+            : '这只会在当前数字员工中隐藏该 SOP；开放广场和其他数字员工仍然保留。'
+        }
+        confirmText={isOverallAgent ? '删除' : '移除'}
+        onConfirm={() => void confirmDelete()}
+      />
+
+      <ConfirmDialog
+        open={Boolean(rollbackTarget)}
+        onOpenChange={(open) => !open && setRollbackTarget(null)}
+        loading={confirmLoading}
+        destructive={false}
+        title={rollbackTarget ? `回滚到版本 ${rollbackTarget.version}？` : ''}
+        description={
+          rollbackTarget
+            ? `当前 SOP 将切换为「${rollbackTarget.name}」的 ${rollbackTarget.version} 版本内容，历史对话和反馈数据不会被删除。`
+            : ''
+        }
+        confirmText="回滚"
+        onConfirm={() => void confirmRollback()}
+      />
+
+      <ConfirmDialog
+        open={Boolean(promoteTarget)}
+        onOpenChange={(open) => !open && setPromoteTarget(null)}
+        loading={confirmLoading}
+        destructive={false}
+        title={promoteTarget ? `将「${promoteTarget.name}」发布到广场？` : ''}
+        description="这会把当前数字员工的本地版本发布为广场可复用的 SOP 新版本。"
+        confirmText="发布"
+        onConfirm={() => void confirmPromote()}
+      />
+    </div>
+  );
+}
+
+function renderBranchBadge(row: SkillRead, isOverallAgent: boolean) {
+  if (isOverallAgent) return <StatusBadge tone="gray">广场版</StatusBadge>;
+  if (row.branch_status === 'inactive') return <StatusBadge tone="gray">已停用</StatusBadge>;
+  const state = row.branch_sync_state || 'synced';
+  return state === 'diverged' ? (
+    <StatusBadge tone="orange">本地版本</StatusBadge>
+  ) : (
+    <StatusBadge tone="green">已同步</StatusBadge>
+  );
+}
+
+function ScopeToggle({ value, onChange }: { value: RankingScope; onChange: (scope: RankingScope) => void }) {
+  return (
+    <div className="inline-flex items-center rounded-[8px] bg-[#f2f3f7] p-[2px] dark:bg-white/10">
+      {(['current', 'total'] as RankingScope[]).map((scope) => (
+        <button
+          key={scope}
+          type="button"
+          onClick={() => onChange(scope)}
+          className={cn(
+            'rounded-[6px] px-[10px] py-[3px] text-[11px] leading-none transition-colors',
+            value === scope
+              ? 'bg-white text-[#18181a] shadow-sm dark:bg-[#26272d] dark:text-white'
+              : 'text-[#858b9c] hover:text-[#18181a] dark:hover:text-white',
+          )}
+        >
+          {scope === 'current' ? '当前' : '总榜'}
+        </button>
+      ))}
     </div>
   );
 }
@@ -747,43 +854,275 @@ function RankingCard({
   onMore: () => void;
 }) {
   return (
-    <Card
-      title={title}
-      extra={
-        <div className="skill-ranking-extra">
-          {scope && onScopeChange && (
-            <Segmented
-              size="small"
-              value={scope}
-              options={[
-                { label: '当前', value: 'current' },
-                { label: '总榜', value: 'total' },
-              ]}
-              onChange={(value) => onScopeChange(value as RankingScope)}
-            />
-          )}
-          <Button type="link" size="small" onClick={onMore}>
+    <section className="flex flex-col rounded-[14px] border border-[#eef0f4] bg-white p-[16px] dark:border-white/10 dark:bg-transparent">
+      <header className="mb-[8px] flex items-center justify-between gap-[8px]">
+        <span className="text-[13px] font-medium text-[#18181a] dark:text-white">{title}</span>
+        <div className="flex items-center gap-[8px]">
+          {scope && onScopeChange && <ScopeToggle value={scope} onChange={onScopeChange} />}
+          <button
+            type="button"
+            onClick={onMore}
+            className="text-[12px] text-[#1a71ff] transition-colors hover:text-[#4a8dff]"
+          >
             查看更多
-          </Button>
+          </button>
         </div>
-      }
-      className="skill-ranking-card"
-    >
+      </header>
       {rows.length === 0 ? (
-        <Typography.Text type="secondary">暂无数据</Typography.Text>
+        <div className="py-[28px] text-center text-[12px] text-[#858b9c]">暂无数据</div>
       ) : (
-        rows.map((row) => (
-          <div className="skill-ranking-item" key={`${title}_${row.skill_id}`}>
-            <span className="skill-ranking-index">{row.rank}</span>
-            <span className="skill-ranking-main">
-              <span className="skill-ranking-name" title={row.name}>{row.name}</span>
-              {version && <span className="skill-ranking-version">{version(row)}</span>}
-            </span>
-            <strong>{value(row)}</strong>
-          </div>
-        ))
+        <div className="flex flex-col">
+          {rows.map((row) => (
+            <div
+              key={`${title}_${row.skill_id}`}
+              className="flex items-center gap-[10px] border-b border-[#f2f3f7] py-[9px] last:border-0 dark:border-white/5"
+            >
+              <span className="grid size-[20px] shrink-0 place-items-center rounded-[6px] bg-[#f6f6f6] text-[11px] leading-none text-[#464c5e] dark:bg-white/10 dark:text-white">
+                {row.rank}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[12px] text-[#18181a] dark:text-white" title={row.name}>
+                  {row.name}
+                </div>
+                {version && <div className="text-[11px] text-[#858b9c]">{version(row)}</div>}
+              </div>
+              <strong className="shrink-0 text-[12px] font-medium text-[#18181a] dark:text-white">{value(row)}</strong>
+            </div>
+          ))}
+        </div>
       )}
-    </Card>
+    </section>
+  );
+}
+
+function RankingDialog({
+  modal,
+  rows,
+  page,
+  pageCount,
+  onPageChange,
+  total,
+  onClose,
+}: {
+  modal: RankingModalState | null;
+  rows: RankedSkill[];
+  page: number;
+  pageCount: number;
+  onPageChange: (page: number) => void;
+  total: number;
+  onClose: () => void;
+}) {
+  const mode = modal?.mode || 'calls';
+  const scope = modal?.scope || 'total';
+  const columns: DataTableColumn<RankedSkill>[] = [
+    { key: 'rank', title: '排名', width: 70, render: (row) => row.rank },
+    {
+      key: 'name',
+      title: 'SOP 名称',
+      className: 'text-[#18181a] dark:text-white',
+      render: (row) => (
+        <span className="block truncate" title={row.name}>
+          {row.name}
+        </span>
+      ),
+    },
+    {
+      key: 'skill_id',
+      title: 'SOP ID',
+      render: (row) => (
+        <span className="block truncate" title={row.skill_id}>
+          {row.skill_id}
+        </span>
+      ),
+    },
+    { key: 'version', title: scope === 'current' ? '版本' : '版本范围', width: 110, render: (row) => rankingVersionText(row, scope) },
+    {
+      key: 'domain',
+      title: '业务域',
+      width: 120,
+      render: (row) => <span className="block truncate">{row.business_domain || '-'}</span>,
+    },
+    { key: 'metric', title: rankingMetricTitle(mode, scope), width: 110, render: (row) => rankingMetricValue(row, mode, scope) },
+    { key: 'calls', title: '调用次数', width: 100, render: (row) => `${rankingCalls(row, scope)} 次` },
+    { key: 'pos', title: '好评率', width: 90, render: (row) => percent(rankingPositiveRate(row, scope)) },
+    { key: 'neg', title: '差评率', width: 90, render: (row) => percent(rankingNegativeRate(row, scope)) },
+    { key: 'fb', title: '反馈数', width: 90, render: (row) => rankingFeedbackText(row, scope) },
+  ];
+  return (
+    <Dialog open={Boolean(modal)} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent
+        aria-describedby={undefined}
+        className="flex max-h-[calc(100dvh-4rem)] w-[calc(100%-2rem)] flex-col gap-[16px] overflow-hidden rounded-[14px] px-[20px] py-[16px] sm:max-w-[1000px]"
+      >
+        <div className="flex items-center gap-[6px] px-[12px] text-[#757f9c] dark:text-muted-foreground">
+          <IconSkill className="size-[14px] shrink-0" />
+          <DialogTitle className="text-[14px] font-normal leading-none text-[#757f9c] dark:text-muted-foreground">
+            {rankingTitle(mode, scope)}
+          </DialogTitle>
+        </div>
+
+        <div className="flex min-h-0 flex-1 flex-col gap-[16px] overflow-y-auto px-[12px]">
+          <div className="overflow-x-auto">
+            <DataTable
+              aria-label="SOP 排行"
+              className="min-w-[900px]"
+              columns={columns}
+              data={rows}
+              rowKey={(row) => row.skill_id}
+              emptyText="暂无数据"
+            />
+          </div>
+          {total > 0 && (
+            <Paginator aria-label="排行分页" page={page} pageCount={pageCount} onChange={onPageChange} />
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function VersionsDialog({
+  open,
+  skill,
+  rows,
+  loading,
+  onDetail,
+  onRollback,
+  onClose,
+}: {
+  open: boolean;
+  skill: SkillRead | null;
+  rows: SkillVersionRead[];
+  loading: boolean;
+  onDetail: (row: SkillVersionRead) => void;
+  onRollback: (row: SkillVersionRead) => void;
+  onClose: () => void;
+}) {
+  const columns: DataTableColumn<SkillVersionRead>[] = [
+    { key: 'version', title: '版本', width: 100, className: 'text-[#18181a] dark:text-white', render: (row) => row.version },
+    {
+      key: 'name',
+      title: 'SOP 名称',
+      render: (row) => (
+        <span className="block truncate" title={row.name}>
+          {row.name}
+        </span>
+      ),
+    },
+    {
+      key: 'domain',
+      title: '业务域',
+      width: 130,
+      render: (row) => <span className="block truncate">{row.business_domain || '-'}</span>,
+    },
+    { key: 'calls', title: '调用次数', width: 100, render: (row) => `${row.call_count || 0} 次` },
+    { key: 'pos', title: '好评率', width: 90, render: (row) => percent(row.positive_rate) },
+    { key: 'neg', title: '差评率', width: 90, render: (row) => percent(row.negative_rate) },
+    { key: 'updated', title: '更新时间', width: 120, render: (row) => row.updated_at.slice(0, 10) },
+    {
+      key: 'actions',
+      title: '操作',
+      width: 70,
+      align: 'right',
+      render: (row) => {
+        const isCurrent = row.version === skill?.version;
+        return (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              aria-label="版本操作"
+              className="ml-auto grid size-7 place-items-center rounded-[8px] text-[#1a71ff] transition-colors outline-none hover:bg-black/5 hover:text-[#4a8dff] focus-visible:bg-black/5 dark:hover:bg-white/10"
+            >
+              <IconMore className="size-3.5" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className={MENU_CONTENT_CLASS}>
+              <DropdownMenuItem className={MENU_ITEM_CLASS} onSelect={() => onDetail(row)}>
+                <Eye />
+                查看详情
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className={MENU_ITEM_CLASS}
+                disabled={isCurrent}
+                onSelect={() => onRollback(row)}
+              >
+                <RotateCcw />
+                {isCurrent ? '当前版本' : '回滚到此版本'}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        );
+      },
+    },
+  ];
+  return (
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent
+        aria-describedby={undefined}
+        className="flex max-h-[calc(100dvh-4rem)] w-[calc(100%-2rem)] flex-col gap-[16px] overflow-hidden rounded-[14px] px-[20px] py-[16px] sm:max-w-[960px]"
+      >
+        <div className="flex items-center gap-[6px] px-[12px] text-[#757f9c] dark:text-muted-foreground">
+          <IconHistory className="size-[14px] shrink-0" />
+          <DialogTitle className="min-w-0 truncate text-[14px] font-normal leading-none text-[#757f9c] dark:text-muted-foreground">
+            版本管理{skill ? `：${skill.name}` : ''}
+          </DialogTitle>
+        </div>
+
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-[12px]">
+          <div className="overflow-x-auto">
+            <DataTable
+              aria-label="SOP 版本"
+              className="min-w-[820px]"
+              columns={columns}
+              data={rows}
+              rowKey={(row) => row.id}
+              loading={loading}
+              emptyText="暂无版本记录"
+            />
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function VersionDetailDialog({
+  detail,
+  onClose,
+}: {
+  detail: SkillVersionRead | null;
+  onClose: () => void;
+}) {
+  return (
+    <Dialog open={Boolean(detail)} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent
+        aria-describedby={undefined}
+        className="flex max-h-[calc(100dvh-4rem)] w-[calc(100%-2rem)] flex-col gap-[16px] overflow-hidden rounded-[14px] px-[20px] py-[16px] sm:max-w-[900px]"
+      >
+        <div className="flex items-center gap-[6px] px-[12px] text-[#757f9c] dark:text-muted-foreground">
+          <IconSkill className="size-[14px] shrink-0" />
+          <DialogTitle className="min-w-0 truncate text-[14px] font-normal leading-none text-[#757f9c] dark:text-muted-foreground">
+            {detail ? `版本详情：${detail.name} / ${detail.version}` : '版本详情'}
+          </DialogTitle>
+        </div>
+
+        {detail && (
+          <div className="flex min-h-0 flex-1 flex-col gap-[16px] overflow-y-auto px-[12px]">
+            <div className="grid grid-cols-2 gap-[10px] max-[520px]:grid-cols-1">
+              <DetailField label="SOP ID">{detail.skill_id}</DetailField>
+              <DetailField label="版本">{detail.version}</DetailField>
+              <DetailField label="业务域">{detail.business_domain || '-'}</DetailField>
+              <DetailField label="状态">{statusText(detail.status)}</DetailField>
+              <DetailField label="调用次数">{detail.call_count || 0} 次</DetailField>
+              <DetailField label="好评率">{percent(detail.positive_rate)}</DetailField>
+              <DetailField label="差评率">{percent(detail.negative_rate)}</DetailField>
+              <DetailField label="更新时间">{detail.updated_at.slice(0, 10)}</DetailField>
+            </div>
+            <pre className="overflow-x-auto rounded-[12px] bg-[#f6f6f6] p-[14px] text-[12px] leading-[1.7] text-[#464c5e] wrap-anywhere whitespace-pre-wrap dark:bg-white/5 dark:text-muted-foreground">
+              {skillSourceText(detail)}
+            </pre>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -868,7 +1207,7 @@ function rankingFeedbackText(row: SkillRead, scope: RankingScope): string {
 }
 
 function statusText(status: string): string {
-  return STATUS_LABELS[status as SkillRead['status']]?.text || status;
+  return STATUS_BADGE[status as SkillRead['status']]?.text || status;
 }
 
 function skillSourceText(row: SkillVersionRead): string {
