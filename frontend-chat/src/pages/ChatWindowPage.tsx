@@ -2296,8 +2296,15 @@ export default function ChatWindowPage() {
     stoppedStream.cancelledTurnId = cancelledTurnId;
     setRunningTurn((current) => (current?.sessionId === activeConversationId ? null : current));
     notifyStream();
-    controller?.abort();
-    void cancelRequest;
+    const abortAfterCancel = () => {
+      controller?.abort();
+    };
+    if (controller) {
+      const cancelDeadline = new Promise<void>((resolve) => {
+        window.setTimeout(resolve, 300);
+      });
+      void Promise.race([cancelRequest, cancelDeadline]).then(abortAfterCancel, abortAfterCancel);
+    }
   }
 
   async function rateMessage(item: ChatMessage, rating: 'up' | 'down') {

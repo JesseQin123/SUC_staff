@@ -1116,15 +1116,13 @@ class AgentLoop:
         turn_finalized = False
         user_message_id: str | None = None
 
-        def mark_current_turn_cancelled() -> bool:
+        def record_current_turn_cancelled(client_turn_id: str | None = None) -> bool:
             nonlocal turn_finalized
             if not chat_session or not user_message_id:
                 return False
-            client_turn_id = (request.client_turn_id or "").strip()
-            server_cancelled = is_chat_turn_cancelled(chat_session.id, user_message_id)
-            client_cancelled = bool(client_turn_id and is_chat_turn_cancelled(chat_session.id, client_turn_id))
-            if not server_cancelled and not client_cancelled:
+            if turn_finalized:
                 return False
+            normalized_client_turn_id = (client_turn_id or request.client_turn_id or "").strip()
             self.db.rollback()
             self.events.record(
                 request.tenant_id,
@@ -1134,17 +1132,27 @@ class AgentLoop:
                     {
                         "phase": "cancelled",
                         "text": "已停止生成",
-                        "client_turn_id": client_turn_id or None,
+                        "client_turn_id": normalized_client_turn_id or None,
                     },
                     user_message_id,
                 ),
             )
             self.db.commit()
             clear_chat_turn_cancelled(chat_session.id, user_message_id)
-            if client_turn_id:
-                clear_chat_turn_cancelled(chat_session.id, client_turn_id)
+            if normalized_client_turn_id:
+                clear_chat_turn_cancelled(chat_session.id, normalized_client_turn_id)
             turn_finalized = True
             return True
+
+        def mark_current_turn_cancelled() -> bool:
+            if not chat_session or not user_message_id:
+                return False
+            client_turn_id = (request.client_turn_id or "").strip()
+            server_cancelled = is_chat_turn_cancelled(chat_session.id, user_message_id)
+            client_cancelled = bool(client_turn_id and is_chat_turn_cancelled(chat_session.id, client_turn_id))
+            if not server_cancelled and not client_cancelled:
+                return False
+            return record_current_turn_cancelled(client_turn_id)
 
         def finalize_turn_once(
             target_session: ChatSession,
@@ -1731,7 +1739,10 @@ class AgentLoop:
             if chat_session and user_message_id:
                 try:
                     if not mark_current_turn_cancelled():
-                        self.db.rollback()
+                        if reply.strip():
+                            self.db.rollback()
+                        else:
+                            record_current_turn_cancelled()
                 except Exception:
                     self.db.rollback()
             raise
