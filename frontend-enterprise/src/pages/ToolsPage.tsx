@@ -1,5 +1,5 @@
-import { ArrowLeftOutlined, ExperimentOutlined, SaveOutlined, ToolOutlined } from '../icons';
-import type { HTMLAttributes, ReactNode } from 'react';
+import { ExperimentOutlined, ToolOutlined } from '../icons';
+import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { FlaskConical } from 'lucide-react';
@@ -39,6 +39,7 @@ import {
 } from '@/lib/enterprise-ui';
 import CodeBlock from '../components/CodeBlock';
 import IconAdd from '../assets/icons/add.svg?react';
+import IconArrowRight from '../assets/icons/arrow-right.svg?react';
 import IconChevronDown from '../assets/icons/chevron-down.svg?react';
 import IconClear from '../assets/icons/field-clear.svg?react';
 import IconEdit from '../assets/icons/edit.svg?react';
@@ -539,42 +540,41 @@ function ToolEditorPage({ mode, currentUser, onLogout }: { mode: 'new' | 'edit' 
   }
 
   return (
-    <div className="min-h-full box-border px-[48px] pt-[32px] pb-[43px] max-[900px]:px-[16px]">
+    <div className="min-h-full box-border px-[48px] pt-[32px] pb-[43px] max-[900px]:px-[16px]" aria-busy={loading}>
       <AppHeader
         onLogout={onLogout}
         userName={currentUser?.username}
-        left={(
-          <div>
-            <h3 className="mb-[4px] text-[18px] font-semibold text-foreground">{isEdit ? '编辑工具' : '新建空白工具'}</h3>
-            <span className="text-[13px] text-muted-foreground">
-              {isEdit ? '修改工具定义，并在右侧验证当前配置或已保存版本。' : '填写工具定义后，可先用右侧探测区测试请求与返回结构。'}
-            </span>
-          </div>
-        )}
+        title={isEdit ? '编辑工具' : '新建空白工具'}
+        description={
+          isEdit
+            ? '修改工具定义，并在右侧验证当前配置或已保存版本。'
+            : '填写工具定义后，可先用右侧探测区测试请求与返回结构。'
+        }
       />
-      <div className="page-title mt-1" style={{ justifyContent: 'flex-end' }}>
-        <div className="flex flex-wrap items-center gap-[8px]">
-          <UIButton variant="outline" onClick={() => navigate('/enterprise/tools')}>
-            <ArrowLeftOutlined />
-            返回工具
+      <div className="mt-[20px] mb-[16px] flex flex-wrap justify-end gap-[16px]">
+        <UIButton variant="outline" onClick={() => navigate('/enterprise/tools')} className={RETURN_BUTTON_CLASS}>
+          <IconArrowRight className="size-3.5 rotate-180" />
+          返回工具
+        </UIButton>
+        {isEdit && tool && (
+          <UIButton
+            variant="outline"
+            onClick={() => navigate(`/enterprise/tools/${tool.id}/test`)}
+            className={RETURN_BUTTON_CLASS}
+          >
+            <ExperimentOutlined />
+            打开测试页
           </UIButton>
-          {isEdit && tool && (
-            <UIButton variant="outline" onClick={() => navigate(`/enterprise/tools/${tool.id}/test`)}>
-              <ExperimentOutlined />
-              打开测试页
-            </UIButton>
-          )}
-          <UIButton disabled={loading} onClick={() => void save()}>
-            <SaveOutlined />
-            保存
-          </UIButton>
-        </div>
+        )}
+        <UIButton disabled={loading} onClick={() => void save()} className={PRIMARY_BUTTON_CLASS}>
+          保存
+        </UIButton>
       </div>
-      <div className="grid-2">
-        <EditorCard className="editor-card" bodyClassName="p-[18px]" title="工具定义" loading={loading && isEdit && !tool}>
+      <div className="grid grid-cols-1 items-start gap-[20px] xl:grid-cols-2">
+        <SectionCard title="工具定义" loading={loading && isEdit && !tool}>
           <ToolFormFields values={values} setField={setField} bucketOptions={bucketOptions} />
-        </EditorCard>
-        <div className="flex w-full flex-col gap-[16px]">
+        </SectionCard>
+        <div className="flex w-full flex-col gap-[20px]">
           <ToolProbeCard values={values} />
           {isEdit && tool && <SavedToolTestCard tool={tool} />}
         </div>
@@ -583,49 +583,71 @@ function ToolEditorPage({ mode, currentUser, onLogout }: { mode: 'new' | 'edit' 
   );
 }
 
-function EditorCard({
-  className,
-  bodyClassName,
+const CARD_CLASS =
+  'rounded-[14px] border border-[#eceef1] bg-white dark:border-white/10 dark:bg-[#26272d]';
+const CARD_TITLE_CLASS = 'text-[14px] font-medium text-[#18181a] dark:text-white';
+const FIELD_LABEL_CLASS = 'text-[13px] font-medium text-[#18181a] dark:text-white';
+const SUBSECTION_TITLE_CLASS = 'text-[13px] font-medium text-[#18181a] dark:text-white';
+const HINT_CLASS = 'text-[12px] leading-[1.55] text-[#858b9c] dark:text-muted-foreground';
+const MONO_INPUT_CLASS = 'font-mono text-[12px] leading-[1.65]';
+const RETURN_BUTTON_CLASS =
+  'h-8 gap-1 rounded-[10px] border-[0.5px] border-[#e3e7f1] bg-white px-5 text-[12px] font-normal text-[#757f9c] hover:border-[#cbd3e6] hover:bg-white hover:text-[#18181a] dark:border-border dark:bg-(--surface) dark:text-muted-foreground dark:hover:bg-(--surface)';
+const PRIMARY_BUTTON_CLASS =
+  'h-8 gap-1 rounded-[10px] bg-[#18181a] px-5 text-[12px] font-normal text-white hover:bg-[#303030] dark:bg-white dark:text-[#18181a] dark:hover:bg-white/90';
+
+function SectionCard({
   title,
   extra,
   loading,
   children,
-  ...rest
+  className,
+  bodyClassName,
 }: {
-  className?: string;
-  bodyClassName?: string;
   title?: ReactNode;
   extra?: ReactNode;
   loading?: boolean;
   children?: ReactNode;
-} & Omit<HTMLAttributes<HTMLDivElement>, 'title'>) {
+  className?: string;
+  bodyClassName?: string;
+}) {
   return (
-    <div className={cn('ant-card', className)} {...rest}>
+    <section className={cn(CARD_CLASS, 'overflow-hidden', className)}>
       {(title || extra) && (
-        <div className="ant-card-head border-b border-border">
-          <div className="ant-card-head-wrapper flex min-h-[46px] items-center justify-between gap-[12px] px-[16px]">
-            <div className="ant-card-head-title min-w-0">{title}</div>
-            {extra ? <div className="ant-card-extra min-w-0">{extra}</div> : null}
-          </div>
+        <div className="flex min-h-[54px] items-center justify-between gap-[12px] border-b border-[#eceef1] px-[20px] py-[10px] dark:border-white/10">
+          <div className={cn('min-w-0', CARD_TITLE_CLASS)}>{title}</div>
+          {extra ? <div className="shrink-0">{extra}</div> : null}
         </div>
       )}
-      <div className={cn('ant-card-body', bodyClassName)}>
+      <div className={cn('p-[20px]', bodyClassName)}>
         {loading ? (
           <div className="py-[24px] text-center text-[13px] text-[#858b9c] dark:text-muted-foreground">加载中…</div>
         ) : (
           children
         )}
       </div>
-    </div>
+    </section>
   );
 }
 
-function LabeledField({ label, children }: { label: string; children: ReactNode }) {
+function Field({
+  label,
+  htmlFor,
+  hint,
+  children,
+}: {
+  label: string;
+  htmlFor?: string;
+  hint?: ReactNode;
+  children: ReactNode;
+}) {
   return (
-    <label className="flex flex-col gap-[6px]">
-      <span className="text-[12px] font-medium text-[#464c5e] dark:text-muted-foreground">{label}</span>
+    <div className="flex flex-col gap-[6px]">
+      <label htmlFor={htmlFor} className={FIELD_LABEL_CLASS}>
+        {label}
+      </label>
       {children}
-    </label>
+      {hint ? <span className={HINT_CLASS}>{hint}</span> : null}
+    </div>
   );
 }
 
@@ -647,86 +669,92 @@ export function ToolTestPage({ currentUser, onLogout }: ToolPageProps = {}) {
   }, [toolId]);
 
   return (
-    <div className="min-h-full box-border px-[48px] pt-[32px] pb-[43px] max-[900px]:px-[16px]">
+    <div className="min-h-full box-border px-[48px] pt-[32px] pb-[43px] max-[900px]:px-[16px]" aria-busy={loading}>
       <AppHeader
         onLogout={onLogout}
         userName={currentUser?.username}
-        left={(
-          <div>
-            <h3 className="mb-[4px] text-[18px] font-semibold text-foreground">工具测试</h3>
-            <span className="text-[13px] text-muted-foreground">
-              用测试参数直接调用已保存工具，检查员工后续调用时的实际返回。
-            </span>
-          </div>
-        )}
+        title="工具测试"
+        description="用测试参数直接调用已保存工具，检查员工后续调用时的实际返回。"
       />
-      <div className="page-title mt-1" style={{ justifyContent: 'flex-end' }}>
-        <div className="flex flex-wrap items-center gap-[8px]">
-          <UIButton variant="outline" onClick={() => navigate('/enterprise/tools')}>
-            <ArrowLeftOutlined />
-            返回工具
+      <div className="mt-[20px] mb-[16px] flex flex-wrap justify-end gap-[16px]">
+        <UIButton variant="outline" onClick={() => navigate('/enterprise/tools')} className={RETURN_BUTTON_CLASS}>
+          <IconArrowRight className="size-3.5 rotate-180" />
+          返回工具
+        </UIButton>
+        {tool && (
+          <UIButton
+            variant="outline"
+            onClick={() => navigate(`/enterprise/tools/${tool.id}/edit`)}
+            className={RETURN_BUTTON_CLASS}
+          >
+            <IconEdit className="size-3.5" />
+            编辑工具
           </UIButton>
-          {tool && (
-            <UIButton variant="outline" onClick={() => navigate(`/enterprise/tools/${tool.id}/edit`)}>
-              编辑工具
-            </UIButton>
-          )}
-        </div>
+        )}
       </div>
-      <div className="tool-test-layout">
-        <EditorCard className="tool-test-overview-card" title="工具信息" loading={loading && !tool}>
+      <div className="grid grid-cols-1 items-start gap-[20px] xl:grid-cols-[minmax(0,1fr)_minmax(360px,440px)]">
+        <SectionCard title="工具信息" loading={loading && !tool} bodyClassName="flex flex-col gap-[16px]">
           {tool && (
-            <div className="tool-test-overview">
-              <div className="tool-test-hero">
-                <div className="tool-test-icon">
+            <>
+              <div className="grid grid-cols-[58px_minmax(0,1fr)] items-start gap-[16px] rounded-[14px] border border-[#eceef1] bg-[#fafbfc] p-[16px] dark:border-white/10 dark:bg-white/5">
+                <div className="grid size-[58px] place-items-center rounded-[16px] border border-[#eceef1] bg-white text-[24px] text-[#18181a] dark:border-white/10 dark:bg-white/10 dark:text-white">
                   <ToolOutlined />
                 </div>
-                <div className="tool-test-hero-main">
-                  <span className="tool-test-eyebrow">{tool.bucket || '未分桶'}</span>
-                  <h4 className="m-0 text-[18px] font-semibold text-foreground">{tool.display_name || tool.name}</h4>
-                  <p className="mt-[4px] mb-0 text-[13px] text-[#858b9c] dark:text-muted-foreground">{tool.description || '暂无描述'}</p>
-                  <div className="mt-[10px] flex flex-wrap items-center gap-[6px]">
-                    <ToolTag tone={tool.tool_type === 'mcp' ? 'blue' : 'gray'}>{toolTypeLabel(tool)}</ToolTag>
-                    <ToolTag tone={tool.enabled ? 'green' : 'gray'}>{tool.enabled ? '已启用' : '已停用'}</ToolTag>
-                    <ToolTag tone="gray">{tool.method}</ToolTag>
+                <div className="min-w-0">
+                  <span className="text-[12px] font-semibold text-[#1a71ff]">{tool.bucket || '未分桶'}</span>
+                  <h4 className="my-[4px] text-[18px] font-semibold wrap-break-word text-[#18181a] dark:text-white">
+                    {tool.display_name || tool.name}
+                  </h4>
+                  <p className="mb-[10px] text-[13px] leading-[1.65] wrap-break-word text-[#858b9c] dark:text-muted-foreground">
+                    {tool.description || '暂无描述'}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-[6px]">
+                    <StatusBadge tone={tool.tool_type === 'mcp' ? 'blue' : 'gray'}>{toolTypeLabel(tool)}</StatusBadge>
+                    <StatusBadge tone={tool.enabled ? 'green' : 'gray'}>{tool.enabled ? '已启用' : '已停用'}</StatusBadge>
+                    <StatusBadge tone="gray">{tool.method}</StatusBadge>
                   </div>
                 </div>
               </div>
-              <div className="tool-test-meta-grid">
-                <div>
-                  <span>工具 ID</span>
-                  <strong>{tool.name}</strong>
+
+              <div className="grid grid-cols-2 gap-[10px] md:grid-cols-4">
+                {[
+                  { label: '工具 ID', value: tool.name },
+                  { label: '输入字段', value: schemaPropertyCount(tool.input_schema) },
+                  { label: '输出字段', value: schemaPropertyCount(tool.output_schema) },
+                  { label: '最近更新', value: formatDateTime(tool.updated_at) },
+                ].map((item) => (
+                  <div
+                    key={item.label}
+                    className="flex min-h-[78px] flex-col gap-[8px] rounded-[12px] border border-[#eceef1] bg-white px-[14px] py-[13px] dark:border-white/10 dark:bg-(--surface)"
+                  >
+                    <span className="text-[12px] font-semibold text-[#858b9c] dark:text-muted-foreground">{item.label}</span>
+                    <strong className="text-[14px] leading-[1.35] wrap-break-word text-[#18181a] dark:text-white">
+                      {item.value}
+                    </strong>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex flex-col gap-[8px] rounded-[12px] border border-[#eceef1] bg-[#fafbfc] px-[16px] py-[14px] dark:border-white/10 dark:bg-white/5">
+                <span className="text-[12px] font-semibold text-[#858b9c] dark:text-muted-foreground">调用地址</span>
+                <code className="block font-mono text-[13px] leading-[1.6] wrap-break-word text-[#18181a] dark:text-white">
+                  {tool.method} {tool.url}
+                </code>
+              </div>
+
+              <div className="grid grid-cols-1 gap-[12px] md:grid-cols-2">
+                <div className="flex flex-col gap-[10px]">
+                  <span className={SUBSECTION_TITLE_CLASS}>Input Schema</span>
+                  <CodeBlock className="max-h-[340px] whitespace-pre-wrap wrap-break-word" code={formatJson(tool.input_schema)} language="json" />
                 </div>
-                <div>
-                  <span>输入字段</span>
-                  <strong>{schemaPropertyCount(tool.input_schema)}</strong>
-                </div>
-                <div>
-                  <span>输出字段</span>
-                  <strong>{schemaPropertyCount(tool.output_schema)}</strong>
-                </div>
-                <div>
-                  <span>最近更新</span>
-                  <strong>{formatDateTime(tool.updated_at)}</strong>
+                <div className="flex flex-col gap-[10px]">
+                  <span className={SUBSECTION_TITLE_CLASS}>Output Schema</span>
+                  <CodeBlock className="max-h-[340px] whitespace-pre-wrap wrap-break-word" code={formatJson(tool.output_schema)} language="json" />
                 </div>
               </div>
-              <div className="tool-test-endpoint">
-                <span>调用地址</span>
-                <code>{tool.method} {tool.url}</code>
-              </div>
-              <div className="tool-test-schema-grid">
-                <div className="tool-test-schema-panel">
-                  <div className="tool-test-section-title">Input Schema</div>
-                  <CodeBlock className="tool-test-code" code={formatJson(tool.input_schema)} language="json" />
-                </div>
-                <div className="tool-test-schema-panel">
-                  <div className="tool-test-section-title">Output Schema</div>
-                  <CodeBlock className="tool-test-code" code={formatJson(tool.output_schema)} language="json" />
-                </div>
-              </div>
-            </div>
+            </>
           )}
-        </EditorCard>
+        </SectionCard>
         {tool && <SavedToolTestCard tool={tool} standalone />}
       </div>
     </div>
@@ -744,98 +772,162 @@ function ToolFormFields({
 }) {
   const toolType = values.tool_type || 'http';
   return (
-    <div className="flex flex-col gap-[14px]">
-      <LabeledField label="工具名称">
-        <div className="relative">
-          <ToolOutlined className="pointer-events-none absolute left-[10px] top-1/2 -translate-y-1/2 text-[#858b9c]" />
-          <Input className="pl-[30px]" value={values.name || ''} onChange={(event) => setField('name', event.target.value)} />
-        </div>
-      </LabeledField>
-      <LabeledField label="展示名称">
-        <Input value={values.display_name || ''} onChange={(event) => setField('display_name', event.target.value)} />
-      </LabeledField>
-      <LabeledField label="工具类型">
-        <UISelect value={toolType} onValueChange={(value) => setField('tool_type', value)}>
-          <SelectTrigger className={cn(SELECT_TRIGGER_CLASS, 'w-full')}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="http">HTTP 接口</SelectItem>
-            <SelectItem value="mcp">MCP 服务</SelectItem>
-          </SelectContent>
-        </UISelect>
-      </LabeledField>
-      <LabeledField label="工具分桶">
-        <Input
-          list="tool-bucket-options"
-          placeholder="选择或输入分桶"
-          value={values.bucket || ''}
-          onChange={(event) => setField('bucket', event.target.value)}
-        />
-        <datalist id="tool-bucket-options">
-          {bucketOptions.map((item) => (
-            <option key={item.value} value={item.value} />
-          ))}
-        </datalist>
-      </LabeledField>
-      <LabeledField label="描述">
-        <Textarea rows={2} value={values.description || ''} onChange={(event) => setField('description', event.target.value)} />
-      </LabeledField>
-      <LabeledField label={toolType === 'mcp' ? 'Method 标记' : 'HTTP Method'}>
-        <UISelect value={values.method} onValueChange={(value) => setField('method', value)}>
-          <SelectTrigger className={cn(SELECT_TRIGGER_CLASS, 'w-full')}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map((value) => (
-              <SelectItem key={value} value={value}>{value}</SelectItem>
+    <div className="flex flex-col gap-[16px]">
+      <div className="grid grid-cols-1 gap-[16px] sm:grid-cols-2">
+        <Field label="工具名称" htmlFor="tool-name">
+          <div className="relative">
+            <ToolOutlined className="pointer-events-none absolute left-[10px] top-1/2 -translate-y-1/2 text-[#858b9c]" />
+            <Input
+              id="tool-name"
+              className="pl-[30px]"
+              placeholder="order_query"
+              value={values.name || ''}
+              onChange={(event) => setField('name', event.target.value)}
+            />
+          </div>
+        </Field>
+        <Field label="展示名称" htmlFor="tool-display-name">
+          <Input
+            id="tool-display-name"
+            placeholder="订单查询"
+            value={values.display_name || ''}
+            onChange={(event) => setField('display_name', event.target.value)}
+          />
+        </Field>
+      </div>
+
+      <div className="grid grid-cols-1 gap-[16px] sm:grid-cols-2">
+        <Field label="工具类型">
+          <UISelect value={toolType} onValueChange={(value) => setField('tool_type', value)}>
+            <SelectTrigger className={cn(SELECT_TRIGGER_CLASS, 'w-full')}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="http">HTTP 接口</SelectItem>
+              <SelectItem value="mcp">MCP 服务</SelectItem>
+            </SelectContent>
+          </UISelect>
+        </Field>
+        <Field label="工具分桶" htmlFor="tool-bucket">
+          <Input
+            id="tool-bucket"
+            list="tool-bucket-options"
+            placeholder="选择或输入分桶"
+            value={values.bucket || ''}
+            onChange={(event) => setField('bucket', event.target.value)}
+          />
+          <datalist id="tool-bucket-options">
+            {bucketOptions.map((item) => (
+              <option key={item.value} value={item.value} />
             ))}
-          </SelectContent>
-        </UISelect>
-      </LabeledField>
-      <LabeledField label={toolType === 'mcp' ? 'MCP URL 标记' : 'URL'}>
-        <Input
-          placeholder={toolType === 'mcp' ? 'mcp://builtin.demo/echo' : '/api/mock/order/query'}
-          value={values.url || ''}
-          onChange={(event) => setField('url', event.target.value)}
+          </datalist>
+        </Field>
+      </div>
+
+      <Field label="描述" htmlFor="tool-description">
+        <Textarea
+          id="tool-description"
+          rows={2}
+          placeholder="简单说明这个工具的用途"
+          value={values.description || ''}
+          onChange={(event) => setField('description', event.target.value)}
         />
-      </LabeledField>
+      </Field>
+
+      <div className="grid grid-cols-1 gap-[16px] sm:grid-cols-[140px_minmax(0,1fr)]">
+        <Field label={toolType === 'mcp' ? 'Method 标记' : 'HTTP Method'}>
+          <UISelect value={values.method} onValueChange={(value) => setField('method', value)}>
+            <SelectTrigger className={cn(SELECT_TRIGGER_CLASS, 'w-full')}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map((value) => (
+                <SelectItem key={value} value={value}>{value}</SelectItem>
+              ))}
+            </SelectContent>
+          </UISelect>
+        </Field>
+        <Field label={toolType === 'mcp' ? 'MCP URL 标记' : 'URL'} htmlFor="tool-url">
+          <Input
+            id="tool-url"
+            placeholder={toolType === 'mcp' ? 'mcp://builtin.demo/echo' : '/api/mock/order/query'}
+            value={values.url || ''}
+            onChange={(event) => setField('url', event.target.value)}
+          />
+        </Field>
+      </div>
+
       {toolType === 'mcp' ? (
-        <LabeledField label="MCP Config JSON">
+        <Field label="MCP Config JSON" htmlFor="tool-mcp-config">
           <Textarea
+            id="tool-mcp-config"
             rows={4}
+            className={MONO_INPUT_CLASS}
             placeholder={'{\n  "server": "builtin.demo",\n  "tool": "echo"\n}'}
             value={values.mcp_config}
             onChange={(event) => setField('mcp_config', event.target.value)}
           />
-        </LabeledField>
+        </Field>
       ) : (
-        <>
-          <LabeledField label="Headers JSON">
-            <Textarea rows={4} value={values.headers} onChange={(event) => setField('headers', event.target.value)} />
-          </LabeledField>
-          <LabeledField label="Auth JSON">
-            <Textarea rows={3} value={values.auth} onChange={(event) => setField('auth', event.target.value)} />
-          </LabeledField>
-        </>
+        <div className="grid grid-cols-1 gap-[16px] sm:grid-cols-2">
+          <Field label="Headers JSON" htmlFor="tool-headers">
+            <Textarea
+              id="tool-headers"
+              rows={4}
+              className={MONO_INPUT_CLASS}
+              value={values.headers}
+              onChange={(event) => setField('headers', event.target.value)}
+            />
+          </Field>
+          <Field label="Auth JSON" htmlFor="tool-auth">
+            <Textarea
+              id="tool-auth"
+              rows={4}
+              className={MONO_INPUT_CLASS}
+              value={values.auth}
+              onChange={(event) => setField('auth', event.target.value)}
+            />
+          </Field>
+        </div>
       )}
-      <LabeledField label="Input Schema">
-        <Textarea rows={5} value={values.input_schema} onChange={(event) => setField('input_schema', event.target.value)} />
-      </LabeledField>
-      <LabeledField label="Output Schema">
-        <Textarea rows={5} value={values.output_schema} onChange={(event) => setField('output_schema', event.target.value)} />
-      </LabeledField>
-      <LabeledField label="Allowed Skills">
+
+      <div className="grid grid-cols-1 gap-[16px] sm:grid-cols-2">
+        <Field label="Input Schema" htmlFor="tool-input-schema">
+          <Textarea
+            id="tool-input-schema"
+            rows={5}
+            className={MONO_INPUT_CLASS}
+            value={values.input_schema}
+            onChange={(event) => setField('input_schema', event.target.value)}
+          />
+        </Field>
+        <Field label="Output Schema" htmlFor="tool-output-schema">
+          <Textarea
+            id="tool-output-schema"
+            rows={5}
+            className={MONO_INPUT_CLASS}
+            value={values.output_schema}
+            onChange={(event) => setField('output_schema', event.target.value)}
+          />
+        </Field>
+      </div>
+
+      <Field label="Allowed Skills" htmlFor="tool-allowed-skills" hint="留空表示所有技能可调用，多个技能用英文逗号分隔。">
         <Input
+          id="tool-allowed-skills"
           placeholder="skill_id_1,skill_id_2"
           value={values.allowed_skills || ''}
           onChange={(event) => setField('allowed_skills', event.target.value)}
         />
-      </LabeledField>
-      <label className="flex cursor-pointer items-center gap-[8px]">
+      </Field>
+
+      <div className="flex items-center justify-between rounded-[12px] border border-[#eceef1] bg-[#fafbfc] px-[14px] py-[12px] dark:border-white/10 dark:bg-white/5">
+        <div className="flex flex-col gap-[2px]">
+          <span className={FIELD_LABEL_CLASS}>启用工具</span>
+          <span className={HINT_CLASS}>停用后员工将无法调用该工具。</span>
+        </div>
         <Switch checked={values.enabled} onCheckedChange={(next) => setField('enabled', next)} />
-        <span className="text-[12px] font-medium text-[#464c5e] dark:text-muted-foreground">启用</span>
-      </label>
+      </div>
     </div>
   );
 }
@@ -901,32 +993,38 @@ function ToolProbeCard({ values }: { values: ToolFormValues }) {
   }
 
   return (
-    <EditorCard
-      className="editor-card"
-      bodyClassName="p-[18px]"
+    <SectionCard
       title="配置探测"
+      bodyClassName="flex flex-col gap-[14px]"
       extra={(
-        <UIButton variant="outline" disabled={loading} onClick={() => void probe()}>
+        <UIButton variant="outline" disabled={loading} onClick={() => void probe()} className={RETURN_BUTTON_CLASS}>
           <ExperimentOutlined />
           探测
         </UIButton>
       )}
     >
-      <p className="mb-[8px] text-[13px] text-[#858b9c] dark:text-muted-foreground">
-        无需保存，直接用当前配置测试连接。
-      </p>
-      <div className="tool-test-section-title">
-        {isGetMethod ? '测试参数 JSON（拼到 URL Query）' : '测试参数 JSON（作为请求 Body）'}
+      <p className={HINT_CLASS}>无需保存，直接用当前配置测试连接。</p>
+      <div className="flex flex-col gap-[8px]">
+        <span className={SUBSECTION_TITLE_CLASS}>
+          {isGetMethod ? '测试参数 JSON（拼到 URL Query）' : '测试参数 JSON（作为请求 Body）'}
+        </span>
+        <p className={HINT_CLASS}>
+          {isGetMethod
+            ? 'GET 会把这里的字段作为查询参数追加到 URL；参数值填写未编码原文，例如 timezone 用 Asia/Shanghai。'
+            : '非 GET 请求会把这里的 JSON 作为请求体发送；仅 URL 查询串不会变成请求 Body。'}
+        </p>
+        <Textarea
+          rows={5}
+          className={MONO_INPUT_CLASS}
+          value={sampleJson}
+          onChange={(event) => setSampleJson(event.target.value)}
+        />
       </div>
-      <p className="tool-probe-hint mb-[8px] text-[13px] text-[#858b9c] dark:text-muted-foreground">
-        {isGetMethod
-          ? 'GET 会把这里的字段作为查询参数追加到 URL；参数值填写未编码原文，例如 timezone 用 Asia/Shanghai。'
-          : '非 GET 请求会把这里的 JSON 作为请求体发送；仅 URL 查询串不会变成请求 Body。'}
-      </p>
-      <Textarea rows={5} value={sampleJson} onChange={(event) => setSampleJson(event.target.value)} />
-      <div className="tool-test-section-title tool-test-result-label">探测结果</div>
-      <Textarea className="mt-[12px]" rows={8} value={result} readOnly />
-    </EditorCard>
+      <div className="flex flex-col gap-[8px]">
+        <span className={SUBSECTION_TITLE_CLASS}>探测结果</span>
+        <Textarea rows={8} readOnly className={MONO_INPUT_CLASS} value={result} />
+      </div>
+    </SectionCard>
   );
 }
 
@@ -964,61 +1062,51 @@ function SavedToolTestCard({ tool, standalone = false }: { tool: ToolRead; stand
   }
 
   return (
-    <EditorCard
-      className="tool-test-console-card"
+    <SectionCard
+      className={standalone ? undefined : 'xl:sticky xl:top-[18px]'}
+      bodyClassName="flex flex-col gap-[16px]"
       title={(
-        <span className="tool-test-card-title">
+        <span className="inline-flex items-center gap-[8px]">
           <ExperimentOutlined />
           {standalone ? '调用测试' : '已保存工具测试'}
         </span>
       )}
       extra={(
-        <UIButton disabled={loading} onClick={() => void test()}>
+        <UIButton disabled={loading} onClick={() => void test()} className={PRIMARY_BUTTON_CLASS}>
           <ExperimentOutlined />
           调用
         </UIButton>
       )}
     >
-      <div className="tool-test-console-intro">
-        <span className="text-[13px] text-[#858b9c] dark:text-muted-foreground">
+      <div className="flex items-start justify-between gap-[12px] rounded-[12px] border border-[#eceef1] bg-[#fafbfc] px-[14px] py-[12px] dark:border-white/10 dark:bg-white/5">
+        <span className="text-[13px] leading-[1.65] text-[#858b9c] dark:text-muted-foreground">
           调用已保存的「{tool.display_name || tool.name}」，用于验证员工实际可用的工具返回。
         </span>
-        <ToolTag tone="gray">{toolTypeLabel(tool)}</ToolTag>
+        <StatusBadge tone="gray">{toolTypeLabel(tool)}</StatusBadge>
       </div>
-      <div className="tool-test-editor-block">
-        <div className="tool-test-section-title">测试参数</div>
+      <div className="flex flex-col gap-[10px]">
+        <span className={SUBSECTION_TITLE_CLASS}>测试参数</span>
         <Textarea
-          className="tool-test-json-input"
           rows={8}
+          className={MONO_INPUT_CLASS}
           value={testJson}
           onChange={(event) => setTestJson(event.target.value)}
         />
       </div>
-      <div className="tool-test-editor-block">
-        <div className="tool-test-result-head">
-          <div className="tool-test-section-title">调用结果</div>
-          <ToolTag tone={testResult ? 'green' : 'gray'}>{testResult ? '已返回' : '等待调用'}</ToolTag>
+      <div className="flex flex-col gap-[10px]">
+        <div className="flex items-center justify-between gap-[10px]">
+          <span className={SUBSECTION_TITLE_CLASS}>调用结果</span>
+          <StatusBadge tone={testResult ? 'green' : 'gray'}>{testResult ? '已返回' : '等待调用'}</StatusBadge>
         </div>
         {testResult ? (
-          <CodeBlock className="tool-test-result-code" code={testResult} language="json" />
+          <CodeBlock className="max-h-[340px] whitespace-pre-wrap wrap-break-word" code={testResult} language="json" />
         ) : (
-          <div className="tool-test-empty-result">点击调用后，这里会显示工具返回、错误信息和原始 data。</div>
+          <div className="grid min-h-[180px] place-items-center rounded-[12px] border border-dashed border-[#eceef1] p-[20px] text-center text-[13px] text-[#858b9c] dark:border-white/10 dark:text-muted-foreground">
+            点击调用后，这里会显示工具返回、错误信息和原始 data。
+          </div>
         )}
       </div>
-    </EditorCard>
-  );
-}
-
-function ToolTag({ tone = 'gray', children }: { tone?: 'gray' | 'blue' | 'green'; children: ReactNode }) {
-  const toneClass = {
-    gray: 'bg-[#f2f3f5] text-[#5b6273] dark:bg-white/10 dark:text-muted-foreground',
-    blue: 'bg-[#e6f0ff] text-[#1a71ff] dark:bg-[#1a71ff]/20 dark:text-[#7fb0ff]',
-    green: 'bg-[#eafbf0] text-[#018434] dark:bg-[#018434]/20 dark:text-[#4bd07f]',
-  }[tone];
-  return (
-    <span className={cn('inline-flex items-center rounded-[6px] px-[8px] py-[2px] text-[12px] font-medium leading-[18px]', toneClass)}>
-      {children}
-    </span>
+    </SectionCard>
   );
 }
 
