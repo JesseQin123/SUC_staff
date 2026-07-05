@@ -1020,7 +1020,7 @@ export default function KnowledgeManagePage({ currentUser, onLogout }: Knowledge
             <Paginator
               page={pagination.page}
               pageCount={pagination.pageCount}
-              onPageChange={pagination.setPage}
+              onChange={pagination.setPage}
             />
           )}
         </div>
