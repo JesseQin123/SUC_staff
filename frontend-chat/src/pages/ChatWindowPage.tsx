@@ -511,6 +511,12 @@ function hasServerMessageForTurn(messageItem: ChatMessage, serverMessages: ChatM
   );
 }
 
+function sameRoleTurn(left: ChatMessage, right: ChatMessage): boolean {
+  const leftTurnId = effectiveMessageTurnId(left);
+  const rightTurnId = effectiveMessageTurnId(right);
+  return Boolean(leftTurnId && rightTurnId && leftTurnId === rightTurnId && left.role === right.role);
+}
+
 function hasAssistantMessageForTurn(slot: SessionSlot, turnId: string): boolean {
   if (!turnId) return false;
   const messages = [...slot.serverMessages, ...slot.realtimeMessages];
@@ -2539,7 +2545,7 @@ export default function ChatWindowPage() {
             )
           ));
           if (hasCompletedAssistant) {
-            clearStreamSlot(id, false);
+            clearStreamSlot(id, true);
           }
         }
         pruneRealtime(id);
@@ -2694,7 +2700,21 @@ export default function ChatWindowPage() {
 
   const appendRealtime = useCallback((id: string, messageItem: ChatMessage) => {
     const slot = getSlot(id);
-    slot.realtimeMessages = [...slot.realtimeMessages, messageItem].slice(-200);
+    const existingIndex = messageItem.role === 'assistant'
+      ? slot.realtimeMessages.findIndex((item) => sameRoleTurn(item, messageItem))
+      : -1;
+    if (existingIndex >= 0) {
+      const nextMessages = [...slot.realtimeMessages];
+      nextMessages[existingIndex] = {
+        ...nextMessages[existingIndex],
+        ...messageItem,
+        id: messageItem.id,
+        created_at: nextMessages[existingIndex].created_at || messageItem.created_at,
+      };
+      slot.realtimeMessages = nextMessages.slice(-200);
+    } else {
+      slot.realtimeMessages = [...slot.realtimeMessages, messageItem].slice(-200);
+    }
     notifyStore();
   }, [getSlot, notifyStore]);
 
@@ -2731,8 +2751,19 @@ export default function ChatWindowPage() {
       created_at: previousCreatedAt || timestampAfterMessage(latestUserMessageForTurn(slot, activeTurnId)),
       isStreaming: true,
     };
-    if (index >= 0) {
-      const previous = slot.realtimeMessages[index];
+    if (activeTurnId) {
+      slot.realtimeMessages = slot.realtimeMessages.filter((item) => (
+        item.id === streamId
+        || !(
+          item.role === 'assistant'
+          && effectiveMessageTurnId(item) === activeTurnId
+          && !hasServerMessageForTurn(item, slot.serverMessages)
+        )
+      ));
+    }
+    const streamIndex = slot.realtimeMessages.findIndex((item) => item.id === streamId);
+    if (streamIndex >= 0) {
+      const previous = slot.realtimeMessages[streamIndex];
       if (
         previous.turnId === streamingMessage.turnId
         && previous.content === streamingMessage.content
@@ -2741,7 +2772,7 @@ export default function ChatWindowPage() {
         return;
       }
       slot.realtimeMessages = [...slot.realtimeMessages];
-      slot.realtimeMessages[index] = streamingMessage;
+      slot.realtimeMessages[streamIndex] = streamingMessage;
     } else {
       slot.realtimeMessages = [...slot.realtimeMessages, streamingMessage];
     }
@@ -2773,12 +2804,31 @@ export default function ChatWindowPage() {
     const index = slot.realtimeMessages.findIndex((item) => item.id === streamId);
     if (index >= 0) {
       const streamMessage = slot.realtimeMessages[index];
-      slot.realtimeMessages = [...slot.realtimeMessages];
-      slot.realtimeMessages[index] = {
-        ...streamMessage,
-        id: `text_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        isStreaming: false,
-      };
+      const streamTurnId = effectiveMessageTurnId(streamMessage);
+      if (streamTurnId && hasServerMessageForTurn(streamMessage, slot.serverMessages)) {
+        slot.realtimeMessages = slot.realtimeMessages.filter((item) => item.id !== streamId);
+      } else {
+        const finalMessage: ChatMessage = {
+          ...streamMessage,
+          id: streamTurnId ? `__final_${id}_${streamTurnId}` : `text_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          isStreaming: false,
+        };
+        const nextMessages = slot.realtimeMessages.filter((item, itemIndex) => (
+          itemIndex === index
+          || !(
+            streamTurnId
+            && item.role === 'assistant'
+            && effectiveMessageTurnId(item) === streamTurnId
+          )
+        ));
+        const nextIndex = nextMessages.findIndex((item) => item.id === streamId);
+        if (nextIndex >= 0) {
+          nextMessages[nextIndex] = finalMessage;
+        } else {
+          nextMessages.push(finalMessage);
+        }
+        slot.realtimeMessages = nextMessages;
+      }
     }
     const stream = getStreamSlot(id);
     stream.accumulated = '';
@@ -2827,12 +2877,13 @@ export default function ChatWindowPage() {
   useEffect(() => {
     if (!sessionId || runningTurn?.sessionId !== sessionId) return;
     const timer = window.setInterval(() => {
+      if (getStreamSlot(sessionId).abortController) return;
       void loadMessages(sessionId).finally(() => {
         void loadTraces(sessionId);
       });
     }, 1500);
     return () => window.clearInterval(timer);
-  }, [loadMessages, loadTraces, runningTurn?.sessionId, sessionId]);
+  }, [getStreamSlot, loadMessages, loadTraces, runningTurn?.sessionId, sessionId]);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -3681,6 +3732,7 @@ export default function ChatWindowPage() {
     if (!auth) return;
     const pollBackgroundSessions = () => {
       const ids = new Set<string>();
+      const isLiveSseSession = (id: string) => Boolean(streamRef.current.get(id)?.abortController);
       sessions.forEach((session) => {
         const looksRunning = (
           session.status === 'running'
@@ -3688,10 +3740,10 @@ export default function ChatWindowPage() {
           || (session.summary || '').includes('执行中')
           || (session.last_agent_question || '').includes('执行中')
         );
-        if (looksRunning) ids.add(session.id);
+        if (looksRunning && !isLiveSseSession(session.id)) ids.add(session.id);
       });
       streamRef.current.forEach((slot, id) => {
-        if (slot.loading && !isDraftConversationKey(id)) ids.add(id);
+        if (slot.loading && !slot.abortController && !isDraftConversationKey(id)) ids.add(id);
       });
       Array.from(ids).slice(0, 8).forEach((id) => {
         void pollScheduledSessionEvents(id);
