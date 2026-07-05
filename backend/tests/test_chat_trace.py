@@ -193,6 +193,111 @@ def test_turn_trace_cancel_event_closes_running_status_for_refresh() -> None:
     assert any(line["id"] == "generation_stopped" and line["text"] == "已停止生成" for line in traces[0]["lines"])
 
 
+def test_turn_trace_keeps_legacy_general_skill_events_without_turn_id() -> None:
+    started_at = datetime(2026, 7, 4, 9, 8, 0)
+    messages = [
+        Message(
+            id="msg_user",
+            tenant_id="tenant_demo",
+            session_id="session_general_skill",
+            role="user",
+            content="北京今天天气如何",
+            created_at=started_at,
+        ),
+        Message(
+            id="msg_assistant",
+            tenant_id="tenant_demo",
+            session_id="session_general_skill",
+            role="assistant",
+            content="北京今天晴朗。",
+            created_at=started_at + timedelta(seconds=50),
+        ),
+    ]
+    events = [
+        AgentEvent(
+            tenant_id="tenant_demo",
+            session_id="session_general_skill",
+            event_type="user_message_received",
+            payload_json={"message_id": "msg_user", "message": "北京今天天气如何"},
+            created_at=started_at,
+        ),
+        AgentEvent(
+            tenant_id="tenant_demo",
+            session_id="session_general_skill",
+            event_type="router_decision_created",
+            payload_json={
+                "turn_id": "msg_user",
+                "user_message_id": "msg_user",
+                "decision": "answer_only",
+                "user_intent": "查询天气",
+                "reason": "实时信息查询",
+            },
+            created_at=started_at + timedelta(seconds=2),
+        ),
+        AgentEvent(
+            tenant_id="tenant_demo",
+            session_id="session_general_skill",
+            event_type="general_skill_selected",
+            payload_json={
+                "skill_slug": "maomao-weather",
+                "skill_name": "weather",
+                "reason": "匹配天气查询能力",
+            },
+            created_at=started_at + timedelta(seconds=3),
+        ),
+        AgentEvent(
+            tenant_id="tenant_demo",
+            session_id="session_general_skill",
+            event_type="general_skill_trace",
+            payload_json={
+                "skill_slug": "maomao-weather",
+                "phase": "planning",
+                "message": "正在根据 SKILL.md 生成 runner",
+            },
+            created_at=started_at + timedelta(seconds=4),
+        ),
+        AgentEvent(
+            tenant_id="tenant_demo",
+            session_id="session_general_skill",
+            event_type="general_skill_trace",
+            payload_json={
+                "skill_slug": "maomao-weather",
+                "phase": "reflection_reviewed",
+                "message": "已完成运行结果校验",
+                "review": {"reason": "结果可用"},
+            },
+            created_at=started_at + timedelta(seconds=5),
+        ),
+        AgentEvent(
+            tenant_id="tenant_demo",
+            session_id="session_general_skill",
+            event_type="general_skill_run_finished",
+            payload_json={"skill_slug": "maomao-weather", "success": True},
+            created_at=started_at + timedelta(seconds=6),
+        ),
+        AgentEvent(
+            tenant_id="tenant_demo",
+            session_id="session_general_skill",
+            event_type="assistant_message_created",
+            payload_json={
+                "message_id": "msg_assistant",
+                "user_message_id": "msg_user",
+                "reply": "北京今天晴朗。",
+            },
+            created_at=started_at + timedelta(seconds=50),
+        ),
+    ]
+
+    traces = _build_turn_traces(messages, events, {})
+
+    texts = [line["text"] for line in traces[0]["lines"]]
+    assert traces[0]["turn_id"] == "msg_user"
+    assert "选择通用技能 weather" in texts
+    assert "正在根据 SKILL.md 生成 runner" in texts
+    assert "已完成运行结果校验" in texts
+    assert "通用技能运行完成" in texts
+
+
 def test_turn_trace_uses_message_id_for_repeated_user_text() -> None:
     started_at = datetime(2026, 7, 3, 10, 0, 0)
     messages = [

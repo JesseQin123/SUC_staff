@@ -53,6 +53,26 @@ MAX_CHAT_ATTACHMENT_BYTES = 12 * 1024 * 1024
 MAX_CHAT_ATTACHMENTS = 8
 SESSION_TITLE_SUMMARY_EVENT = "session_title_summarized"
 EVENT_PAYLOAD_META_KEYS = {"id", "event", "type", "event_type", "created_at", "data"}
+ACTIVE_TURN_FALLBACK_TRACE_EVENTS = {
+    "agent_loop_completed",
+    "agent_loop_continued",
+    "general_skill_intent_checked",
+    "general_skill_run_finished",
+    "general_skill_selected",
+    "general_skill_trace",
+    "knowledge_query_finished",
+    "knowledge_query_started",
+    "reflection_decision_created",
+    "reflection_retry_started",
+    "reflection_skipped",
+    "skill_completed",
+    "skill_resumed",
+    "skill_started",
+    "skill_step_changed",
+    "skill_suspended",
+    "tool_call_finished",
+    "tool_call_started",
+}
 SESSION_TITLE_PROMPT = """你是任务派发台的会话标题编辑器。
 
 根据首轮用户需求和员工回复，生成一个简短、可读、具体的中文标题。
@@ -1519,6 +1539,8 @@ def _event_trace_turn_id(event: AgentEvent, active_turn_id: str | None) -> str |
     explicit_turn_id = str(payload.get("turn_id") or payload.get("user_message_id") or "").strip()
     if explicit_turn_id:
         return explicit_turn_id
+    if event.event_type in ACTIVE_TURN_FALLBACK_TRACE_EVENTS:
+        return active_turn_id
     return None
 
 

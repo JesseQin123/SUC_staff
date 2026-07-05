@@ -480,28 +480,34 @@ class AgentLoop:
             request.tenant_id,
             chat_session.id,
             "general_skill_intent_checked",
-            {
-                "skill_slug": skill.slug,
-                "skill_name": skill.name,
-                "confidence": selection.confidence,
-                "reason": selection.reason,
-                "scene_router_decision": router_decision.model_dump(mode="json"),
-            },
+            self._turn_payload(
+                {
+                    "skill_slug": skill.slug,
+                    "skill_name": skill.name,
+                    "confidence": selection.confidence,
+                    "reason": selection.reason,
+                    "scene_router_decision": router_decision.model_dump(mode="json"),
+                },
+                user_message_id,
+            ),
         )
         self.events.record(
             request.tenant_id,
             chat_session.id,
             "general_skill_selected",
-            {
-                "skill_slug": skill.slug,
-                "skill_name": skill.name,
-                "confidence": selection.confidence,
-                "reason": selection.reason,
-                "scene_router_decision": router_decision.model_dump(mode="json"),
-            },
+            self._turn_payload(
+                {
+                    "skill_slug": skill.slug,
+                    "skill_name": skill.name,
+                    "confidence": selection.confidence,
+                    "reason": selection.reason,
+                    "scene_router_decision": router_decision.model_dump(mode="json"),
+                },
+                user_message_id,
+            ),
         )
         run_response = self.general_skill_runner.run(skill, request.message, model_config, request.user_id)
-        self._record_general_skill_run_events(request.tenant_id, chat_session, run_response)
+        self._record_general_skill_run_events(request.tenant_id, chat_session, run_response, user_message_id)
         step_result, tool_result = self._general_skill_agent_outputs(run_response)
         active_skill = self._get_active_skill(request.tenant_id, chat_session.active_skill_id, chat_session.agent_id)
         reply = self._generate_reply_segment(
@@ -614,29 +620,35 @@ class AgentLoop:
             request.tenant_id,
             chat_session.id,
             "general_skill_intent_checked",
-            {
-                "skill_slug": skill.slug,
-                "skill_name": skill.name,
-                "confidence": selection.confidence,
-                "reason": selection.reason,
-                "scene_router_decision": router_decision.model_dump(mode="json")
-                if router_decision
-                else None,
-            },
+            self._turn_payload(
+                {
+                    "skill_slug": skill.slug,
+                    "skill_name": skill.name,
+                    "confidence": selection.confidence,
+                    "reason": selection.reason,
+                    "scene_router_decision": router_decision.model_dump(mode="json")
+                    if router_decision
+                    else None,
+                },
+                user_message_id,
+            ),
         )
         self.events.record(
             request.tenant_id,
             chat_session.id,
             "general_skill_selected",
-            {
-                "skill_slug": skill.slug,
-                "skill_name": skill.name,
-                "confidence": selection.confidence,
-                "reason": selection.reason,
-                "scene_router_decision": router_decision.model_dump(mode="json")
-                if router_decision
-                else None,
-            },
+            self._turn_payload(
+                {
+                    "skill_slug": skill.slug,
+                    "skill_name": skill.name,
+                    "confidence": selection.confidence,
+                    "reason": selection.reason,
+                    "scene_router_decision": router_decision.model_dump(mode="json")
+                    if router_decision
+                    else None,
+                },
+                user_message_id,
+            ),
         )
         yield self._stream_status(
             chat_session,
@@ -741,7 +753,7 @@ class AgentLoop:
 
         if run_response is None:
             raise LLMError("General skill stream ended without a result")
-        self._record_general_skill_run_events(request.tenant_id, chat_session, run_response)
+        self._record_general_skill_run_events(request.tenant_id, chat_session, run_response, user_message_id)
         yield self._stream_status(chat_session, "responding", "正在生成回复", user_message_id=user_message_id)
         step_result, tool_result = self._general_skill_agent_outputs(run_response)
         active_skill = self._get_active_skill(request.tenant_id, chat_session.active_skill_id, chat_session.agent_id)
@@ -5675,28 +5687,35 @@ class AgentLoop:
         tenant_id: str,
         chat_session: ChatSession,
         run_response: GeneralSkillRunResponse,
+        user_message_id: str | None = None,
     ) -> None:
         for item in run_response.execution_trace:
             self.events.record(
                 tenant_id,
                 chat_session.id,
                 "general_skill_trace",
-                {
-                    "skill_slug": run_response.skill_slug,
-                    **item,
-                },
+                self._turn_payload(
+                    {
+                        "skill_slug": run_response.skill_slug,
+                        **item,
+                    },
+                    user_message_id,
+                ),
             )
         self.events.record(
             tenant_id,
             chat_session.id,
             "general_skill_run_finished",
-            {
-                "skill_slug": run_response.skill_slug,
-                "success": bool(run_response.structured_result.get("success", True)),
-                "stdout_preview": run_response.stdout[:600],
-                "stderr_preview": run_response.stderr[:600],
-                "structured_result": run_response.structured_result,
-            },
+            self._turn_payload(
+                {
+                    "skill_slug": run_response.skill_slug,
+                    "success": bool(run_response.structured_result.get("success", True)),
+                    "stdout_preview": run_response.stdout[:600],
+                    "stderr_preview": run_response.stderr[:600],
+                    "structured_result": run_response.structured_result,
+                },
+                user_message_id,
+            ),
         )
 
     def _enqueue_memory_capture(
