@@ -2682,6 +2682,7 @@ export default function ChatWindowPage() {
       })
       .then(() => {
         message.success('已回复，原会话会继续执行');
+        setShowHandoffInbox(false);
         setHandoffs((rows) => rows.filter((item) => item.id !== handoff.id));
         setHandoffReplies((prev) => {
           const next = { ...prev };
@@ -4999,7 +5000,14 @@ export default function ChatWindowPage() {
                     }))}
                   />
                   <div className="handoff-inbox-actions">
-                    <Button onClick={() => navigate(`/${handoff.session_id}`)}>打开原会话</Button>
+                    <Button
+                      onClick={() => {
+                        setShowHandoffInbox(false);
+                        navigate(`/${handoff.session_id}`);
+                      }}
+                    >
+                      打开原会话
+                    </Button>
                     <Button type="primary" onClick={() => submitHandoffReply(handoff)}>回复并恢复</Button>
                   </div>
                 </article>
