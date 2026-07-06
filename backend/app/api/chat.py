@@ -975,7 +975,20 @@ def list_human_handoffs(
     if status != "all":
         stmt = stmt.where(HumanHandoffRequest.status == status)
     if current_user.username not in {"admin", "admin_demo"}:
-        stmt = stmt.where(or_(HumanHandoffRequest.assignee_user_id == current_user.id, HumanHandoffRequest.requester_user_id == current_user.id))
+        if status == "pending":
+            stmt = stmt.where(
+                or_(
+                    HumanHandoffRequest.assignee_user_id == current_user.id,
+                    HumanHandoffRequest.assignee_user_id.is_(None),
+                )
+            )
+        else:
+            stmt = stmt.where(
+                or_(
+                    HumanHandoffRequest.assignee_user_id == current_user.id,
+                    HumanHandoffRequest.requester_user_id == current_user.id,
+                )
+            )
     rows = db.exec(stmt.order_by(HumanHandoffRequest.updated_at.desc()).limit(200)).all()
     return [human_handoff_read(row) for row in rows]
 

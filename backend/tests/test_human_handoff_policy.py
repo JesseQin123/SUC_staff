@@ -288,6 +288,17 @@ def test_handoff_list_filters_by_status_and_user_then_reply_restores_session(mon
                     updated_at=utc_now(),
                 ),
                 HumanHandoffRequest(
+                    id="handoff_unassigned",
+                    tenant_id="tenant_demo",
+                    session_id=session.id,
+                    agent_id="agent_demo",
+                    requester_user_id=other.id,
+                    assignee_user_id=None,
+                    pending_question="未分配请求",
+                    status="pending",
+                    updated_at=utc_now(),
+                ),
+                HumanHandoffRequest(
                     id="handoff_answered",
                     tenant_id="tenant_demo",
                     session_id=session.id,
@@ -304,16 +315,30 @@ def test_handoff_list_filters_by_status_and_user_then_reply_restores_session(mon
         db.commit()
 
         admin_rows = chat_api.list_human_handoffs("tenant_demo", "pending", current_user=admin, db=db)
-        assert {row.id for row in admin_rows} == {"handoff_assigned", "handoff_requested", "handoff_other"}
+        assert {row.id for row in admin_rows} == {
+            "handoff_assigned",
+            "handoff_requested",
+            "handoff_other",
+            "handoff_unassigned",
+        }
 
         user_rows = chat_api.list_human_handoffs("tenant_demo", "pending", current_user=user, db=db)
-        assert {row.id for row in user_rows} == {"handoff_assigned", "handoff_requested"}
+        assert {row.id for row in user_rows} == {"handoff_assigned", "handoff_unassigned"}
 
         user_all_rows = chat_api.list_human_handoffs("tenant_demo", "all", current_user=user, db=db)
         assert {row.id for row in user_all_rows} == {"handoff_assigned", "handoff_requested", "handoff_answered"}
 
         resumed: list[str] = []
         monkeypatch.setattr(chat_api, "_resume_human_handoff_async", resumed.append)
+        with pytest.raises(HTTPException) as forbidden:
+            chat_api.reply_human_handoff(
+                "handoff_requested",
+                chat_api.HumanHandoffReplyRequest(tenant_id="tenant_demo", reply="尝试处理别人的请求"),
+                current_user=user,
+                db=db,
+            )
+        assert forbidden.value.status_code == 403
+
         result = chat_api.reply_human_handoff(
             "handoff_assigned",
             chat_api.HumanHandoffReplyRequest(tenant_id="tenant_demo", reply="人工已经确认，继续执行"),
