@@ -740,7 +740,7 @@ function ChatHandoffButton({
   onOpen?: () => void;
   collapsed?: boolean;
 }) {
-  if (!onOpen) return null;
+  if (!onOpen || count <= 0) return null;
   const badge = count > 99 ? '99+' : String(count);
 
   if (collapsed) {
@@ -762,7 +762,7 @@ function ChatHandoffButton({
           </button>
         </TooltipTrigger>
         <TooltipContent side="right" align="center">
-          待回答{count > 0 ? ` ${badge}` : ''}
+          待回答 {badge}
         </TooltipContent>
       </Tooltip>
     );
@@ -778,11 +778,9 @@ function ChatHandoffButton({
         <IconChatBubble className="size-[16px]! shrink-0" />
         <span className="truncate">待回答</span>
       </span>
-      {count > 0 && (
-        <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-white px-[6px] text-[11px] leading-none text-[#f5483b] shadow-[0_0_0_0.5px_rgba(245,72,59,0.18)] dark:bg-sidebar-accent">
-          {badge}
-        </span>
-      )}
+      <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-white px-[6px] text-[11px] leading-none text-[#f5483b] shadow-[0_0_0_0.5px_rgba(245,72,59,0.18)] dark:bg-sidebar-accent">
+        {badge}
+      </span>
     </button>
   );
 }
