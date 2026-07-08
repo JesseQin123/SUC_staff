@@ -65,7 +65,13 @@ import IconProfileFile from '../assets/icons/profile-file.svg?react';
 import IconSearch from '../assets/icons/search.svg?react';
 import IconSkill from '../assets/icons/plaza-skill.svg?react';
 import IconTrash from '../assets/icons/trash.svg?react';
-import { canManageEmployeeAgent, resourceCreatorNameOrAdmin, visibleEmployeeAgents } from '../employee';
+import {
+  canManageEmployeeAgent,
+  openGalleryAgentId,
+  openGalleryImportSourceOptions,
+  resourceCreatorNameOrAdmin,
+  visibleEmployeeAgents,
+} from '../employee';
 import { useClientPagination } from '../hooks/useClientPagination';
 import { StatusBadge } from './scheduled-tasks/StatusBadge';
 import type { BadgeTone } from './scheduled-tasks/shared';
@@ -454,12 +460,11 @@ export default function GeneralSkillsPage({ embedded = false, currentUser, onLog
   async function requestAgentImport(mode: GeneralSkillImportMode, selectedResourceId?: string) {
     try {
       const agents = await api.get<AgentProfileRead[]>(`/api/enterprise/agents?tenant_id=${TENANT_ID}`);
-      const candidates = mode === 'plaza'
-        ? agents.filter((item) => item.id !== agentId && item.is_overall)
-        : visibleEmployeeAgents(agents, currentUser, { activeOnly: true, excludeAgentId: agentId });
-      const firstSource = candidates[0]?.id || '';
+      const firstSource = mode === 'plaza'
+        ? openGalleryAgentId(agents, TENANT_ID)
+        : visibleEmployeeAgents(agents, currentUser, { activeOnly: true, excludeAgentId: agentId })[0]?.id || '';
       setAgentImportMode(mode);
-      setAgentImportAgents(candidates);
+      setAgentImportAgents(agents);
       setAgentImportSourceAgentId(firstSource);
       setAgentImportSelectedSkillIds([]);
       setAgentImportOpen(true);
@@ -500,7 +505,7 @@ export default function GeneralSkillsPage({ embedded = false, currentUser, onLog
       return;
     }
     if (!agentImportSourceAgentId) {
-      notify.warning(agentImportMode === 'plaza' ? '请选择技能广场' : '请选择复制来源');
+      notify.warning(agentImportMode === 'plaza' ? '请选择开放广场' : '请选择复制来源');
       return;
     }
     if (!agentImportSelectedSkillIds.length) {
@@ -838,11 +843,11 @@ export default function GeneralSkillsPage({ embedded = false, currentUser, onLog
         loading={agentImportLoading}
         icon={<IconSkill className="size-[14px] shrink-0" />}
         title={agentImportMode === 'plaza' ? '从广场复制技能' : '从数字员工复制技能'}
-        sourcePlaceholder={agentImportMode === 'plaza' ? '选择技能广场' : '选择复制来源'}
-        sources={agentImportAgents.map((item) => ({
-          value: item.id,
-          label: item.is_overall ? '技能广场' : item.name,
-        }))}
+        sourcePlaceholder={agentImportMode === 'plaza' ? '选择开放广场' : '选择复制来源'}
+        sources={agentImportMode === 'plaza'
+          ? openGalleryImportSourceOptions(agentImportAgents, '开放广场', TENANT_ID)
+          : visibleEmployeeAgents(agentImportAgents, currentUser, { activeOnly: true, excludeAgentId: agentId })
+            .map((item) => ({ value: item.id, label: item.name }))}
         sourceId={agentImportSourceAgentId}
         itemsLabel="选择技能"
         items={agentImportSourceSkills.map((item) => ({
@@ -858,7 +863,7 @@ export default function GeneralSkillsPage({ embedded = false, currentUser, onLog
         emptyText="没有可复制的技能"
         note={
           agentImportMode === 'plaza'
-            ? '从广场复制可用技能；不可复制内容不会出现在列表。'
+            ? '从开放广场复制可用技能；不可复制内容不会出现在列表。'
             : '从数字员工复制可用技能；不可见内容不会出现在列表。'
         }
         onSourceChange={(value) => {
@@ -1506,12 +1511,11 @@ function GeneralSkillEditorPage({ mode, currentUser, onLogout }: { mode: 'new' |
     void withImportPreparation(async () => {
       try {
         const agents = await api.get<AgentProfileRead[]>(`/api/enterprise/agents?tenant_id=${TENANT_ID}`);
-        const candidates = mode === 'plaza'
-          ? agents.filter((item) => item.id !== agentId && item.is_overall)
-          : visibleEmployeeAgents(agents, currentUser, { activeOnly: true, excludeAgentId: agentId });
-        const firstSource = candidates[0]?.id || '';
+        const firstSource = mode === 'plaza'
+          ? openGalleryAgentId(agents, TENANT_ID)
+          : visibleEmployeeAgents(agents, currentUser, { activeOnly: true, excludeAgentId: agentId })[0]?.id || '';
         setAgentImportMode(mode);
-        setAgentImportAgents(candidates);
+        setAgentImportAgents(agents);
         setAgentImportSourceAgentId(firstSource);
         setAgentImportSelectedSkillIds([]);
         setAgentImportOpen(true);
@@ -1547,7 +1551,7 @@ function GeneralSkillEditorPage({ mode, currentUser, onLogout }: { mode: 'new' |
       return;
     }
     if (!agentImportSourceAgentId) {
-      notify.warning(agentImportMode === 'plaza' ? '请选择技能广场' : '请选择复制来源');
+      notify.warning(agentImportMode === 'plaza' ? '请选择开放广场' : '请选择复制来源');
       return;
     }
     if (!agentImportSelectedSkillIds.length) {
@@ -2331,11 +2335,11 @@ function GeneralSkillEditorPage({ mode, currentUser, onLogout }: { mode: 'new' |
         loading={agentImportLoading}
         icon={<IconSkill className="size-[14px] shrink-0" />}
         title={agentImportMode === 'plaza' ? '从广场复制技能' : '从数字员工复制技能'}
-        sourcePlaceholder={agentImportMode === 'plaza' ? '选择技能广场' : '选择复制来源'}
-        sources={agentImportAgents.map((item) => ({
-          value: item.id,
-          label: item.is_overall ? '技能广场' : item.name,
-        }))}
+        sourcePlaceholder={agentImportMode === 'plaza' ? '选择开放广场' : '选择复制来源'}
+        sources={agentImportMode === 'plaza'
+          ? openGalleryImportSourceOptions(agentImportAgents, '开放广场', TENANT_ID)
+          : visibleEmployeeAgents(agentImportAgents, currentUser, { activeOnly: true, excludeAgentId: agentId })
+            .map((item) => ({ value: item.id, label: item.name }))}
         sourceId={agentImportSourceAgentId}
         itemsLabel="选择技能"
         items={agentImportSourceSkills.map((item) => ({
@@ -2350,7 +2354,7 @@ function GeneralSkillEditorPage({ mode, currentUser, onLogout }: { mode: 'new' |
         selectedIds={agentImportSelectedSkillIds}
         emptyText="没有可复制的技能"
         note={agentImportMode === 'plaza'
-          ? '从广场复制可用技能；不会覆盖当前编辑区内容。'
+          ? '从开放广场复制可用技能；不会覆盖当前编辑区内容。'
           : '从数字员工复制可用技能；不会覆盖当前编辑区内容。'}
         onSourceChange={(value) => {
           setAgentImportSourceAgentId(value);

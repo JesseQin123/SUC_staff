@@ -66,7 +66,13 @@ import IconChevronDown from '../assets/icons/chevron-down.svg?react';
 import IconClear from '../assets/icons/field-clear.svg?react';
 import IconRefresh from '../assets/icons/refresh.svg?react';
 import IconSearch from '../assets/icons/search.svg?react';
-import { canManageEmployeeAgent, resourceCreatorNameOrAdmin, visibleEmployeeAgents } from '../employee';
+import {
+  canManageEmployeeAgent,
+  openGalleryAgentId,
+  openGalleryImportSourceOptions,
+  resourceCreatorNameOrAdmin,
+  visibleEmployeeAgents,
+} from '../employee';
 import { useClientPagination } from '../hooks/useClientPagination';
 import { renderMarkdownBlocks } from './chat/chatHelpers';
 import type {
@@ -497,10 +503,9 @@ export default function KnowledgeManagePage({ currentUser, onLogout }: Knowledge
       const agentRows = agents.length ? agents : await api.get<AgentProfileRead[]>(`/api/enterprise/agents?tenant_id=${TENANT_ID}`);
       setAgents(agentRows);
       setImportMode(mode);
-      const candidates = mode === 'plaza'
-        ? agentRows.filter((item) => item.id !== agentId && item.is_overall)
-        : visibleEmployeeAgents(agentRows, currentUser, { activeOnly: true, excludeAgentId: agentId });
-      const firstSource = candidates[0]?.id || '';
+      const firstSource = mode === 'plaza'
+        ? openGalleryAgentId(agentRows, TENANT_ID)
+        : visibleEmployeeAgents(agentRows, currentUser, { activeOnly: true, excludeAgentId: agentId })[0]?.id || '';
       setImportSourceAgentId(firstSource);
       setImportSelectedKnowledgeBaseIds([]);
       setImportOpen(true);
@@ -540,7 +545,7 @@ export default function KnowledgeManagePage({ currentUser, onLogout }: Knowledge
       return;
     }
     if (!importSourceAgentId) {
-      notify.warning(importMode === 'plaza' ? '请选择知识库广场' : '请选择来源员工');
+      notify.warning(importMode === 'plaza' ? '请选择开放广场' : '请选择来源员工');
       return;
     }
     if (importSelectedKnowledgeBaseIds.length === 0) {
@@ -1207,13 +1212,11 @@ export default function KnowledgeManagePage({ currentUser, onLogout }: Knowledge
         loading={importLoading}
         icon={<DatabaseOutlined />}
         title={importMode === 'plaza' ? '从广场复制知识库' : '从数字员工复制知识库'}
-        sourcePlaceholder={importMode === 'plaza' ? '选择知识库广场' : '选择来源员工'}
-        sources={agents
-          .filter((item) => item.id !== agentId && (importMode === 'plaza' ? item.is_overall : !item.is_overall))
-          .map((item) => ({
-            value: item.id,
-            label: item.is_overall ? '知识库广场' : item.name,
-          }))}
+        sourcePlaceholder={importMode === 'plaza' ? '选择开放广场' : '选择来源员工'}
+        sources={importMode === 'plaza'
+          ? openGalleryImportSourceOptions(agents, '开放广场', TENANT_ID)
+          : visibleEmployeeAgents(agents, currentUser, { activeOnly: true, excludeAgentId: agentId })
+            .map((item) => ({ value: item.id, label: item.name }))}
         sourceId={importSourceAgentId}
         itemsLabel="选择知识库"
         items={importSourceKnowledgeBases.map((item) => ({
@@ -1228,7 +1231,7 @@ export default function KnowledgeManagePage({ currentUser, onLogout }: Knowledge
         selectedIds={importSelectedKnowledgeBaseIds}
         emptyText="没有可复制的知识库"
         note={importMode === 'plaza'
-          ? '从知识库广场复制可用知识库；不可复制内容不会出现在列表。'
+          ? '从开放广场复制可用知识库；不可复制内容不会出现在列表。'
           : '从数字员工复制可用知识库；不可见内容不会出现在列表。'}
         submitText="复制"
         onSourceChange={(value) => {

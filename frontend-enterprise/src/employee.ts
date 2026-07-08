@@ -240,6 +240,22 @@ export function visibleEmployeeAgents(
   return rows.filter((agent) => canAccessEmployeeAgent(agent, user, options));
 }
 
+export function openGalleryAgent(rows: AgentProfileRead[]): AgentProfileRead | undefined {
+  return rows.find((agent) => agent.is_overall);
+}
+
+export function openGalleryAgentId(rows: AgentProfileRead[], tenantId: string): string {
+  return openGalleryAgent(rows)?.id || `agent_${tenantId}_overall`;
+}
+
+export function openGalleryImportSourceOptions(
+  rows: AgentProfileRead[],
+  label: string,
+  tenantId: string,
+): Array<{ value: string; label: string }> {
+  return [{ value: openGalleryAgentId(rows, tenantId), label }];
+}
+
 function asStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
 }

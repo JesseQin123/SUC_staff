@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { ChevronDown } from 'lucide-react';
 
 import {
   Checkbox,
@@ -118,18 +119,26 @@ export function ResourceImportDialog({
 
           <div className="flex flex-col gap-[6px]">
             <span className="text-[11px] font-semibold text-[#858b9c]">复制来源</span>
-            <Select value={sourceId || undefined} onValueChange={onSourceChange}>
-              <SelectTrigger className={cn(SELECT_TRIGGER_CLASS, 'w-full')}>
-                <SelectValue placeholder={sourcePlaceholder} />
-              </SelectTrigger>
-              <SelectContent>
+            <div className="relative">
+              <select
+                value={sourceId}
+                onChange={(event) => onSourceChange(event.target.value)}
+                className={cn(
+                  SELECT_TRIGGER_CLASS,
+                  'w-full appearance-none px-3 pr-9 outline-none disabled:cursor-not-allowed disabled:opacity-60'
+                )}
+              >
+                <option value="" disabled>
+                  {sourcePlaceholder}
+                </option>
                 {sources.map((item) => (
-                  <SelectItem key={item.value} value={item.value}>
+                  <option key={item.value} value={item.value}>
                     {item.label}
-                  </SelectItem>
+                  </option>
                 ))}
-              </SelectContent>
-            </Select>
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-[#858b9c]" />
+            </div>
           </div>
 
           <div className="flex flex-col gap-[6px]">

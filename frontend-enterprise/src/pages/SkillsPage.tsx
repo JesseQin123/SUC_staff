@@ -46,7 +46,13 @@ import IconSearch from '../assets/icons/search.svg?react';
 import IconSkill from '../assets/icons/plaza-skill.svg?react';
 import IconTrash from '../assets/icons/trash.svg?react';
 import { isEnterpriseAdmin, type EnterpriseAuthUser } from '../auth';
-import { canManageEmployeeAgent, resourceCreatorNameOrAdmin, visibleEmployeeAgents } from '../employee';
+import {
+  canManageEmployeeAgent,
+  openGalleryAgentId,
+  openGalleryImportSourceOptions,
+  resourceCreatorNameOrAdmin,
+  visibleEmployeeAgents,
+} from '../employee';
 import { useClientPagination } from '../hooks/useClientPagination';
 import { StatusBadge } from './scheduled-tasks/StatusBadge';
 import type { BadgeTone } from './scheduled-tasks/shared';
@@ -390,10 +396,9 @@ export default function SkillsPage({
         : await api.get<AgentProfileRead[]>(`/api/enterprise/agents?tenant_id=${TENANT_ID}`);
       setAgents(agentRows);
       setImportMode(mode);
-      const candidates = mode === 'plaza'
-        ? agentRows.filter((item) => item.id !== agentId && item.is_overall)
-        : visibleEmployeeAgents(agentRows, currentUser, { activeOnly: true, excludeAgentId: agentId });
-      const firstSource = candidates[0]?.id || '';
+      const firstSource = mode === 'plaza'
+        ? openGalleryAgentId(agentRows, TENANT_ID)
+        : visibleEmployeeAgents(agentRows, currentUser, { activeOnly: true, excludeAgentId: agentId })[0]?.id || '';
       setImportSourceAgentId(firstSource);
       setImportSelectedSkillIds([]);
       setImportOpen(true);
@@ -431,7 +436,7 @@ export default function SkillsPage({
       return;
     }
     if (!importSourceAgentId) {
-      notify.warning(importMode === 'plaza' ? '请选择 SOP 广场' : '请选择复制来源员工');
+      notify.warning(importMode === 'plaza' ? '请选择开放广场' : '请选择复制来源员工');
       return;
     }
     if (importSelectedSkillIds.length === 0) {
@@ -759,10 +764,11 @@ export default function SkillsPage({
         loading={importLoading}
         icon={<IconSkill className="size-[14px] shrink-0" />}
         title={importMode === 'plaza' ? '从广场复制 SOP' : '从数字员工复制 SOP'}
-        sourcePlaceholder={importMode === 'plaza' ? '选择 SOP 广场' : '选择复制来源'}
-        sources={agents
-          .filter((item) => item.id !== agentId && (importMode === 'plaza' ? item.is_overall : !item.is_overall))
-          .map((item) => ({ value: item.id, label: item.is_overall ? 'SOP 广场' : item.name }))}
+        sourcePlaceholder={importMode === 'plaza' ? '选择开放广场' : '选择复制来源'}
+        sources={importMode === 'plaza'
+          ? openGalleryImportSourceOptions(agents, '开放广场', TENANT_ID)
+          : visibleEmployeeAgents(agents, currentUser, { activeOnly: true, excludeAgentId: agentId })
+            .map((item) => ({ value: item.id, label: item.name }))}
         sourceId={importSourceAgentId}
         itemsLabel="选择 SOP"
         items={importSourceSkills.map((item) => ({
@@ -778,7 +784,7 @@ export default function SkillsPage({
         emptyText="没有可复制的 SOP"
         note={
           importMode === 'plaza'
-            ? '从广场复制可用 SOP；不可复制内容不会出现在列表。'
+            ? '从开放广场复制可用 SOP；不可复制内容不会出现在列表。'
             : '从数字员工复制可用 SOP；不可见内容不会出现在列表。'
         }
         onSourceChange={(value) => {

@@ -51,7 +51,13 @@ import IconRefresh from '../assets/icons/refresh.svg?react';
 import IconSearch from '../assets/icons/search.svg?react';
 import IconTool from '../assets/icons/plaza-tool.svg?react';
 import IconTrash from '../assets/icons/trash.svg?react';
-import { canManageEmployeeAgent, resourceCreatorNameOrAdmin, visibleEmployeeAgents } from '../employee';
+import {
+  canManageEmployeeAgent,
+  openGalleryAgentId,
+  openGalleryImportSourceOptions,
+  resourceCreatorNameOrAdmin,
+  visibleEmployeeAgents,
+} from '../employee';
 import { useClientPagination } from '../hooks/useClientPagination';
 import { StatusBadge } from './scheduled-tasks/StatusBadge';
 import type {
@@ -306,10 +312,9 @@ export default function ToolsPage({ currentUser, onLogout }: ToolPageProps = {})
         return;
       }
       setImportTargetAgentId(nextTargetAgentId);
-      const candidates = mode === 'plaza'
-        ? agentRows.filter((item) => item.id !== nextTargetAgentId && item.is_overall)
-        : visibleEmployeeAgents(agentRows, currentUser, { activeOnly: true, excludeAgentId: nextTargetAgentId });
-      const firstSource = candidates[0]?.id || '';
+      const firstSource = mode === 'plaza'
+        ? openGalleryAgentId(agentRows, TENANT_ID)
+        : visibleEmployeeAgents(agentRows, currentUser, { activeOnly: true, excludeAgentId: nextTargetAgentId })[0]?.id || '';
       setImportSourceAgentId(firstSource);
       setImportSelectedToolIds([]);
       setImportOpen(true);
@@ -350,7 +355,7 @@ export default function ToolsPage({ currentUser, onLogout }: ToolPageProps = {})
       return;
     }
     if (!importSourceAgentId) {
-      notify.warning(importMode === 'plaza' ? '请选择工具广场' : '请选择复制来源员工');
+      notify.warning(importMode === 'plaza' ? '请选择开放广场' : '请选择复制来源员工');
       return;
     }
     if (importSelectedToolIds.length === 0) {
@@ -814,10 +819,11 @@ export default function ToolsPage({ currentUser, onLogout }: ToolPageProps = {})
         targetPlaceholder="选择目标员工"
         targets={importTargetCandidates().map((item) => ({ value: item.id, label: item.name }))}
         targetId={importTargetAgentId}
-        sourcePlaceholder={importMode === 'plaza' ? '选择工具广场' : '选择复制来源'}
-        sources={agents
-          .filter((item) => item.id !== importTargetAgentId && (importMode === 'plaza' ? item.is_overall : !item.is_overall))
-          .map((item) => ({ value: item.id, label: item.is_overall ? '工具广场' : item.name }))}
+        sourcePlaceholder={importMode === 'plaza' ? '选择开放广场' : '选择复制来源'}
+        sources={importMode === 'plaza'
+          ? openGalleryImportSourceOptions(agents, '开放广场', TENANT_ID)
+          : visibleEmployeeAgents(agents, currentUser, { activeOnly: true, excludeAgentId: importTargetAgentId })
+            .map((item) => ({ value: item.id, label: item.name }))}
         sourceId={importSourceAgentId}
         itemsLabel="选择工具"
         items={importSourceTools.map((item) => ({
@@ -833,7 +839,7 @@ export default function ToolsPage({ currentUser, onLogout }: ToolPageProps = {})
         emptyText="没有可复制的工具"
         note={
           importMode === 'plaza'
-            ? '从广场复制可用工具；复制后会成为当前员工的本地工具绑定。'
+            ? '从开放广场复制可用工具；复制后会成为当前员工的本地工具绑定。'
             : '从数字员工复制可用工具；不可见内容不会出现在列表。'
         }
         onTargetChange={handleImportTargetChange}
