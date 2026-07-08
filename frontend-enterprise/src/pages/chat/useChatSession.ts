@@ -426,8 +426,8 @@ export function useChatSession() {
     ? displayedProfile.workStyles.slice(0, 3)
     : ['结构化整理', '可追溯', '可追溯'];
   const emptyRoleSummary = displayedProfile
-    ? `#角色：${displayedProfile.roleName}「${displayedAgent ? employeeDisplayName(displayedAgent) : '小知'}」一名经验丰富的${displayedProfile.roleName}，`
-    : '#角色：知识运营官「小知」一名经验丰富的知识运营官，';
+    ? `#角色：${displayedProfile.roleName}「${displayedAgent ? employeeDisplayName(displayedAgent) : '--'}」一名经验丰富的${displayedProfile.roleName}`
+    : '--';
   const emptyStats = displayedAgent
     ? [
       { label: '资料', value: agentResourceCount(displayedAgent, 'knowledge_base') },
