@@ -25,6 +25,7 @@ from app.agents.branching import (
     promote_branch_to_overall,
     promote_knowledge_branch_to_overall,
     rollback_branch,
+    system_creator_metadata,
     sync_branch_from_overall,
     visible_skill_rows,
 )
@@ -440,7 +441,7 @@ def agent_read(row: AgentProfile, bindings: list[AgentResourceBinding]) -> Agent
         persona_prompt=row.persona_prompt,
         is_overall=row.is_overall,
         status=row.status,
-        metadata=row.metadata_json or {},
+        metadata=system_creator_metadata(row.metadata_json or {}),
         resources=[binding_read(binding) for binding in bindings],
         created_at=row.created_at.isoformat(),
         updated_at=row.updated_at.isoformat(),
@@ -468,7 +469,7 @@ def binding_read(row: AgentResourceBinding) -> AgentResourceBindingRead:
         resource_type=row.resource_type,  # type: ignore[arg-type]
         resource_id=row.resource_id,
         status=row.status,
-        metadata=row.metadata_json or {},
+        metadata=system_creator_metadata(row.metadata_json or {}),
         created_at=row.created_at.isoformat(),
         updated_at=row.updated_at.isoformat(),
     )

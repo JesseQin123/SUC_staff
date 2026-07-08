@@ -821,6 +821,12 @@ def _backfill_system_creator_metadata(session: Session) -> None:
             row.metadata_json = system_creator_metadata(row.metadata_json or {})
             session.add(row)
 
+    for binding in session.exec(
+        select(AgentResourceBinding).where(AgentResourceBinding.tenant_id == tenant_id)
+    ).all():
+        binding.metadata_json = system_creator_metadata(binding.metadata_json or {})
+        session.add(binding)
+
     overall = get_overall_agent(session, tenant_id)
     if not overall:
         return

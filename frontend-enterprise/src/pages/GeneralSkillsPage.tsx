@@ -64,7 +64,7 @@ import IconProfileFile from '../assets/icons/profile-file.svg?react';
 import IconSearch from '../assets/icons/search.svg?react';
 import IconSkill from '../assets/icons/plaza-skill.svg?react';
 import IconTrash from '../assets/icons/trash.svg?react';
-import { visibleEmployeeAgents } from '../employee';
+import { resourceCreatorNameOrAdmin, visibleEmployeeAgents } from '../employee';
 import { useClientPagination } from '../hooks/useClientPagination';
 import { StatusBadge } from './scheduled-tasks/StatusBadge';
 import type { BadgeTone } from './scheduled-tasks/shared';
@@ -377,7 +377,13 @@ export default function GeneralSkillsPage({ embedded = false, currentUser, onLog
     const keyword = searchText.trim().toLowerCase();
     return rows.filter((row) => {
       const matchesStatus = statusFilter === 'all' || row.status === statusFilter;
-      const haystack = [row.name, row.slug, row.description, row.homepage].filter(Boolean).join(' ').toLowerCase();
+      const haystack = [
+        row.name,
+        row.slug,
+        row.description,
+        row.homepage,
+        resourceCreatorNameOrAdmin(row),
+      ].filter(Boolean).join(' ').toLowerCase();
       return matchesStatus && (!keyword || haystack.includes(keyword));
     });
   }, [rows, searchText, statusFilter]);
@@ -619,6 +625,16 @@ export default function GeneralSkillsPage({ embedded = false, currentUser, onLog
       render: (row) => `${row.skill_files?.length || 1} 个`,
     },
     {
+      key: 'creator',
+      title: '创建者',
+      width: 120,
+      render: (row) => (
+        <span className="block truncate text-[#858b9c]" title={resourceCreatorNameOrAdmin(row)}>
+          {resourceCreatorNameOrAdmin(row)}
+        </span>
+      ),
+    },
+    {
       key: 'status',
       title: '状态',
       width: 100,
@@ -650,6 +666,7 @@ export default function GeneralSkillsPage({ embedded = false, currentUser, onLog
           <div className="min-w-0">
             <strong className="block truncate text-[14px] font-semibold text-[#18181a]">{row.name}</strong>
             <span className="mt-[2px] block truncate text-[12px] text-[#858b9c]">{row.slug}</span>
+            <span className="mt-[2px] block truncate text-[12px] text-[#858b9c]">创建者：{resourceCreatorNameOrAdmin(row)}</span>
           </div>
           {renderActions(row)}
         </div>

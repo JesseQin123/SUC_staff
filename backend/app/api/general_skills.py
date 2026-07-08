@@ -29,6 +29,7 @@ from app.agents.branching import (
     mark_resource_open_gallery,
     mark_resource_private_for_agent,
     require_overall_agent,
+    system_creator_metadata,
 )
 from app.db import get_session
 from app.db.models import AgentResourceBinding, GeneralSkill, ModelConfig, utc_now
@@ -73,7 +74,7 @@ def general_skill_read(row: GeneralSkill, status_override: str | None = None) ->
         homepage=row.homepage,
         skill_markdown=row.skill_markdown,
         skill_files=[GeneralSkillFile.model_validate(item) for item in _skill_files_or_markdown(row)],
-        metadata=row.metadata_json or {},
+        metadata=system_creator_metadata(row.metadata_json or {}),
         status=status_override or row.status,
         permissions=row.permissions_json or {},
         runtime_config=row.runtime_config_json or {},

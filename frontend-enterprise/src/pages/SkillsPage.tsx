@@ -46,7 +46,7 @@ import IconSearch from '../assets/icons/search.svg?react';
 import IconSkill from '../assets/icons/plaza-skill.svg?react';
 import IconTrash from '../assets/icons/trash.svg?react';
 import type { EnterpriseAuthUser } from '../auth';
-import { visibleEmployeeAgents } from '../employee';
+import { resourceCreatorNameOrAdmin, visibleEmployeeAgents } from '../employee';
 import { useClientPagination } from '../hooks/useClientPagination';
 import { StatusBadge } from './scheduled-tasks/StatusBadge';
 import type { BadgeTone } from './scheduled-tasks/shared';
@@ -174,9 +174,14 @@ export default function SkillsPage({
     return rows.filter((row) => {
       const matchesKeyword =
         !keyword ||
-        [row.name, row.skill_id, row.business_domain || '', row.description || '', row.version].some((value) =>
-          value.toLowerCase().includes(keyword),
-        );
+        [
+          row.name,
+          row.skill_id,
+          row.business_domain || '',
+          row.description || '',
+          row.version,
+          resourceCreatorNameOrAdmin(row),
+        ].some((value) => value.toLowerCase().includes(keyword));
       const matchesStatus = statusFilter === 'all' || row.status === statusFilter;
       const branchState = row.branch_status === 'inactive' ? 'inactive' : row.branch_sync_state || 'synced';
       const matchesBranch = isOverallAgent || branchFilter === 'all' || branchState === branchFilter;
@@ -236,6 +241,16 @@ export default function SkillsPage({
       title: '本地版本',
       width: 110,
       render: (row) => renderBranchBadge(row, isOverallAgent),
+    },
+    {
+      key: 'creator',
+      title: '创建者',
+      width: 120,
+      render: (row) => (
+        <span className="block truncate text-[#858b9c]" title={resourceCreatorNameOrAdmin(row)}>
+          {resourceCreatorNameOrAdmin(row)}
+        </span>
+      ),
     },
     {
       key: 'status',
@@ -321,6 +336,7 @@ export default function SkillsPage({
           <div className="min-w-0">
             <strong className="block truncate text-[14px] font-semibold text-[#18181a]">{row.name}</strong>
             <span className="mt-[2px] block truncate text-[12px] text-[#858b9c]">{row.skill_id}</span>
+            <span className="mt-[2px] block truncate text-[12px] text-[#858b9c]">创建者：{resourceCreatorNameOrAdmin(row)}</span>
           </div>
           {renderActions(row)}
         </div>

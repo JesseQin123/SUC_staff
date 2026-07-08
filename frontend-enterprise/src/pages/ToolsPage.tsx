@@ -48,6 +48,7 @@ import IconRefresh from '../assets/icons/refresh.svg?react';
 import IconSearch from '../assets/icons/search.svg?react';
 import IconTool from '../assets/icons/plaza-tool.svg?react';
 import IconTrash from '../assets/icons/trash.svg?react';
+import { resourceCreatorNameOrAdmin } from '../employee';
 import { useClientPagination } from '../hooks/useClientPagination';
 import { StatusBadge } from './scheduled-tasks/StatusBadge';
 import type { AgentProfileRead, ToolRead } from '../types';
@@ -169,6 +170,7 @@ export default function ToolsPage({ currentUser, onLogout }: ToolPageProps = {})
         row.description || '',
         row.bucket || '',
         row.url,
+        resourceCreatorNameOrAdmin(row),
       ].some((value) => value.toLowerCase().includes(text));
     });
   }, [bucketFilter, searchText, visibleRows]);
@@ -278,6 +280,16 @@ export default function ToolsPage({ currentUser, onLogout }: ToolPageProps = {})
         <StatusBadge tone={row.tool_type === 'mcp' ? 'blue' : 'gray'}>{row.tool_type === 'mcp' ? 'MCP' : 'HTTP'}</StatusBadge>
       ),
     },
+    {
+      key: 'creator',
+      title: '创建者',
+      width: 120,
+      render: (row) => (
+        <span className="block truncate text-[#858b9c]" title={resourceCreatorNameOrAdmin(row)}>
+          {resourceCreatorNameOrAdmin(row)}
+        </span>
+      ),
+    },
     { key: 'method', title: 'Method', width: 96, render: (row) => row.method },
     {
       key: 'url',
@@ -310,6 +322,7 @@ export default function ToolsPage({ currentUser, onLogout }: ToolPageProps = {})
             {row.display_name || row.name}
           </strong>
           <span className="mt-[2px] block truncate text-[12px] text-[#858b9c]">{row.name}</span>
+          <span className="mt-[2px] block truncate text-[12px] text-[#858b9c]">创建者：{resourceCreatorNameOrAdmin(row)}</span>
         </div>
         {renderActions(row)}
       </div>

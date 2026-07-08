@@ -29,6 +29,7 @@ import capabilityTools from '../assets/staffdeck/capabilityTools.png';
 import {
   canAccessEmployeeAgent,
   canManageEmployeeAgent,
+  employeeCreatorNameOrAdmin,
   employeeDisplayName,
   employeeProfile,
   preferredEmployeeAgent,
@@ -283,6 +284,7 @@ export default function DashboardPage({
   }
 
   const employee = employeeProfile(selectedAgent);
+  const employeeCreator = employeeCreatorNameOrAdmin(selectedAgent);
   const canEditSelectedAgent = canManageEmployeeAgent(selectedAgent, currentUser);
   const activeSkills = skills.filter((item) => item.status === 'published' && item.branch_status !== 'inactive');
   const activeGeneralSkills = generalSkills.filter((item) => item.status === 'published');
@@ -451,6 +453,7 @@ export default function DashboardPage({
                     {selectedAgent.status === 'active' ? '在线' : '下线'}
                   </span>
                 </span>
+                <span className="text-[12px] text-[#757f9c]">创建者：{employeeCreator}</span>
                 <span className="text-[12px] text-[#757f9c]">入职时间：{employee.onboardedAt}</span>
                 <div className="flex flex-wrap items-center gap-3">
                   {employee.workStyles.slice(0, 3).map((item) => (

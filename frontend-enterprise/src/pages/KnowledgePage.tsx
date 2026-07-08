@@ -59,7 +59,7 @@ import IconChevronDown from '../assets/icons/chevron-down.svg?react';
 import IconClear from '../assets/icons/field-clear.svg?react';
 import IconRefresh from '../assets/icons/refresh.svg?react';
 import IconSearch from '../assets/icons/search.svg?react';
-import { visibleEmployeeAgents } from '../employee';
+import { resourceCreatorNameOrAdmin, visibleEmployeeAgents } from '../employee';
 import { useClientPagination } from '../hooks/useClientPagination';
 import type {
   KnowledgeBaseRead,
@@ -200,6 +200,7 @@ export default function KnowledgeManagePage({ currentUser, onLogout }: Knowledge
         item.description,
         item.status,
         item.version,
+        resourceCreatorNameOrAdmin(item),
         item.branch_sync_state,
         item.document_count,
         item.bucket_count,
@@ -848,6 +849,16 @@ export default function KnowledgeManagePage({ currentUser, onLogout }: Knowledge
       render: (row) => statusTag(row.status),
     },
     {
+      key: 'creator',
+      title: '创建者',
+      width: 120,
+      render: (row) => (
+        <span className="block truncate text-[#858b9c]" title={resourceCreatorNameOrAdmin(row)}>
+          {resourceCreatorNameOrAdmin(row)}
+        </span>
+      ),
+    },
+    {
       key: 'content_stats',
       title: '版本与内容',
       width: 260,
@@ -884,6 +895,7 @@ export default function KnowledgeManagePage({ currentUser, onLogout }: Knowledge
         <div className="min-w-0">
           <strong className="block truncate text-[14px] font-semibold text-[#18181a]">{item.name}</strong>
           <span className="mt-[2px] block truncate text-[12px] text-[#858b9c]">{item.description || '未填写描述'}</span>
+          <span className="mt-[2px] block truncate text-[12px] text-[#858b9c]">创建者：{resourceCreatorNameOrAdmin(item)}</span>
         </div>
         <span onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
           {renderKnowledgeBaseActions(item)}

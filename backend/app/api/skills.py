@@ -26,6 +26,7 @@ from app.agents.branching import (
     require_overall_agent,
     resource_binding_metadata,
     rollback_branch,
+    system_creator_metadata,
     update_branch_skill,
     visible_skill_rows,
 )
@@ -106,7 +107,7 @@ def skill_read(
         branch_sync_state=branch_meta.get("sync_state"),
         branch_base_version=branch_meta.get("base_version"),
         branch_head_version=branch_meta.get("head_version"),
-        metadata=dict(branch_meta.get("metadata") or {}),
+        metadata=system_creator_metadata(branch_meta.get("metadata") or {}),
         created_at=row.created_at.isoformat(),
         updated_at=row.updated_at.isoformat(),
     )

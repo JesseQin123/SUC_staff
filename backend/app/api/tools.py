@@ -14,6 +14,7 @@ from app.agents.branching import (
     is_open_gallery_resource,
     require_overall_agent,
     resource_binding_metadata,
+    system_creator_metadata,
 )
 from app.config import get_settings
 from app.db import get_session
@@ -56,7 +57,7 @@ def tool_read(row: Tool, metadata: dict[str, Any] | None = None) -> ToolRead:
         output_schema=row.output_schema or {},
         allowed_skills=row.allowed_skills_json or [],
         enabled=row.enabled,
-        metadata=dict(metadata or {}),
+        metadata=system_creator_metadata(metadata or {}),
         created_at=row.created_at.isoformat(),
         updated_at=row.updated_at.isoformat(),
     )

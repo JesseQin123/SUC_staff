@@ -20,6 +20,7 @@ from app.agents.branching import (
     promote_knowledge_branch_to_overall,
     rollback_knowledge_branch,
     sync_knowledge_branch_from_overall,
+    system_creator_metadata,
 )
 from app.db.models import (
     AgentKnowledgeBranch,
@@ -585,7 +586,7 @@ def knowledge_base_read(
         branch_sync_state=(branch_meta or {}).get("sync_state"),
         branch_base_version=(branch_meta or {}).get("base_version"),
         branch_head_version=(branch_meta or {}).get("head_version"),
-        metadata=(version_row.metadata_json if version_row else row.metadata_json) or {},
+        metadata=system_creator_metadata((version_row.metadata_json if version_row else row.metadata_json) or {}),
         document_count=int(stats.get("document_count", 0)),
         bucket_count=int(stats.get("bucket_count", 0)),
         chunk_count=int(stats.get("chunk_count", 0)),

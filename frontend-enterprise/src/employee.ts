@@ -317,19 +317,27 @@ export function employeeCreatorName(agent?: AgentProfileRead | null): string {
   return creatorNameFromMetadata(agent?.metadata);
 }
 
+export function employeeCreatorNameOrAdmin(agent?: AgentProfileRead | null): string {
+  return creatorNameFromMetadata(agent?.metadata, 'admin');
+}
+
 export function employeeDisplayNameWithCreator(agent?: AgentProfileRead | null): string {
-  return displayNameWithCreator(employeeDisplayName(agent), employeeCreatorName(agent));
+  return displayNameWithCreator(employeeDisplayName(agent), employeeCreatorNameOrAdmin(agent));
 }
 
 export function resourceCreatorName(resource?: { metadata?: Record<string, unknown> } | null): string {
   return creatorNameFromMetadata(resource?.metadata);
 }
 
+export function resourceCreatorNameOrAdmin(resource?: { metadata?: Record<string, unknown> } | null): string {
+  return creatorNameFromMetadata(resource?.metadata, 'admin');
+}
+
 export function resourceDisplayNameWithCreator(
   name: string,
   resource?: { metadata?: Record<string, unknown> } | null,
 ): string {
-  return displayNameWithCreator(name, resourceCreatorName(resource));
+  return displayNameWithCreator(name, resourceCreatorNameOrAdmin(resource));
 }
 
 export function resourceCount(resources: AgentResourceBindingRead[] | undefined, type: AgentResourceBindingRead['resource_type']): number {

@@ -261,7 +261,7 @@ def resource_binding_metadata(
             AgentResourceBinding.status != "deleted",
         )
     ).all()
-    return {binding.resource_id: dict(binding.metadata_json or {}) for binding in bindings}
+    return {binding.resource_id: system_creator_metadata(binding.metadata_json or {}) for binding in bindings}
 
 
 def is_open_gallery_resource(db: Session, tenant_id: str, resource_type: str, resource: object) -> bool:
