@@ -2789,7 +2789,8 @@ function ActionCombobox({
               event.preventDefault();
               if (filtered.length > 0) onSelect(String(filtered[0].value));
             } else if (event.key === 'Escape') {
-              setOpen(false);
+              event.preventDefault();
+              event.stopPropagation();
             }
           }}
         />
