@@ -170,7 +170,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
           <img
             src={loginPreview}
             alt="StaffDeck 产品预览"
-            className="h-auto w-full max-w-[1200px] select-none rounded-t-[20px] object-contain shadow-[0_-1px_24px_rgba(29,29,27,0.06)]"
+            className="h-auto w-full max-w-[1200px] select-none object-contain"
             draggable={false}
           />
         </div>
