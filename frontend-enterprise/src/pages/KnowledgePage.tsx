@@ -1893,7 +1893,7 @@ function KnowledgeJobCard({
   const metadata = job.metadata || {};
   const stageLabel = stringFromMetadata(metadata.stage_label) || stageLabelFallback(job.stage);
   const stageDetail = stringFromMetadata(metadata.stage_detail);
-  const cancellable = ['queued', 'running', 'cancel_requested'].includes(job.status);
+  const cancellable = ['queued', 'running'].includes(job.status);
   return (
     <div className="knowledge-job">
       <div className="knowledge-job-head">
@@ -1913,7 +1913,7 @@ function KnowledgeJobCard({
               onClick={() => onCancel(job)}
             >
               <CloseOutlined />
-              {cancelling ? '取消中' : job.status === 'cancel_requested' ? '结束取消' : '取消'}
+              {cancelling ? '取消中' : '取消'}
             </UIButton>
           )}
         </div>
