@@ -31,12 +31,16 @@ sudo docker compose --env-file .env.docker \
 ## Domain and HTTPS
 
 Append the block in `deploy/gcp/Caddyfile.example` to the existing Caddyfile, validate it,
-and reload Caddy. In Cloudflare DNS create a proxied `A` record:
+and reload Caddy. The domain currently uses GoDaddy nameservers, so create this record in
+GoDaddy's DNS manager:
 
 - Name: `app`
-- IPv4 address: the VM static external IP
-- Proxy status: Proxied
-- SSL/TLS encryption mode: Full
+- Type: `A`
+- Value: `34.61.130.145` (the reserved static address `relay-ip`)
+- TTL: 600 seconds or the GoDaddy default
+
+Do not change the existing root (`@`) record. Caddy obtains and renews the public TLS
+certificate automatically after the new DNS record resolves to the VM.
 
 The existing site and DayDayUp then share ports 80/443 through host-based routing:
 `happy-model.com` continues to use its current container while `app.daydayup.co` routes to
