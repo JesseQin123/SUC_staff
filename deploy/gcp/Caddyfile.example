@@ -1,0 +1,7 @@
+# Add this site block to the Caddyfile already serving the VM.
+# With Cloudflare proxy enabled, use SSL/TLS mode "Full" for this internal origin cert.
+app.daydayup.co {
+	tls internal
+	encode zstd gzip
+	reverse_proxy daydayup-app:5173
+}

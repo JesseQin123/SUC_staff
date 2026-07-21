@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cross-platform development lifecycle commands for StaffDeck."""
+"""Cross-platform development lifecycle commands for DayDayUp."""
 
 from __future__ import annotations
 
@@ -172,7 +172,7 @@ def _select_available_port(host: str, preferred: int) -> int:
     for port in candidates:
         if _port_available(host, port):
             return port
-    raise RuntimeError(f"No available StaffDeck port in {candidates[0]}-{candidates[-1]}")
+    raise RuntimeError(f"No available DayDayUp port in {candidates[0]}-{candidates[-1]}")
 
 
 def _restore_runtime_port() -> None:
@@ -282,7 +282,7 @@ def command_up(detach_flag: bool) -> int:
         _build_frontend()
 
     if not detach:
-        print("StaffDeck development services are starting. Press Ctrl-C to stop.")
+        print("DayDayUp development services are starting. Press Ctrl-C to stop.")
         return supervisor.main()
 
     pid = _start_detached(supervisor)
@@ -294,14 +294,14 @@ def command_up(detach_flag: bool) -> int:
         base = f"http://{supervisor.url_host(supervisor.APP_HOST)}:{supervisor.APP_PORT}"
         _wait_for_url("chat", base + "/chat/", LOG_DIR / "app.log")
         _wait_for_url("enterprise", base + "/enterprise/dashboard", LOG_DIR / "app.log")
-        print(f"Started StaffDeck supervisor ({pid})")
+        print(f"Started DayDayUp supervisor ({pid})")
         print(f"  app        {base}/chat/")
         print(f"  enterprise {base}/enterprise/dashboard")
         print(f"  api docs   {base}/docs")
     else:
         backend = f"http://{supervisor.url_host(supervisor.BACKEND_HOST)}:{supervisor.BACKEND_PORT}"
         frontend = f"http://{supervisor.url_host(supervisor.ENTERPRISE_HOST)}:{supervisor.ENTERPRISE_PORT}"
-        print(f"Started StaffDeck supervisor ({pid})")
+        print(f"Started DayDayUp supervisor ({pid})")
         print(f"  backend    {backend}/docs")
         print(f"  enterprise {frontend}/enterprise/dashboard")
         print(f"  chat       {frontend}/chat/")

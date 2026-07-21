@@ -49,7 +49,7 @@ ModelT = TypeVar("ModelT", bound=SQLModel)
 
 
 def seed_staffdeck_admin_gallery(session: Session) -> None:
-    """Seed the curated StaffDeck gallery package as admin-owned resources."""
+    """Seed the curated DayDayUp gallery package as admin-owned resources."""
 
     if not FIXTURE_PATH.exists():
         return

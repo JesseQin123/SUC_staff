@@ -1,0 +1,10 @@
+services:
+  daydayup:
+    networks:
+      - default
+      - relay
+
+networks:
+  relay:
+    name: ${DAYDAYUP_PROXY_NETWORK:-relay-station_relay}
+    external: true

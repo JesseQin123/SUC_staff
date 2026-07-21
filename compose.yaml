@@ -1,0 +1,45 @@
+name: daydayup
+
+services:
+  daydayup:
+    build:
+      context: .
+      target: runtime
+    image: daydayup:latest
+    container_name: daydayup-app
+    restart: unless-stopped
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    ports:
+      - "127.0.0.1:${DAYDAYUP_HOST_PORT:-5175}:5173"
+    environment:
+      APP_NAME: DayDayUp
+      APP_SECRET: ${APP_SECRET:?Set APP_SECRET in .env.docker}
+      DATABASE_URL: sqlite:////data/skill_agent_loop.db
+      ULTRARAG_DATA_DIR: /data
+      TOOL_BASE_URL: ${DAYDAYUP_PUBLIC_URL:-http://127.0.0.1:5175}
+      CORS_ORIGINS: ${DAYDAYUP_PUBLIC_URL:-http://127.0.0.1:5175}
+      GENERAL_SKILL_RUNTIME_PYTHON: /usr/local/bin/python
+      GENERAL_SKILL_RUNTIME_AUTO_INSTALL: "false"
+      TZ: ${TZ:-UTC}
+    volumes:
+      - daydayup_data:/data
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=256m
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import json, urllib.request; data=json.load(urllib.request.urlopen('http://127.0.0.1:5173/api/health', timeout=3)); assert data == {'status': 'ok', 'app': 'DayDayUp'}"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  daydayup_data:

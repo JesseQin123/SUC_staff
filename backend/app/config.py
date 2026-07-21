@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    app_name: str = "Skill Agent Loop Service"
+    app_name: str = "DayDayUp"
     database_url: str = "sqlite:///./skill_agent_loop.db"
     app_secret: str = "change-me-in-development"
     demo_model_base_url: str = "http://58.57.119.12:52010/v1"

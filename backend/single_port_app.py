@@ -168,13 +168,14 @@ def root_redirect() -> RedirectResponse:
 
 @app.get("/favicon.ico", include_in_schema=False)
 @app.get("/favicon.png", include_in_schema=False)
+@app.get("/daydayup-icon.png", include_in_schema=False)
 @app.get("/staffdeck-icon.png", include_in_schema=False)
 def brand_icon(request: Request) -> FileResponse:
     # 品牌图标：从前端 dist 根目录 serve（favicon.ico/png、apple-touch-icon）
     name = request.url.path.lstrip("/")
-    target = ENTERPRISE_DIST / name
+    target = ENTERPRISE_DIST / ("favicon.png" if name == "favicon.ico" else name)
     if not target.exists():
-        target = ENTERPRISE_DIST / "favicon.ico"
+        target = ENTERPRISE_DIST / "favicon.png"
     return FileResponse(target)
 
 

@@ -15,7 +15,7 @@ export type LoginPageProps = {
 
 /**
  * Signed-out landing / login page. Mirrors Figma node 68:201 (`Login_light`):
- * a full-bleed hero with the StaffDeck wordmark and a product-preview placeholder
+ * a full-bleed hero with the DayDayUp wordmark and a product-preview placeholder
  * anchored to the bottom. Clicking "登录" slides the credentials form (node 68:1563)
  * down into view in place of the call-to-action button.
  */
@@ -74,7 +74,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
             我们来做什么？
           </span>
           <h1 className="mt-[6px] text-center text-[54px] font-semibold leading-[80px] tracking-[1.08px] text-[#18181a]">
-            StaffDeck
+            DayDayUp
             <br />
             数字员工运营平台
           </h1>
@@ -167,12 +167,17 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
         </div>
 
         <div className="mt-[32px] flex w-full justify-center">
-          <img
-            src={loginPreview}
-            alt="StaffDeck 产品预览"
-            className="h-auto w-full max-w-[1200px] select-none object-contain"
-            draggable={false}
-          />
+          <div className="relative w-full max-w-[1200px]">
+            <img
+              src={loginPreview}
+              alt="DayDayUp 产品预览"
+              className="h-auto w-full select-none object-contain"
+              draggable={false}
+            />
+            <div className="absolute left-[3.2%] top-[4.5%] flex items-center bg-[#fbfcfe] px-[6px] py-[3px]">
+              <BrandLogo markSize={28} />
+            </div>
+          </div>
         </div>
       </main>
     </div>

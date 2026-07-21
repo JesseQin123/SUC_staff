@@ -21,7 +21,7 @@ def resource_dir() -> Path:
 
 
 def user_data_dir() -> Path:
-    # 环境变量前缀保留 ULTRARAG_（内部标识，不改）；目录名用对外品牌 StaffDeck
+    # 环境变量前缀保留 ULTRARAG_；旧数据目录名也保持不变以兼容已有安装。
     override = os.environ.get("ULTRARAG_DATA_DIR", "").strip()
     if override:
         base = Path(override).expanduser()

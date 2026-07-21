@@ -12,7 +12,7 @@ import time
 import webbrowser
 from pathlib import Path
 
-APP_NAME = "StaffDeck"
+APP_NAME = "DayDayUp"
 APP_ID = "ai.staffdeck.desktop"
 APP_VERSION = "0.1.0"
 DEFAULT_PORT_RANGE_START = 5173
@@ -405,7 +405,7 @@ def _run_macos_dock_app(cfg: dict, url: str) -> int:
 
 
 def _run_windows_taskbar_app(cfg: dict, url: str) -> int:
-    """Run the server behind a native window so StaffDeck owns a taskbar icon."""
+    """Run the server behind a native window so DayDayUp owns a taskbar icon."""
     import ctypes
     from ctypes import wintypes
 
