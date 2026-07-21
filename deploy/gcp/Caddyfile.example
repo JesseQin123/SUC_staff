@@ -1,6 +1,6 @@
 # Add this site block to the Caddyfile already serving the VM.
 # Once DNS points at the VM, Caddy obtains and renews the public TLS certificate automatically.
-app.daydayup.co {
+daydayup.co {
 	encode zstd gzip
 	reverse_proxy daydayup-app:5173
 }

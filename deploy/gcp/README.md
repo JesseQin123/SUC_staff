@@ -7,7 +7,7 @@ This deployment keeps the application isolated from the existing Happy Model sta
 - Persistent volume: `daydayup_daydayup_data`
 - Host-only diagnostic port: `127.0.0.1:5175`
 - Shared proxy network: `relay-station_relay`
-- Recommended hostname: `app.daydayup.co`
+- Production hostname: `daydayup.co`
 
 ## Deploy
 
@@ -31,19 +31,20 @@ sudo docker compose --env-file .env.docker \
 ## Domain and HTTPS
 
 Append the block in `deploy/gcp/Caddyfile.example` to the existing Caddyfile, validate it,
-and reload Caddy. The domain currently uses GoDaddy nameservers, so create this record in
-GoDaddy's DNS manager:
+and reload Caddy. DNS is hosted by Cloudflare. Create this record in Cloudflare DNS:
 
-- Name: `app`
+- Name: `@`
 - Type: `A`
 - Value: `34.61.130.145` (the reserved static address `relay-ip`)
-- TTL: 600 seconds or the GoDaddy default
+- TTL: Auto
+- Proxy status: DNS only while Caddy obtains the initial certificate
 
-Do not change the existing root (`@`) record. Caddy obtains and renews the public TLS
-certificate automatically after the new DNS record resolves to the VM.
+Caddy obtains and renews the public TLS certificate automatically after the root record
+resolves to the VM. Confirm `https://daydayup.co` works directly, then enable Cloudflare's
+Proxied status and set SSL/TLS mode to Full (strict). Do not use Flexible mode.
 
 The existing site and DayDayUp then share ports 80/443 through host-based routing:
-`happy-model.com` continues to use its current container while `app.daydayup.co` routes to
+`happy-model.com` continues to use its current container while `daydayup.co` routes to
 `daydayup-app:5173`.
 
 ## Update and rollback
