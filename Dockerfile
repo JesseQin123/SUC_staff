@@ -23,7 +23,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 COPY backend/ /app/backend/
-RUN pip install --no-cache-dir /app/backend
+RUN chmod -R a+rX /app/backend \
+    && pip install --no-cache-dir /app/backend
 
 COPY --from=frontend-build /build/frontend-enterprise/dist/ /app/frontend-enterprise/dist/
 
