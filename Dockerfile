@@ -27,6 +27,7 @@ RUN chmod -R a+rX /app/backend \
     && pip install --no-cache-dir /app/backend
 
 COPY --from=frontend-build /build/frontend-enterprise/dist/ /app/frontend-enterprise/dist/
+RUN chmod -R a+rX /app/frontend-enterprise/dist
 
 RUN groupadd --system --gid 10001 daydayup \
     && useradd --system --uid 10001 --gid daydayup --home-dir /data --shell /usr/sbin/nologin daydayup \
