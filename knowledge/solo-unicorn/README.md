@@ -24,6 +24,60 @@
 
 所有员工都遵守 Human-accountable 边界：成员准入、成员数据披露、公开发布、品牌授权、合同、付款、处罚、投资和高声誉风险事项必须由人类最终批准。
 
+## 最简单的使用方式
+
+日常默认只找 **Solo Unicorn 总管**。在左下角进入“对话端”，把当前员工切换为“Solo Unicorn 总管”，然后用下面的四段式告诉它：
+
+```text
+目标：这次希望产生什么结果
+截止时间：什么时候需要
+已有材料：链接、文档、名单或背景
+限制条件：不能公开什么、哪些动作必须等我批准
+```
+
+总管会拆解任务、选择 SOP、指出缺失信息，并告诉你应该交给哪位专业员工。它不会代替你完成合同、付款、对外承诺、成员准入或敏感数据披露。
+
+当任务很明确时，可以直接找专业员工：
+
+| 场景 | 找谁 | 可以直接这样说 |
+| --- | --- | --- |
+| 新成员申请、欢迎与 FAQ | 社群接待 | “把这份申请整理成入会摘要，列出缺失信息，不要替我决定录取。” |
+| 找合作伙伴或成员互相介绍 | 成员匹配 | “根据已授权资料给出 3 个匹配建议，先分别生成征求同意的信息，不要直接介绍。” |
+| Founder Salon、圆桌、Critique | 活动制作 | “为 8 月 Founder Salon 做 Run of Show、嘉宾准备清单和风险点，公开发布先停在审批。” |
+| Field Notes、Newsletter、网站稿 | 内容知识 | “把这份活动记录变成一篇有引用的 Field Notes 草稿，隐去未授权姓名。” |
+| Project Factory、Sprint、Pilot | 项目工厂 | “把这个项目放入 Meet → Trust → Build → Ship，列负责人、阻塞和下一步。” |
+| AI-native 运营指标与复盘 | 实验研究 | “为这个流程建立基线、时间/质量/人工干预指标和周度实验记录。” |
+| 合作方、日本项目和多语简报 | 合作与日本 | “为这家日本机构准备会前简报、中英日议程草稿和 6–8 周 Living Lab 假设。” |
+| 隐私、同意、公开授权和风险 | 信任治理 | “审查这份成员数据使用计划，指出同意缺口、最小化方案和必须人工批准的动作。” |
+
+推荐协作链路是：**你给目标 → 总管拆解与路由 → 专业员工产出草稿 → 信任治理检查敏感事项 → 你做最终批准**。多个专业员工暂时不会在后台自动互相聊天；实际使用时让总管先给出分工，再把它生成的上下文交给相应员工，最后把各员工结果交回总管汇总。
+
+需要系统长期记住偏好时，在对话中明确写“以后请记住……”。记忆按“员工 × 用户”隔离，因此重要偏好要告诉实际负责该工作的员工；不得把密钥、密码、未授权成员数据或投诉细节写入记忆。
+
+## 专属头像
+
+9 位 Solo Unicorn 员工使用统一 DayDayUp 蓝色的 512×512 专属头像：
+
+| 员工 | 资源文件 |
+| --- | --- |
+| Solo Unicorn 总管 | `assets/avatars/solo-unicorn/chief.png` |
+| 社群接待 | `assets/avatars/solo-unicorn/onboarding.png` |
+| 成员匹配 | `assets/avatars/solo-unicorn/matching.png` |
+| 活动制作 | `assets/avatars/solo-unicorn/events.png` |
+| 内容知识 | `assets/avatars/solo-unicorn/content.png` |
+| 项目工厂 | `assets/avatars/solo-unicorn/project.png` |
+| 实验研究 | `assets/avatars/solo-unicorn/research.png` |
+| 合作与日本 | `assets/avatars/solo-unicorn/partnership-japan.png` |
+| 信任治理 | `assets/avatars/solo-unicorn/governance.png` |
+
+在迁移或重建数据库后，可用以下命令重新应用头像。生产环境执行前必须先指定 `--backup` 创建一致性备份：
+
+```bash
+python3 scripts/apply_solo_unicorn_avatars.py \
+  --database backend/skill_agent_loop.db \
+  --backup /path/to/pre-avatar-backup.db
+```
+
 ## 知识库
 
 已上线 6 个知识库：
