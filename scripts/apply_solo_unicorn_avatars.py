@@ -12,15 +12,15 @@ from pathlib import Path
 
 
 AVATAR_FILES = {
-    "Solo Unicorn 总管": "chief.png",
-    "社群接待": "onboarding.png",
-    "成员匹配": "matching.png",
-    "活动制作": "events.png",
-    "内容知识": "content.png",
-    "项目工厂": "project.png",
-    "实验研究": "research.png",
-    "合作与日本": "partnership-japan.png",
-    "信任治理": "governance.png",
+    "Solo Unicorn Chief of Staff": "chief.png",
+    "Member Experience": "onboarding.png",
+    "Member Connections": "matching.png",
+    "Community Programs": "events.png",
+    "Editorial & Knowledge": "content.png",
+    "Project Factory": "project.png",
+    "Experiment Zero": "research.png",
+    "Global Partnerships": "partnership-japan.png",
+    "Trust & Governance": "governance.png",
 }
 
 

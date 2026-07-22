@@ -12,21 +12,21 @@
 
 | 员工 | 职责 | Skill | SOP |
 | --- | --- | --- | --- |
-| Solo Unicorn 总管 | AI Chief of Staff、目标拆解、路由和汇总 | 组织任务分解与路由 | 组织任务分解与路由 |
-| 社群接待 | 申请、FAQ、欢迎和入会服务 | 成员申请与入会 | 成员申请与入会 |
-| 成员匹配 | 授权画像、双向同意匹配和结果跟进 | 双向同意成员匹配 | 双向同意成员介绍 |
-| 活动制作 | Founder Salon、Round Table、Critique 和 Hackathon | 社群活动全周期制作 | 社群活动全周期制作 |
-| 内容知识 | Field Notes、Newsletter、多语草稿和知识归档 | 可溯源内容与 Field Notes | 内容发布与 Field Notes |
-| 项目工厂 | Project Factory 阶段、负责人、阻塞与下一步 | Project Factory 项目接收 | Project Factory 项目接收 |
-| 实验研究 | Experiment Zero 假设、基线、指标和匿名研究 | Experiment Zero 测量与报告 | Experiment Zero 工作流测量 |
-| 合作与日本 | 合作简报、会后行动和 Japan Living Lab | 合作简报与日本项目设计 | 合作简报与 Japan Living Lab |
-| 信任治理 | 同意、隐私、数据访问、投诉和高风险升级 | 同意、隐私与高风险审查 | 敏感数据与同意审查 |
+| Solo Unicorn Chief of Staff | AI Chief of Staff、目标拆解、路由和汇总 | 组织任务分解与路由 | 组织任务分解与路由 |
+| Member Experience | 申请、FAQ、欢迎和入会服务 | 成员申请与入会 | 成员申请与入会 |
+| Member Connections | 授权画像、双向同意匹配和结果跟进 | 双向同意成员匹配 | 双向同意成员介绍 |
+| Community Programs | Founder Salon、Round Table、Critique 和 Hackathon | 社群活动全周期制作 | 社群活动全周期制作 |
+| Editorial & Knowledge | Field Notes、Newsletter、多语草稿和知识归档 | 可溯源内容与 Field Notes | 内容发布与 Field Notes |
+| Project Factory | Project Factory 阶段、负责人、阻塞与下一步 | Project Factory 项目接收 | Project Factory 项目接收 |
+| Experiment Zero | Experiment Zero 假设、基线、指标和匿名研究 | Experiment Zero 测量与报告 | Experiment Zero 工作流测量 |
+| Global Partnerships | 合作简报、会后行动和 Japan Living Lab | 合作简报与日本项目设计 | 合作简报与 Japan Living Lab |
+| Trust & Governance | 同意、隐私、数据访问、投诉和高风险升级 | 同意、隐私与高风险审查 | 敏感数据与同意审查 |
 
 所有员工都遵守 Human-accountable 边界：成员准入、成员数据披露、公开发布、品牌授权、合同、付款、处罚、投资和高声誉风险事项必须由人类最终批准。
 
 ## 最简单的使用方式
 
-日常默认只找 **Solo Unicorn 总管**。在左下角进入“对话端”，把当前员工切换为“Solo Unicorn 总管”，然后用下面的四段式告诉它：
+日常默认只找 **Solo Unicorn Chief of Staff**。在左下角进入“对话端”，把当前员工切换为“Solo Unicorn Chief of Staff”，然后用下面的四段式告诉它：
 
 ```text
 目标：这次希望产生什么结果
@@ -60,15 +60,15 @@
 
 | 员工 | 资源文件 |
 | --- | --- |
-| Solo Unicorn 总管 | `assets/avatars/solo-unicorn/chief.png` |
-| 社群接待 | `assets/avatars/solo-unicorn/onboarding.png` |
-| 成员匹配 | `assets/avatars/solo-unicorn/matching.png` |
-| 活动制作 | `assets/avatars/solo-unicorn/events.png` |
-| 内容知识 | `assets/avatars/solo-unicorn/content.png` |
-| 项目工厂 | `assets/avatars/solo-unicorn/project.png` |
-| 实验研究 | `assets/avatars/solo-unicorn/research.png` |
-| 合作与日本 | `assets/avatars/solo-unicorn/partnership-japan.png` |
-| 信任治理 | `assets/avatars/solo-unicorn/governance.png` |
+| Solo Unicorn Chief of Staff | `assets/avatars/solo-unicorn/chief.png` |
+| Member Experience | `assets/avatars/solo-unicorn/onboarding.png` |
+| Member Connections | `assets/avatars/solo-unicorn/matching.png` |
+| Community Programs | `assets/avatars/solo-unicorn/events.png` |
+| Editorial & Knowledge | `assets/avatars/solo-unicorn/content.png` |
+| Project Factory | `assets/avatars/solo-unicorn/project.png` |
+| Experiment Zero | `assets/avatars/solo-unicorn/research.png` |
+| Global Partnerships | `assets/avatars/solo-unicorn/partnership-japan.png` |
+| Trust & Governance | `assets/avatars/solo-unicorn/governance.png` |
 
 在迁移或重建数据库后，可用以下命令重新应用头像。生产环境执行前必须先指定 `--backup` 创建一致性备份：
 
@@ -76,6 +76,14 @@
 python3 scripts/apply_solo_unicorn_avatars.py \
   --database backend/skill_agent_loop.db \
   --backup /path/to/pre-avatar-backup.db
+```
+
+英文员工名称和职位可用以下命令重复应用；建议在头像脚本之前执行：
+
+```bash
+python3 scripts/apply_english_employee_names.py \
+  --database backend/skill_agent_loop.db \
+  --backup /path/to/pre-english-name-backup.db
 ```
 
 ## 知识库
